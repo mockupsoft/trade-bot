@@ -51,18 +51,51 @@
     .pill-y{@apply bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25}
     .pill-b{@apply bg-sky-500/15 text-sky-400 ring-1 ring-sky-500/25}
     .pill-p{@apply bg-violet-500/15 text-violet-400 ring-1 ring-violet-500/25}
+    /* Plain flex so layout works even if Tailwind @apply in this block is not processed (CDN). */
     .nav-item{
-      @apply relative flex flex-row flex-nowrap items-center gap-3 pl-3 pr-2 py-2 rounded-xl text-[13px] cursor-pointer border border-transparent text-left w-full;
+      position: relative;
+      display: flex !important;
+      flex-direction: row !important;
+      flex-wrap: nowrap !important;
+      align-items: center !important;
+      justify-content: flex-start;
+      gap: 0.75rem;
+      width: 100%;
+      padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+      border-radius: 0.75rem;
+      font-size: 13px;
+      line-height: 1.25;
+      cursor: pointer;
+      border: 1px solid transparent;
+      text-align: left;
+      box-sizing: border-box;
       transition: background .18s ease, border-color .18s ease, transform .15s ease, box-shadow .2s ease;
     }
-    .nav-active{@apply bg-white/[0.08] text-white border-white/[0.12] shadow-panel-inset}
-    .nav-active .nav-ic{@apply bg-cyan-500/25 text-cyan-200 ring-1 ring-cyan-400/40 shadow-[0_0_16px_rgba(34,211,238,0.12)]}
-    .nav-inactive{@apply text-slate-500}
-    .nav-inactive:hover{@apply text-slate-100 bg-white/[0.05] border-white/[0.06]}
-    .nav-inactive:hover .nav-ic{@apply bg-white/[0.1] text-slate-200}
+    .nav-active{
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+      border-color: rgba(255,255,255,0.12);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    .nav-active .nav-ic{
+      background: rgba(34,211,238,0.25);
+      color: rgb(165 243 252);
+      box-shadow: 0 0 0 1px rgba(34,211,238,0.4), 0 0 16px rgba(34,211,238,0.12);
+    }
+    .nav-inactive{color:rgb(100 116 139)}
+    .nav-inactive:hover{color:rgb(241 245 249);background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.06)}
+    .nav-inactive:hover .nav-ic{background:rgba(255,255,255,0.1);color:rgb(226 232 240)}
     .nav-inactive:active{@apply scale-[0.98]}
     .nav-ic{
-      @apply shrink-0 rounded-lg flex items-center justify-center bg-white/[0.04] text-slate-400 transition-all duration-200;
+      flex-shrink: 0;
+      display: flex !important;
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+      border-radius: 0.5rem;
+      background: rgba(255,255,255,0.04);
+      color: rgb(148 163 184);
+      transition: background .2s ease, color .2s ease, box-shadow .2s ease;
       width: 34px !important;
       height: 34px !important;
       min-width: 34px !important;
@@ -76,7 +109,14 @@
       max-height: 17px !important;
     }
     .nav-active-bar{@apply absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-8 rounded-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.55)]}
-    .nav-label{@apply font-medium truncate min-w-0 flex-1 whitespace-nowrap}
+    .nav-label{
+      font-weight: 500;
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .btn{@apply px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 active:scale-[0.98]}
     .btn-danger{@apply bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/30}
     .btn-warn{@apply bg-amber-500 hover:bg-amber-400 text-slate-900}
@@ -157,9 +197,16 @@
   </div>
   <nav class="flex-1 p-2.5 space-y-1 overflow-y-auto scroll-smooth" aria-label="Main">
     <template x-for="p in pages" :key="p.id">
-      <div :class="page===p.id ? 'nav-item nav-active' : 'nav-item nav-inactive'" @click="openPage(p.id)" @keydown.enter.prevent="openPage(p.id)" role="button" tabindex="0">
+      <div
+        class="flex flex-row flex-nowrap items-center gap-3 w-full min-h-[42px]"
+        :class="page===p.id ? 'nav-item nav-active' : 'nav-item nav-inactive'"
+        @click="openPage(p.id)"
+        @keydown.enter.prevent="openPage(p.id)"
+        role="button"
+        tabindex="0"
+      >
         <span class="nav-active-bar" x-show="page===p.id" x-cloak></span>
-        <span class="nav-ic" x-html="p.svg"></span>
+        <span class="nav-ic flex shrink-0 items-center justify-center" x-html="p.svg"></span>
         <span x-text="p.label" class="nav-label"></span>
       </div>
     </template>
