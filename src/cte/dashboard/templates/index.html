@@ -183,19 +183,11 @@
         <span class="live-dot" :class="liveConnected ? 'live-dot-on bg-cyan-400' : 'bg-slate-600'"></span>
         <span class="text-[11px] font-semibold tracking-wide text-slate-400" x-text="liveConnected ? 'Live stream' : 'Idle'"></span>
       </div>
-      <div class="relative z-50">
-        <button type="button" class="dd-trigger max-w-[240px]" :class="ddEpoch ? 'dd-trigger-open' : ''" @click.stop="ddEpoch=!ddEpoch; ddTier=ddSym=ddExit=false" aria-haspopup="listbox" :aria-expanded="ddEpoch">
-          <span class="truncate font-mono text-[12px] text-slate-100" x-text="epoch"></span>
-          <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-        </button>
-        <div x-show="ddEpoch" x-cloak x-transition @click.outside="ddEpoch=false" class="dd-panel left-0">
-          <template x-for="e in (epochs.length?epochs:[{name:epoch}])" :key="e.name">
-            <button type="button" :class="epoch===e.name ? 'dd-opt-active' : ''" @click="setEpoch(e.name)" x-text="e.name"></button>
-          </template>
-        </div>
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#0c1016] border border-white/[0.1]">
+        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Epoch</span>
+        <span class="font-mono text-[12px] text-cyan-300/95" x-text="epoch"></span>
       </div>
-      <div :class="(ops.system_mode||'seed')==='demo'?'pill pill-p':(ops.system_mode||'seed')==='paper'?'pill pill-b':'pill pill-y'"
-           x-text="(ops.system_mode||'seed').toUpperCase()+' MODE'"></div>
+      <div class="pill pill-p">TESTNET</div>
       <div :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'FEED LIVE':'NO FEED'"></div>
       <div :class="ops.mode==='halted'?'pill pill-r':ops.mode==='paused'?'pill pill-y':'pill pill-g'" x-text="(ops.mode||'').toUpperCase()"></div>
     </div>
@@ -322,7 +314,7 @@
           <div class="flex flex-wrap gap-2">
             <span :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'CONNECTED':'DISCONNECTED'"></span>
             <span class="pill pill-b" x-text="'Source: '+(mkt.source||'none')"></span>
-            <span class="pill pill-y" x-text="(ops.system_mode||'seed').toUpperCase()+' MODE'"></span>
+            <span class="pill pill-p">TESTNET</span>
           </div>
         </div>
         <div class="stream-bar mb-6"><div class="stream-fill" :style="'width:'+streamPct+'%'"></div></div>
@@ -407,7 +399,7 @@
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <div class="relative z-[60]">
-              <button type="button" class="dd-trigger min-w-[148px]" :class="ddTier ? 'dd-trigger-open' : ''" @click.stop="ddTier=!ddTier; ddSym=ddExit=ddEpoch=false" :aria-expanded="ddTier">
+              <button type="button" class="dd-trigger min-w-[148px]" :class="ddTier ? 'dd-trigger-open' : ''" @click.stop="ddTier=!ddTier; ddSym=ddExit=false" :aria-expanded="ddTier">
                 <span class="truncate text-slate-200" x-text="tierLbl()"></span>
                 <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
@@ -418,7 +410,7 @@
               </div>
             </div>
             <div class="relative z-[60]">
-              <button type="button" class="dd-trigger min-w-[156px]" :class="ddSym ? 'dd-trigger-open' : ''" @click.stop="ddSym=!ddSym; ddTier=ddExit=ddEpoch=false" :aria-expanded="ddSym">
+              <button type="button" class="dd-trigger min-w-[156px]" :class="ddSym ? 'dd-trigger-open' : ''" @click.stop="ddSym=!ddSym; ddTier=ddExit=false" :aria-expanded="ddSym">
                 <span class="truncate text-slate-200" x-text="symLbl()"></span>
                 <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
@@ -429,7 +421,7 @@
               </div>
             </div>
             <div class="relative z-[60]">
-              <button type="button" class="dd-trigger min-w-[168px]" :class="ddExit ? 'dd-trigger-open' : ''" @click.stop="ddExit=!ddExit; ddTier=ddSym=ddEpoch=false" :aria-expanded="ddExit">
+              <button type="button" class="dd-trigger min-w-[168px]" :class="ddExit ? 'dd-trigger-open' : ''" @click.stop="ddExit=!ddExit; ddTier=ddSym=false" :aria-expanded="ddExit">
                 <span class="truncate text-slate-200" x-text="exitLbl()"></span>
                 <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
@@ -629,7 +621,7 @@ const ICON = {
   alerts: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.102V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>',
 };
 function app(){return{
-  page:'overview',epoch:'crypto_v1_paper',
+  page:'overview',epoch:'crypto_v1_demo',
   pages:[
     {id:'overview',label:'Overview',svg:ICON.overview},
     {id:'market',label:'Market feeds',svg:ICON.market},
@@ -640,9 +632,9 @@ function app(){return{
     {id:'config',label:'Config',svg:ICON.config},
     {id:'alerts',label:'Alerts',svg:ICON.alerts},
   ],
-  epochs:[],m:{},trades:[],ops:{},tf:{tier:'',symbol:'',exit:''},
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},tf:{tier:'',symbol:'',exit:''},
   mkt:{},mktHealth:{},
-  ddEpoch:false,ddTier:false,ddSym:false,ddExit:false,
+  ddTier:false,ddSym:false,ddExit:false,
   tierOpts:[
     {v:'',l:'All tiers'},{v:'A',l:'Tier A'},{v:'B',l:'Tier B'},{v:'C',l:'Tier C'},
   ],
@@ -654,7 +646,6 @@ function app(){return{
     {v:'no_progress',l:'no_progress'},{v:'winner_trailing',l:'winner_trailing'},{v:'runner_trailing',l:'runner_trailing'},
   ],
   _charts:{},_lastPrice:{},_flash:{},lastSync:0,_tickTimer:null,_slowTimer:null,_clockTick:0,
-  setEpoch(n){this.epoch=n;this.ddEpoch=false;this.refresh()},
   setTier(v){this.tf.tier=v;this.ddTier=false;this.loadTrades()},
   setSym(v){this.tf.symbol=v;this.ddSym=false;this.loadTrades()},
   setExit(v){this.tf.exit=v;this.ddExit=false;this.loadTrades()},
@@ -682,18 +673,16 @@ function app(){return{
       Chart.defaults.font.family="'DM Sans',system-ui,sans-serif";
       Chart.defaults.font.size=11;
     }
-    await this.loadEpochs();
     await this.refresh();
     this._slowTimer=setInterval(()=>this.refresh(),7000);
     this._tickTimer=setInterval(()=>this.tickFast(),2200);
     setInterval(()=>{this._clockTick++;},1000);
     document.addEventListener('keydown',(e)=>{
       if(e.key==='Escape'){
-        this.ddEpoch=this.ddTier=this.ddSym=this.ddExit=false;
+        this.ddTier=this.ddSym=this.ddExit=false;
       }
     });
   },
-  async loadEpochs(){try{this.epochs=await(await fetch('/api/analytics/epochs')).json();const a=this.epochs.find(e=>e.is_active);if(a)this.epoch=a.name}catch{this.epochs=[{name:'crypto_v1_paper'}]}},
   async refresh(){
     try{this.m=await(await fetch(`/api/analytics/summary?epoch=${encodeURIComponent(this.epoch)}`)).json()}catch(e){this.m={}}
     try{this.ops=await(await fetch('/api/ops/status')).json()}catch(e){this.ops={}}

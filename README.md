@@ -123,37 +123,30 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-### Start Dashboard
+### Start Dashboard (Binance futures **testnet** only)
+
+Requires [testnet API keys](https://testnet.binancefuture.com). No seed / fake trade injection.
 
 ```bash
 pip install -e .
-
-# Live Binance public ticker (BTC/ETH) — FEED LIVE, analytics empty until trades exist
-CTE_ENGINE_MODE=paper cte-dashboard
-
-# Offline UI with fake trades (~50) — NO FEED
-# CTE_ENGINE_MODE=seed cte-dashboard
-
-# Testnet (requires CTE_BINANCE_TESTNET_API_KEY / _SECRET)
-# CTE_ENGINE_MODE=demo cte-dashboard
+export CTE_BINANCE_TESTNET_API_KEY="..."
+export CTE_BINANCE_TESTNET_API_SECRET="..."
+CTE_ENGINE_MODE=demo cte-dashboard
 ```
 
-→ **http://localhost:8080** (binds `0.0.0.0`). Details: [docs/DASHBOARD_MODES.md](docs/DASHBOARD_MODES.md).
+→ **http://localhost:8080** (binds `0.0.0.0`). Market stream defaults to `wss://stream.binancefuture.com/stream`.
 
-**Docker (`analytics` on :8080):** `CTE_DASHBOARD_MODE` selects the dashboard process mode (default **`paper`**).
+**Docker** (`analytics` on **8080**) — compose sets `CTE_ENGINE_MODE=demo`; pass the same env vars or `.env`:
 
 ```bash
-# Live ticker (default)
+export CTE_BINANCE_TESTNET_API_KEY="..."
+export CTE_BINANCE_TESTNET_API_SECRET="..."
 docker compose -f deploy/docker-compose.yml up -d analytics
-
-# Seed UI only (no WebSocket)
-CTE_DASHBOARD_MODE=seed docker compose -f deploy/docker-compose.yml up -d analytics
-
-# Demo — must export testnet keys first or the container will exit on safety check
-CTE_DASHBOARD_MODE=demo docker compose -f deploy/docker-compose.yml up -d analytics
 ```
 
-Verify paper feed: `curl -s http://localhost:8080/api/market/health | python -m json.tool`
+Verify: `curl -s http://localhost:8080/api/market/health | python -m json.tool`
+
+Full notes: [docs/DASHBOARD_MODES.md](docs/DASHBOARD_MODES.md).
 
 ### Start Infrastructure (Docker)
 

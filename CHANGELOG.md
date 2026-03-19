@@ -95,9 +95,10 @@ All notable changes to the Crypto Trading Engine.
 - Epoch-aware daily summary (35 columns)
 - Trade log with full analytics fields
 
-### Dashboard deploy
-- `analytics` service: `CTE_DASHBOARD_MODE` (default `paper`) for live Binance public WS; `seed` / `demo` documented in `docs/DASHBOARD_MODES.md`
-- Optional `CTE_MARKET_WS_URL` for `MarketDataFeed` WebSocket override
+### Dashboard / market data
+- Dashboard is **testnet-only**: single epoch `crypto_v1_demo`, no seed injection, `enforce_safety` requires Binance testnet keys
+- Default Binance / Bybit WebSocket + REST URLs point at **testnet**; optional `CTE_BINANCE_WS_COMBINED_URL`
+- Docker `analytics` service: `CTE_ENGINE_MODE=demo`; other services remain `paper` execution
 
 ### Infrastructure
 - Dockerfile (Python 3.12-slim, health checks)

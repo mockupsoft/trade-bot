@@ -193,7 +193,7 @@ services:
     environment:
       <<: *cte-env
       CTE_SERVICE_PORT: "8080"
-      CTE_ENGINE_MODE: "${CTE_DASHBOARD_MODE:-paper}"
+      CTE_ENGINE_MODE: "demo"
       CTE_BINANCE_TESTNET_REST_URL: "${CTE_BINANCE_TESTNET_REST_URL:-https://testnet.binancefuture.com}"
       CTE_BINANCE_TESTNET_API_KEY: "${CTE_BINANCE_TESTNET_API_KEY:-}"
       CTE_BINANCE_TESTNET_API_SECRET: "${CTE_BINANCE_TESTNET_API_SECRET:-}"

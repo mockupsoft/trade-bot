@@ -1,17 +1,9 @@
-"""CTE Dashboard — Mode-aware operations platform.
+"""CTE Dashboard — Binance USDⓈ-M **futures testnet** only.
 
-Modes (``CTE_ENGINE_MODE``):
-  seed  = UI preview with fake data (no WebSocket)
-  paper = Binance USDⓈ-M **public** WebSocket + empty analytics until trades exist
-  demo  = same feed + Binance **testnet** keys required (safety gate)
-  live  = disabled in v1
-
-Run locally::
-
-    CTE_ENGINE_MODE=paper cte-dashboard
-
-Docker: set ``CTE_DASHBOARD_MODE`` for the ``analytics`` service (defaults to ``paper``).
-See ``docs/DASHBOARD_MODES.md`` for seed / paper / demo setup and verification curls.
+- WebSocket: testnet combined stream (see ``BinanceSettings.ws_combined_url`` / ``CTE_BINANCE_WS_COMBINED_URL``).
+- REST safety gate: ``CTE_BINANCE_TESTNET_API_KEY`` and ``CTE_BINANCE_TESTNET_API_SECRET`` required.
+- No seed / synthetic trade injection; analytics fill from real recorded trades only.
+- ``CTE_ENGINE_MODE=live`` is still blocked by ``enforce_safety``; any other value runs the testnet profile.
 """
 from __future__ import annotations
 
@@ -33,6 +25,7 @@ from cte.api.analytics_routes import router as analytics_router
 from cte.api.analytics_routes import set_engine
 from cte.api.health import router as health_router
 from cte.core.logging import setup_logging
+from cte.core.settings import get_settings
 from cte.market.feed import MarketDataFeed
 from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
@@ -52,7 +45,9 @@ log = structlog.get_logger("dashboard")
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 # ── Global State ──────────────────────────────────────────────
-_system_mode: SystemMode = SystemMode.SEED
+ACTIVE_TESTNET_EPOCH = "crypto_v1_demo"
+
+_system_mode: SystemMode = SystemMode.DEMO
 _epoch_manager = EpochManager()
 _analytics_engine: AnalyticsEngine | None = None
 _ops_controller = OperationsController()
@@ -64,11 +59,11 @@ _recon_status: dict = {"status": "not_run", "mismatches": 0, "last_run": None, "
 
 
 def _resolve_mode() -> SystemMode:
-    raw = os.environ.get("CTE_ENGINE_MODE", "seed").lower()
-    try:
-        return SystemMode(raw)
-    except ValueError:
-        return SystemMode.SEED
+    """Return LIVE only when explicitly requested (then safety blocks startup)."""
+    raw = (os.environ.get("CTE_ENGINE_MODE") or "demo").lower()
+    if raw == "live":
+        return SystemMode.LIVE
+    return SystemMode.DEMO
 
 
 @asynccontextmanager
@@ -77,9 +72,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging(level="INFO", service_name="dashboard")
 
     _system_mode = _resolve_mode()
-    print_startup_banner(_system_mode.value)
+    if _system_mode == SystemMode.DEMO:
+        os.environ["CTE_ENGINE_MODE"] = "demo"
+    banner_key = "demo" if _system_mode == SystemMode.DEMO else _system_mode.value
+    print_startup_banner(banner_key)
 
-    # Safety checks for demo mode
     if _system_mode == SystemMode.DEMO:
         enforce_safety(
             "demo",
@@ -91,39 +88,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if _system_mode == SystemMode.LIVE:
         enforce_safety("live")
 
-    # Epochs
-    for name, mode, desc in [
-        ("crypto_v1_paper", EpochMode.PAPER, "Paper trading phase"),
-        ("crypto_v1_demo", EpochMode.DEMO, "Testnet demo phase"),
-        ("crypto_v1_live", EpochMode.LIVE, "Minimal live trading"),
-        ("crypto_v1_shadow_short", EpochMode.SHADOW, "Shadow short experiment"),
-    ]:
-        _epoch_manager.create_epoch(name, mode, desc)
-
-    epoch_name = {
-        SystemMode.SEED: "crypto_v1_paper",
-        SystemMode.PAPER: "crypto_v1_paper",
-        SystemMode.DEMO: "crypto_v1_demo",
-        SystemMode.LIVE: "crypto_v1_live",
-    }[_system_mode]
-    _epoch_manager.activate(epoch_name)
+    _epoch_manager.create_epoch(
+        ACTIVE_TESTNET_EPOCH,
+        EpochMode.DEMO,
+        "Binance USD-M futures testnet",
+    )
+    _epoch_manager.activate(ACTIVE_TESTNET_EPOCH)
 
     _analytics_engine = AnalyticsEngine(_epoch_manager, initial_capital=Decimal("10000"))
     set_engine(_analytics_engine)
 
-    # Seed mode: inject fake data for UI preview
-    if _system_mode == SystemMode.SEED:
-        from cte.dashboard.seed import inject_seed_data
-        count = inject_seed_data(_analytics_engine)
-        await log.ainfo("seed_data_injected", trades=count, mode="seed")
+    settings = get_settings()
+    _market_feed = MarketDataFeed(ws_url=settings.binance.ws_combined_url)
+    _feed_task = asyncio.create_task(_market_feed.start())
+    await log.ainfo(
+        "market_feed_started",
+        mode="testnet",
+        ws_url=settings.binance.ws_combined_url,
+    )
 
-    # Paper & Demo: start live market data feed
-    if _system_mode in (SystemMode.PAPER, SystemMode.DEMO):
-        _market_feed = MarketDataFeed()
-        _feed_task = asyncio.create_task(_market_feed.start())
-        await log.ainfo("market_feed_started", mode=_system_mode.value)
-
-    await log.ainfo("dashboard_ready", mode=_system_mode.value)
+    await log.ainfo("dashboard_ready", mode="testnet")
 
     yield
 
@@ -155,10 +139,10 @@ async def index():
 async def market_tickers():
     """Live ticker data for all symbols."""
     if not _market_feed:
-        return {"source": "none", "mode": _system_mode.value, "tickers": {}}
+        return {"source": "none", "mode": "testnet", "tickers": {}}
     return {
-        "source": "binance_ws",
-        "mode": _system_mode.value,
+        "source": "binance_testnet",
+        "mode": "testnet",
         "tickers": {
             sym: {
                 "last_price": str(t.last_price),
@@ -179,11 +163,11 @@ async def market_tickers():
 async def market_health():
     """Market data feed health status."""
     if not _market_feed:
-        return {"connected": False, "mode": _system_mode.value, "detail": "No feed in this mode"}
+        return {"connected": False, "mode": "testnet", "detail": "Feed not initialized"}
     h = _market_feed.health
     return {
         "connected": h.connected,
-        "mode": _system_mode.value,
+        "mode": "testnet",
         "messages_total": h.messages_total,
         "reconnect_count": h.reconnect_count,
         "errors_total": h.errors_total,

@@ -21,7 +21,7 @@ import websockets
 
 logger = structlog.get_logger(__name__)
 
-BINANCE_COMBINED_STREAM = "wss://fstream.binance.com/stream"
+BINANCE_COMBINED_STREAM = "wss://stream.binancefuture.com/stream"
 DEFAULT_STREAMS = [
     "btcusdt@trade",
     "btcusdt@depth5@100ms",

@@ -3,16 +3,16 @@
 # e.g. CTE_ENGINE_MODE=paper
 
 [engine]
-mode = "paper"                    # paper | demo | live
+mode = "paper"                    # simulated fills; market data URLs → testnet below
 symbols = ["BTCUSDT", "ETHUSDT"]
 direction = "long_only"
 max_leverage = 3
 log_level = "INFO"
 
 [binance]
-ws_base_url = "wss://fstream.binance.com"
-ws_combined_url = "wss://fstream.binance.com/stream"
-rest_base_url = "https://fapi.binance.com"
+ws_base_url = "wss://stream.binancefuture.com"
+ws_combined_url = "wss://stream.binancefuture.com/stream"
+rest_base_url = "https://testnet.binancefuture.com"
 testnet_ws_url = "wss://stream.binancefuture.com"
 testnet_rest_url = "https://testnet.binancefuture.com"
 streams = ["btcusdt@trade", "btcusdt@depth20@100ms", "ethusdt@trade", "ethusdt@depth20@100ms"]
@@ -100,9 +100,9 @@ min_order_usd = 10.0
 max_order_usd = 1000.0
 
 [execution]
-mode = "paper"                     # paper | testnet | live
-slippage_bps = 5                   # simulated slippage in paper mode
-fill_delay_ms = 100                # simulated fill delay in paper mode
+mode = "paper"                     # simulated execution; dashboard UI uses testnet keys for ops gate
+slippage_bps = 5
+fill_delay_ms = 100
 max_retries = 3
 retry_delay_sec = 1.0
 

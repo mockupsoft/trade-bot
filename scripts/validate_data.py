@@ -18,7 +18,7 @@ import websockets
 
 async def validate_binance(duration_sec: int) -> dict:
     """Validate Binance USDⓈ-M Futures WebSocket data."""
-    url = "wss://fstream.binance.com/stream?streams=btcusdt@trade/ethusdt@trade"
+    url = "wss://stream.binancefuture.com/stream?streams=btcusdt@trade/ethusdt@trade"
     stats: dict = defaultdict(int)
     start = time.monotonic()
 

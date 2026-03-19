@@ -46,9 +46,9 @@ class EngineSettings(BaseSettings):
 
 
 class BinanceSettings(BaseSettings):
-    ws_base_url: str = "wss://fstream.binance.com"
-    ws_combined_url: str = "wss://fstream.binance.com/stream"
-    rest_base_url: str = "https://fapi.binance.com"
+    ws_base_url: str = "wss://stream.binancefuture.com"
+    ws_combined_url: str = "wss://stream.binancefuture.com/stream"
+    rest_base_url: str = "https://testnet.binancefuture.com"
     testnet_ws_url: str = "wss://stream.binancefuture.com"
     testnet_rest_url: str = "https://testnet.binancefuture.com"
     streams: list[str] = Field(default=[
@@ -66,9 +66,9 @@ class BinanceSettings(BaseSettings):
 
 
 class BybitSettings(BaseSettings):
-    ws_base_url: str = "wss://stream.bybit.com/v5/public/linear"
+    ws_base_url: str = "wss://stream-testnet.bybit.com/v5/public/linear"
     testnet_ws_url: str = "wss://stream-testnet.bybit.com/v5/public/linear"
-    rest_base_url: str = "https://api.bybit.com"
+    rest_base_url: str = "https://api-testnet.bybit.com"
     topics: list[str] = Field(default=[
         "publicTrade.BTCUSDT",
         "publicTrade.ETHUSDT",
