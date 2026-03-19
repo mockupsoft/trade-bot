@@ -249,6 +249,93 @@ CREATE TABLE IF NOT EXISTS cte.schema_version (
 """
 
 # ---------------------------------------------------------------------------
+# Streaming Features (multi-timeframe)
+# ---------------------------------------------------------------------------
+
+CREATE_STREAMING_FEATURES_TABLE = """
+CREATE TABLE IF NOT EXISTS cte.streaming_features (
+    time                TIMESTAMPTZ NOT NULL,
+    event_id            UUID NOT NULL DEFAULT uuid_generate_v4(),
+    symbol              TEXT NOT NULL,
+    window_seconds      INTEGER NOT NULL,
+
+    -- Core features
+    returns             DOUBLE PRECISION,
+    returns_z           DOUBLE PRECISION,
+    momentum_z          DOUBLE PRECISION,
+    taker_flow_imbalance DOUBLE PRECISION,
+    spread_bps          DOUBLE PRECISION,
+    spread_widening     DOUBLE PRECISION,
+    ob_imbalance        DOUBLE PRECISION,
+    liquidation_imbalance DOUBLE PRECISION,
+    venue_divergence_bps DOUBLE PRECISION,
+    vwap                DOUBLE PRECISION,
+
+    -- Volume & activity
+    trade_count         INTEGER NOT NULL DEFAULT 0,
+    volume              DOUBLE PRECISION NOT NULL DEFAULT 0,
+    buy_volume          DOUBLE PRECISION NOT NULL DEFAULT 0,
+    sell_volume         DOUBLE PRECISION NOT NULL DEFAULT 0,
+    window_fill_pct     DOUBLE PRECISION NOT NULL DEFAULT 0,
+
+    -- Scalar / cross-timeframe (stored with window_seconds=0)
+    execution_feasibility DOUBLE PRECISION,
+    whale_risk_flag     BOOLEAN DEFAULT false,
+    urgent_news_flag    BOOLEAN DEFAULT false,
+
+    -- Freshness
+    freshness_composite DOUBLE PRECISION,
+    trade_age_ms        INTEGER,
+    orderbook_age_ms    INTEGER,
+
+    -- Raw reference values
+    last_price          NUMERIC,
+    best_bid            NUMERIC,
+    best_ask            NUMERIC,
+    mid_price           NUMERIC,
+    mark_price          NUMERIC
+);
+
+SELECT create_hypertable('cte.streaming_features', 'time', if_not_exists => TRUE);
+
+CREATE INDEX IF NOT EXISTS idx_sf_symbol_window_time
+    ON cte.streaming_features (symbol, window_seconds, time DESC);
+"""
+
+CREATE_LIQUIDATIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS cte.liquidations (
+    time            TIMESTAMPTZ NOT NULL,
+    event_id        UUID NOT NULL DEFAULT uuid_generate_v4(),
+    venue           TEXT NOT NULL,
+    symbol          TEXT NOT NULL,
+    side            TEXT NOT NULL,
+    price           NUMERIC NOT NULL,
+    quantity        NUMERIC NOT NULL,
+    is_long_liq     BOOLEAN NOT NULL,
+    received_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+SELECT create_hypertable('cte.liquidations', 'time', if_not_exists => TRUE);
+
+CREATE INDEX IF NOT EXISTS idx_liq_symbol_time ON cte.liquidations (symbol, time DESC);
+"""
+
+CREATE_MARK_PRICES_TABLE = """
+CREATE TABLE IF NOT EXISTS cte.mark_prices (
+    time            TIMESTAMPTZ NOT NULL,
+    venue           TEXT NOT NULL,
+    symbol          TEXT NOT NULL,
+    mark_price      NUMERIC NOT NULL,
+    index_price     NUMERIC,
+    funding_rate    NUMERIC
+);
+
+SELECT create_hypertable('cte.mark_prices', 'time', if_not_exists => TRUE);
+
+CREATE INDEX IF NOT EXISTS idx_mark_symbol_time ON cte.mark_prices (symbol, time DESC);
+"""
+
+# ---------------------------------------------------------------------------
 # Continuous Aggregates (TimescaleDB)
 # ---------------------------------------------------------------------------
 
@@ -307,6 +394,9 @@ ALL_MIGRATIONS = [
     ("exits", CREATE_EXITS_TABLE),
     ("daily_pnl", CREATE_DAILY_PNL_TABLE),
     ("schema_version", CREATE_SCHEMA_VERSION_TABLE),
+    ("streaming_features", CREATE_STREAMING_FEATURES_TABLE),
+    ("liquidations", CREATE_LIQUIDATIONS_TABLE),
+    ("mark_prices", CREATE_MARK_PRICES_TABLE),
     ("ohlcv_1m", CREATE_OHLCV_1M_AGG),
     ("ohlcv_5m", CREATE_OHLCV_5M_AGG),
 ]

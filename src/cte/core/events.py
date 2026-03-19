@@ -342,15 +342,143 @@ class OnChainContextEvent(BaseEvent):
 
 
 # ---------------------------------------------------------------------------
+# Mark Price & Liquidation Events (new inputs for streaming feature engine)
+# ---------------------------------------------------------------------------
+
+class MarkPriceEvent(BaseEvent):
+    """Mark price update from venue (Binance @markPrice, Bybit ticker).
+
+    Mark price is the fair-value index price used for PnL calculation
+    and liquidation triggers. Divergence from last traded price can
+    indicate funding-rate arbitrage or lagging fills.
+    """
+
+    source: str = "normalizer"
+    venue: Venue
+    symbol: Symbol
+    mark_price: Decimal
+    index_price: Decimal = Decimal("0")
+    funding_rate: Decimal = Decimal("0")
+    next_funding_time: datetime | None = None
+    venue_timestamp: datetime | None = None
+
+
+class LiquidationEvent(BaseEvent):
+    """Forced liquidation event from venue (Binance @forceOrder, Bybit liquidation).
+
+    Liquidation of longs → bearish pressure (long_liq=True)
+    Liquidation of shorts → bullish pressure (long_liq=False)
+    """
+
+    source: str = "normalizer"
+    venue: Venue
+    symbol: Symbol
+    side: Side
+    price: Decimal
+    quantity: Decimal
+    is_long_liquidation: bool
+    venue_timestamp: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# Streaming Feature Engine Output
+# ---------------------------------------------------------------------------
+
+class TimeframeFeatures(BaseModel):
+    """Features computed for a single rolling window timeframe."""
+
+    model_config = {"frozen": True}
+
+    window_seconds: int
+    returns: float | None = None
+    returns_z: float | None = None
+    momentum_z: float | None = None
+    taker_flow_imbalance: float | None = None
+    spread_bps: float | None = None
+    spread_widening: float | None = None
+    ob_imbalance: float | None = None
+    liquidation_imbalance: float | None = None
+    venue_divergence_bps: float | None = None
+    vwap: float | None = None
+    trade_count: int = 0
+    volume: float = 0.0
+    window_fill_pct: float = 0.0
+
+
+class FreshnessScore(BaseModel):
+    """Data freshness across all sources."""
+
+    model_config = {"frozen": True}
+
+    trade_age_ms: int = 0
+    orderbook_age_ms: int = 0
+    binance_age_ms: int = 0
+    bybit_age_ms: int = 0
+    composite: float = 0.0
+
+
+class DataQuality(BaseModel):
+    """Diagnostic metadata about data quality at feature computation time."""
+
+    model_config = {"frozen": True}
+
+    warmup_complete: bool = False
+    binance_connected: bool = False
+    bybit_connected: bool = False
+    window_fill_pct: dict[str, float] = Field(default_factory=dict)
+
+
+class StreamingFeatureVector(BaseEvent):
+    """Multi-timeframe streaming feature vector.
+
+    Emitted once per second per symbol. Contains features for all
+    four timeframes (10s, 30s, 60s, 5m) plus cross-timeframe scalars.
+
+    This is the primary input for the signal engine in Phase 2+.
+    The legacy FeatureVector is kept for backward compatibility.
+    """
+
+    source: str = "streaming_feature_engine"
+    symbol: Symbol
+
+    # Multi-timeframe feature blocks
+    tf_10s: TimeframeFeatures
+    tf_30s: TimeframeFeatures
+    tf_60s: TimeframeFeatures
+    tf_5m: TimeframeFeatures
+
+    # Cross-timeframe / scalar features
+    freshness: FreshnessScore
+    execution_feasibility: float | None = None
+    whale_risk_flag: bool = False
+    urgent_news_flag: bool = False
+
+    # Latest raw values for downstream consumers
+    last_price: Decimal = Decimal("0")
+    best_bid: Decimal | None = None
+    best_ask: Decimal | None = None
+    mid_price: Decimal | None = None
+    mark_price: Decimal | None = None
+
+    # Diagnostic metadata
+    data_quality: DataQuality = Field(default_factory=DataQuality)
+
+
+# ---------------------------------------------------------------------------
 # Redis Stream Key Mapping
 # ---------------------------------------------------------------------------
 
 STREAM_KEYS = {
     "raw_trade": "cte:raw:trade",
     "raw_orderbook": "cte:raw:orderbook",
+    "raw_mark_price": "cte:raw:mark_price",
+    "raw_liquidation": "cte:raw:liquidation",
     "trade": "cte:market:trade",
     "orderbook": "cte:market:orderbook",
+    "mark_price": "cte:market:mark_price",
+    "liquidation": "cte:market:liquidation",
     "feature": "cte:feature:vector",
+    "feature_streaming": "cte:feature:streaming",
     "signal": "cte:signal:event",
     "risk": "cte:risk:assessment",
     "sized_order": "cte:sizing:order",

@@ -113,12 +113,22 @@ class DatabaseSettings(BaseSettings):
 
 
 class FeatureSettings(BaseSettings):
+    # Legacy indicator settings (used by old FeatureEngine for backward compat)
     rsi_period: int = 14
     ema_fast_period: int = 12
     ema_slow_period: int = 26
     vwap_window_minutes: int = 60
     volume_profile_bins: int = 50
     window_size_minutes: int = 240
+
+    # Streaming feature engine settings
+    streaming_windows: list[int] = Field(default=[10, 30, 60, 300])
+    emit_interval_seconds: int = 1
+    zscore_min_samples: int = 10
+    warmup_seconds: int = 300
+    persist_interval_seconds: int = 10
+    whale_lookback_minutes: int = 60
+    news_lookback_minutes: int = 30
 
     model_config = SettingsConfigDict(env_prefix="CTE_FEATURES_")
 
