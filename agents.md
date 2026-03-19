@@ -138,3 +138,27 @@ Bybit WS → Raw Event → Redis → Normalizer → ─────────�
 3. `config/defaults.toml` (lowest priority)
 
 Never use YAML for configuration. TOML for static config, env vars for runtime.
+
+## Cursor Cloud specific instructions
+
+### Services overview
+- **CTE (Crypto Trading Engine)**: Python 3.12 FastAPI backend with 10 microservices communicating via Redis Streams, persisting to PostgreSQL+TimescaleDB. Currently in Phase 0 (skeleton).
+
+### Infrastructure
+- **PostgreSQL+TimescaleDB** and **Redis** run via `docker compose -f deploy/docker-compose.dev.yml up -d postgres redis`. Docker must be running first (`sudo dockerd` if not started).
+- The TimescaleDB auto-tune script may panic on first start in constrained environments — just restart the container and it works on the second attempt.
+- Database migrations: `python3 scripts/migrate.py --dsn "postgresql://cte:cte_dev@localhost:5432/cte" --seed`
+- The `.env` file must set `CTE_DB_PASSWORD=cte_dev` to match the docker-compose dev password.
+
+### Key commands
+- **Lint**: `python3 -m ruff check src/ tests/` (94 pre-existing warnings in Phase 0 skeleton)
+- **Tests**: `python3 -m pytest tests/ -v` (60 tests, all use fakeredis/AsyncMock — no real infra needed)
+- **Coverage**: `python3 -m pytest tests/ --cov=src/cte --cov-report=term-missing` (coverage threshold is 80% but Phase 0 skeleton is ~33%)
+- **Config validate**: `python3 -m cte.core.cli validate`
+- **Run a service**: `python3 -c "from cte.api.app import create_app; import uvicorn; uvicorn.run(create_app('health-check'), host='0.0.0.0', port=8000)"`
+- See `README.md` "Quick Start" and `pyproject.toml` `[tool.*]` sections for full details.
+
+### Gotchas
+- `ruff` and `pytest` must be invoked via `python3 -m ruff` / `python3 -m pytest` (not bare commands) because pip installs to `~/.local/bin` which may not be on `PATH`.
+- Unit tests do NOT require running infrastructure (Redis/Postgres). They use `fakeredis` and `AsyncMock`.
+- The `pyproject.toml` coverage threshold (`fail_under = 80`) will cause `pytest --cov` to return exit code 1 even though all tests pass — this is expected at Phase 0.
