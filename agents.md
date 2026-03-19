@@ -1,140 +1,105 @@
-# Crypto Trading Engine – Agent Rules
+# Crypto Trading Engine – Agent Rules (Updated)
+
+## Project Status
+- **48 Python modules** across 13 subsystems
+- **377+ tests** all passing
+- **7 design documents** in `docs/`
+- **Professional dashboard UI** at `http://localhost:8080`
+- Phase 0–4 architecture complete, ready for Phase 1 data pipeline implementation
 
 ## Agent Identity
-You are a senior systems engineer building a production-grade crypto trading engine.
-You are NOT building a toy, a tutorial, or a proof-of-concept.
-Every decision must be justified by production constraints.
+You are a senior systems engineer maintaining a production-grade crypto trading engine.
+The architecture is established. Your job is implementation, testing, and refinement.
 
-## Core Principles
+## What Already Exists (Do Not Rebuild)
 
-### 1. Safety First
-- This system handles financial decisions. Bugs cost real money.
-- Default to rejecting trades, not accepting them.
-- Risk manager always wins over signal engine.
-- When in doubt, do nothing (flat is a position too).
-
-### 2. Simplicity Over Cleverness
-- No premature optimization.
-- No over-engineering for "future" features.
-- V1 does two symbols, one direction, two venues. That's it.
-- If a module isn't needed for the current phase, don't build it.
-
-### 3. Observability Over Debugging
-- If you can't measure it, don't ship it.
-- Every decision path must emit structured logs and metrics.
-- Every trade must carry a full reason chain from signal to execution.
-
-### 4. Determinism Over Magic
-- Given the same inputs, the engine must produce the same outputs.
-- No hidden randomness in signal generation.
-- Feature calculations must be reproducible from stored market data.
-
-## Module Responsibilities
-
-### Market Data Connectors (`src/cte/connectors/`)
-- Connect to Binance USDⓈ-M Futures WebSocket and Bybit v5 public WebSocket.
-- Maintain persistent connections with automatic reconnection.
-- Emit raw events to Redis Streams.
-- Do NOT process, filter, or transform data. That's the normalizer's job.
-- Track connection state, message rates, and latency.
-
-### Canonical Event Normalizer (`src/cte/normalizer/`)
-- Consume raw events from connectors.
-- Transform into canonical CTE event format (venue-agnostic).
-- Validate schema, reject malformed data.
-- Emit normalized events to Redis Streams.
+### Core (`src/cte/core/`)
+- 25+ Pydantic v2 event models (frozen, immutable, schema-enforced)
+- Settings with Pydantic Settings (env var + TOML)
+- Typed exception hierarchy (CTEError base, 10+ subtypes)
+- structlog JSON logging
+- Redis Streams producer/consumer abstraction
 
 ### Feature Engine (`src/cte/features/`)
-- Consume normalized market data events.
-- Calculate technical indicators (RSI, EMA, VWAP, volume profile).
-- Maintain rolling windows in memory, persist snapshots to TimescaleDB.
-- Emit feature vectors to Redis Streams.
-- Must be stateless-restartable: rebuild state from DB on startup.
+- SecondBucket aggregation (O(1) per event)
+- BucketedRollingWindow with RunningTotals
+- 4 timeframes: 10s, 30s, 60s, 5m
+- 10 feature families: returns_z, momentum_z, taker_flow_imbalance,
+  spread_bps, spread_widening, ob_imbalance, liquidation_imbalance,
+  venue_divergence, freshness, execution_feasibility
+- ReturnHistory/MomentumHistory for z-scores with drift correction
 
 ### Signal Engine (`src/cte/signals/`)
-- Consume feature vectors.
-- Apply signal logic (rule-based in v1, ML-ready interface).
-- Every signal includes confidence score and reason payload.
-- Emit signal events to Redis Streams.
-- Never emit execution commands directly.
+- 6 sub-scores: momentum, orderflow, liquidation, microstructure, cross-venue, context
+- 5 hard gates: stale feed, max spread, max divergence, exec feasibility, warmup
+- Weighted composite: primary_score × context_multiplier
+- A/B/C tier mapping (0.72/0.55/0.40 thresholds)
+- Cooldown + hourly rate limiting
 
-### Risk Manager (`src/cte/risk/`)
-- Intercept all signals before execution.
-- Apply position limits, drawdown checks, exposure limits, correlation checks.
-- Has absolute veto power.
-- Emit approved/rejected decisions with reasons.
+### Execution (`src/cte/execution/`)
+- Common ExecutionAdapter interface (ABC)
+- Paper engine: bid/ask fills, 3 fill models (spread_crossing, vwap_depth, worst_case)
+- PaperPosition: state machine (PENDING→OPEN→CLOSED), MFE/MAE, R-multiple
+- BinanceTestnetAdapter: HMAC-SHA256 signed REST
+- BybitDemoAdapter: HMAC-SHA256 signed REST
+- OrderStateMachine: 11 states, enforced transitions
+- TokenBucketRateLimiter with backoff
+- PositionReconciler: local vs venue state
 
-### Tiering & Sizing (`src/cte/sizing/`)
-- Determine position size based on signal confidence, risk budget, and portfolio state.
-- Kelly criterion or fixed-fraction in v1.
-- Never exceed configured max position size.
-
-### Execution Engine (`src/cte/execution/`)
-- v1: Paper execution only (simulated fills).
-- v2: Binance testnet execution.
-- v3: Live execution with circuit breakers.
-- Track order lifecycle: created → submitted → partial → filled → cancelled.
-- Emit execution events to Redis Streams.
-
-### Smart Exit Engine (`src/cte/exits/`)
-- Monitor open positions for exit conditions.
-- Trailing stops, time-based exits, target hits, invalidation exits.
-- Every exit carries a reason (stop_loss, take_profit, trailing, timeout, invalidation).
-- Coordinate with risk manager for emergency exits.
+### Exit Engine (`src/cte/exits/`)
+- 5-layer model: hard_risk > thesis_failure > no_progress > winner_protection > runner_mode
+- TierExitProfile: A/B/C patience profiles
+- Position mode progression: normal → winner_protection → runner
+- Runner downgrade on momentum collapse
+- saved_losers / killed_winners analytics hooks
 
 ### Analytics (`src/cte/analytics/`)
-- Consume all events for post-trade analysis.
-- Calculate PnL, Sharpe, win rate, drawdown curves.
-- Store aggregated metrics in PostgreSQL.
-- Serve dashboards via FastAPI endpoints.
+- Epoch system: paper, demo, live, shadow_short
+- 15+ metric functions (pure, deterministic)
+- Full breakdowns: symbol, venue, tier, exit_reason
+- Epoch comparison with slippage drift
+- Trade journal with drilldown
 
 ### Monitoring (`src/cte/monitoring/`)
-- Prometheus metrics exporter.
-- Health check aggregator.
-- Alert rule definitions.
-- Grafana dashboard definitions as code.
+- 9 alert rules (stale feed, drawdown escalation, reconnect, rejects, slippage drift, recon)
+- Prometheus-compatible metrics (30+ gauges/counters/histograms)
+- Grafana dashboard specifications (5 dashboards)
 
-## Event Flow (Happy Path)
+### Dashboard (`src/cte/dashboard/`)
+- FastAPI-served professional UI
+- KPI cards: PnL, trades, win rate, expectancy, profit factor, drawdown, slippage
+- Charts: PnL by tier, PnL by exit reason (Chart.js)
+- Exit analysis: saved losers, killed winners, no-progress regret, runner outcomes
+- Trade journal with filtering (tier, symbol)
+- Auto-refresh every 10 seconds
+
+## Event Flow
 ```
-Binance WS → Raw Event → Redis → Normalizer → Canonical Event → Redis
-                                                      ↓
-Bybit WS → Raw Event → Redis → Normalizer → ─────────┘
-                                                      ↓
-                                              Feature Engine → Feature Vector → Redis
-                                                      ↓
-                                              Signal Engine → Signal Event → Redis
-                                                      ↓
-                                              Risk Manager → Approved/Rejected → Redis
-                                                      ↓
-                                              Sizing → Sized Order → Redis
-                                                      ↓
-                                              Execution → Fill Event → Redis
-                                                      ↓
-                                              Exit Engine (monitors position)
-                                                      ↓
-                                              Analytics (records everything)
+Binance/Bybit WS → Normalizer → Feature Engine → Signal Engine → Risk Manager
+→ Sizing → Execution → Exit Engine → Analytics → Dashboard
 ```
 
 ## What NOT To Do
-- Do NOT build a generic "trading framework". Build THIS specific engine.
+- Do NOT rebuild existing subsystems. Extend or refine them.
 - Do NOT add symbols beyond BTCUSDT/ETHUSDT in v1.
 - Do NOT implement short selling in v1.
 - Do NOT connect real wallets in v1.
-- Do NOT use LLM/AI for trade decisions in v1.
-- Do NOT build a web UI in v1 (API + Grafana dashboards only).
-- Do NOT over-abstract. If there are only 2 venues, you don't need a plugin system.
-- Do NOT use ORM. Use raw SQL with asyncpg for performance.
-- Do NOT store secrets in code or config files.
+- Do NOT use LLM/AI for trade decisions.
+- Do NOT use mid-price fills (bid/ask only).
+- Do NOT use datetime.now() in computation paths.
+- Do NOT use asyncio.sleep() for latency modeling.
+- Do NOT bypass the 5-layer exit priority order.
+- Do NOT let context score amplify signals (multiply only ≤ 1.0).
 
 ## Testing Strategy
-- Unit tests: All pure logic (features, signals, risk rules, sizing).
-- Integration tests: Redis Stream producers/consumers, DB read/write.
-- Replay tests: Feed historical data, verify deterministic outputs.
-- Paper trading validation: Run paper engine against live data for 7 days before phase advancement.
+- Unit tests: all pure logic (features, signals, risk, sizing, exits, analytics)
+- Integration tests: full pipeline (signal → analytics)
+- Replay tests: deterministic replay of same events → same outputs
+- All tests must pass before any commit.
 
-## Configuration Hierarchy
-1. Environment variables (highest priority)
-2. `.env.{environment}` files
-3. `config/defaults.toml` (lowest priority)
-
-Never use YAML for configuration. TOML for static config, env vars for runtime.
+## Next Steps (Phase 1 Implementation)
+1. Connect to live Binance/Bybit WebSocket streams
+2. Validate data quality (message rates, gaps, latency)
+3. Persist normalized trades and orderbook to TimescaleDB
+4. Verify OHLCV continuous aggregates
+5. Run data validation for 24h before proceeding to Phase 2

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-950">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CTE — Crypto Trading Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.0/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .card { @apply bg-gray-900 rounded-xl border border-gray-800 p-5; }
+    .stat-value { @apply text-2xl font-bold tabular-nums; }
+    .stat-label { @apply text-xs text-gray-500 uppercase tracking-wider mt-1; }
+    .pill { @apply text-xs px-2 py-0.5 rounded-full font-medium; }
+    .pill-green { @apply bg-emerald-900/50 text-emerald-400; }
+    .pill-red { @apply bg-red-900/50 text-red-400; }
+    .pill-yellow { @apply bg-yellow-900/50 text-yellow-400; }
+    .pill-blue { @apply bg-blue-900/50 text-blue-400; }
+  </style>
+</head>
+<body class="h-full text-gray-200 antialiased" x-data="dashboard()" x-init="init()">
+
+<!-- Top Bar -->
+<header class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between">
+  <div class="flex items-center gap-3">
+    <div class="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center font-black text-sm text-gray-950">CT</div>
+    <h1 class="text-lg font-semibold">Crypto Trading Engine</h1>
+    <span class="pill pill-blue" x-text="epoch"></span>
+  </div>
+  <div class="flex items-center gap-4 text-sm">
+    <select x-model="epoch" @change="refresh()" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm">
+      <template x-for="e in epochs" :key="e.name">
+        <option :value="e.name" x-text="e.name"></option>
+      </template>
+    </select>
+    <span class="text-gray-500">Auto-refresh: 10s</span>
+    <span :class="connected ? 'text-emerald-400' : 'text-red-400'" x-text="connected ? 'LIVE' : 'DISCONNECTED'"></span>
+  </div>
+</header>
+
+<main class="p-6 max-w-[1600px] mx-auto space-y-6">
+
+  <!-- KPI Row -->
+  <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+    <div class="card">
+      <div class="stat-value" :class="metrics.total_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'"
+           x-text="'$' + fmt(metrics.total_pnl)"></div>
+      <div class="stat-label">Total PnL</div>
+    </div>
+    <div class="card">
+      <div class="stat-value text-white" x-text="metrics.trade_count"></div>
+      <div class="stat-label">Trades</div>
+    </div>
+    <div class="card">
+      <div class="stat-value" :class="metrics.win_rate >= 0.5 ? 'text-emerald-400' : 'text-yellow-400'"
+           x-text="pct(metrics.win_rate)"></div>
+      <div class="stat-label">Win Rate</div>
+    </div>
+    <div class="card">
+      <div class="stat-value" :class="metrics.expectancy >= 0 ? 'text-emerald-400' : 'text-red-400'"
+           x-text="'$' + fmt(metrics.expectancy)"></div>
+      <div class="stat-label">Expectancy</div>
+    </div>
+    <div class="card">
+      <div class="stat-value" :class="(metrics.profit_factor||0) >= 1 ? 'text-emerald-400' : 'text-red-400'"
+           x-text="metrics.profit_factor ? metrics.profit_factor.toFixed(2) : '—'"></div>
+      <div class="stat-label">Profit Factor</div>
+    </div>
+    <div class="card">
+      <div class="stat-value text-red-400" x-text="pct(metrics.max_drawdown_pct)"></div>
+      <div class="stat-label">Max Drawdown</div>
+    </div>
+    <div class="card">
+      <div class="stat-value text-gray-300" x-text="fmt(metrics.avg_slippage_bps) + ' bps'"></div>
+      <div class="stat-label">Avg Slippage</div>
+    </div>
+  </div>
+
+  <!-- Charts Row -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- PnL by Tier -->
+    <div class="card">
+      <h2 class="text-sm font-semibold text-gray-400 mb-4">PnL by Signal Tier</h2>
+      <canvas id="tierChart" height="200"></canvas>
+    </div>
+    <!-- PnL by Exit Reason -->
+    <div class="card">
+      <h2 class="text-sm font-semibold text-gray-400 mb-4">PnL by Exit Reason</h2>
+      <canvas id="exitChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- Exit Analysis + Runner Outcomes -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="card">
+      <div class="stat-value text-emerald-400" x-text="metrics.saved_losers || 0"></div>
+      <div class="stat-label">Saved Losers</div>
+      <p class="text-xs text-gray-600 mt-1">L1/L2 exits that prevented deeper loss</p>
+    </div>
+    <div class="card">
+      <div class="stat-value text-yellow-400" x-text="metrics.killed_winners || 0"></div>
+      <div class="stat-label">Killed Winners</div>
+      <p class="text-xs text-gray-600 mt-1">L2/L3 exits on profitable positions</p>
+    </div>
+    <div class="card">
+      <div class="stat-value text-blue-400" x-text="(metrics.no_progress_regret||{}).count || 0"></div>
+      <div class="stat-label">No-Progress Exits</div>
+      <p class="text-xs text-gray-600 mt-1">
+        Regret rate: <span x-text="pct((metrics.no_progress_regret||{}).regret_rate || 0)"></span>
+      </p>
+    </div>
+    <div class="card">
+      <div class="stat-value text-purple-400" x-text="(metrics.runner_outcomes||{}).count || 0"></div>
+      <div class="stat-label">Runner Trades</div>
+      <p class="text-xs text-gray-600 mt-1">
+        Avg R: <span x-text="((metrics.runner_outcomes||{}).avg_r || 0).toFixed(2)"></span>,
+        WR: <span x-text="pct((metrics.runner_outcomes||{}).win_rate || 0)"></span>
+      </p>
+    </div>
+  </div>
+
+  <!-- Trade Journal -->
+  <div class="card">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold text-gray-400">Trade Journal</h2>
+      <div class="flex gap-2 text-xs">
+        <select x-model="tradeFilter.tier" @change="refreshTrades()" class="bg-gray-800 border border-gray-700 rounded px-2 py-1">
+          <option value="">All Tiers</option>
+          <option value="A">Tier A</option>
+          <option value="B">Tier B</option>
+          <option value="C">Tier C</option>
+        </select>
+        <select x-model="tradeFilter.symbol" @change="refreshTrades()" class="bg-gray-800 border border-gray-700 rounded px-2 py-1">
+          <option value="">All Symbols</option>
+          <option value="BTCUSDT">BTCUSDT</option>
+          <option value="ETHUSDT">ETHUSDT</option>
+        </select>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead class="text-gray-500 border-b border-gray-800">
+          <tr>
+            <th class="text-left py-2 px-2">Symbol</th>
+            <th class="text-left py-2 px-2">Tier</th>
+            <th class="text-right py-2 px-2">PnL</th>
+            <th class="text-right py-2 px-2">R</th>
+            <th class="text-left py-2 px-2">Exit</th>
+            <th class="text-right py-2 px-2">Hold</th>
+            <th class="text-right py-2 px-2">MFE</th>
+            <th class="text-right py-2 px-2">MAE</th>
+            <th class="text-right py-2 px-2">Slip</th>
+            <th class="text-left py-2 px-2">Mode</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="t in trades" :key="t.symbol + t.hold_seconds + t.pnl">
+            <tr class="border-b border-gray-800/50 hover:bg-gray-800/30">
+              <td class="py-2 px-2 font-mono" x-text="t.symbol"></td>
+              <td class="py-2 px-2"><span class="pill" :class="tierClass(t.tier)" x-text="t.tier"></span></td>
+              <td class="py-2 px-2 text-right font-mono" :class="parseFloat(t.pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'"
+                  x-text="'$' + parseFloat(t.pnl).toFixed(2)"></td>
+              <td class="py-2 px-2 text-right font-mono" x-text="t.r_multiple ? t.r_multiple.toFixed(2) + 'R' : '—'"></td>
+              <td class="py-2 px-2"><span class="pill" :class="exitClass(t.exit_reason)" x-text="t.exit_reason"></span></td>
+              <td class="py-2 px-2 text-right" x-text="fmtDuration(t.hold_seconds)"></td>
+              <td class="py-2 px-2 text-right text-emerald-400/70" x-text="(t.mfe_pct * 100).toFixed(2) + '%'"></td>
+              <td class="py-2 px-2 text-right text-red-400/70" x-text="(t.mae_pct * 100).toFixed(2) + '%'"></td>
+              <td class="py-2 px-2 text-right" x-text="t.slippage_bps.toFixed(1) + ' bps'"></td>
+              <td class="py-2 px-2"><span class="pill pill-blue" x-text="t.position_mode"></span></td>
+            </tr>
+          </template>
+          <tr x-show="trades.length === 0">
+            <td colspan="10" class="py-8 text-center text-gray-600">No trades recorded yet</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- System Health -->
+  <div class="card">
+    <h2 class="text-sm font-semibold text-gray-400 mb-4">System Health</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+      <div>
+        <span class="text-gray-500">Avg Latency</span>
+        <p class="font-mono text-white" x-text="fmt(metrics.avg_latency_ms) + ' ms'"></p>
+      </div>
+      <div>
+        <span class="text-gray-500">Avg Hold Time</span>
+        <p class="font-mono text-white" x-text="fmtDuration(metrics.avg_hold_seconds || 0)"></p>
+      </div>
+      <div>
+        <span class="text-gray-500">Avg Win</span>
+        <p class="font-mono text-emerald-400" x-text="'$' + fmt(metrics.avg_win)"></p>
+      </div>
+      <div>
+        <span class="text-gray-500">Avg Loss</span>
+        <p class="font-mono text-red-400" x-text="'$' + fmt(metrics.avg_loss)"></p>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer class="text-center text-xs text-gray-700 py-4 border-t border-gray-800">
+  CTE v0.1.0 &middot; Phase 0–4 Architecture &middot; 377 tests passing
+</footer>
+
+<script>
+function dashboard() {
+  return {
+    epoch: 'crypto_v1_paper',
+    epochs: [],
+    metrics: {},
+    trades: [],
+    tradeFilter: { tier: '', symbol: '' },
+    connected: true,
+    tierChart: null,
+    exitChart: null,
+
+    async init() {
+      await this.fetchEpochs();
+      await this.refresh();
+      setInterval(() => this.refresh(), 10000);
+    },
+
+    async fetchEpochs() {
+      try {
+        const r = await fetch('/api/analytics/epochs');
+        this.epochs = await r.json();
+        if (this.epochs.length > 0) {
+          const active = this.epochs.find(e => e.is_active);
+          if (active) this.epoch = active.name;
+        }
+      } catch { this.epochs = [{ name: 'crypto_v1_paper' }]; }
+    },
+
+    async refresh() {
+      try {
+        const r = await fetch(`/api/analytics/summary?epoch=${this.epoch}`);
+        this.metrics = await r.json();
+        this.connected = true;
+        await this.refreshTrades();
+        this.updateCharts();
+      } catch { this.connected = false; }
+    },
+
+    async refreshTrades() {
+      try {
+        let url = `/api/analytics/trades?epoch=${this.epoch}&limit=50`;
+        if (this.tradeFilter.tier) url += `&tier=${this.tradeFilter.tier}`;
+        if (this.tradeFilter.symbol) url += `&symbol=${this.tradeFilter.symbol}`;
+        const r = await fetch(url);
+        this.trades = await r.json();
+      } catch { this.trades = []; }
+    },
+
+    updateCharts() {
+      const tierData = this.metrics.pnl_by_tier || {};
+      const exitData = this.metrics.pnl_by_exit_reason || {};
+      this.renderBar('tierChart', tierData, 'tierChart');
+      this.renderBar('exitChart', exitData, 'exitChart');
+    },
+
+    renderBar(canvasId, data, chartRef) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      if (this[chartRef] instanceof Chart) this[chartRef].destroy();
+
+      const labels = Object.keys(data);
+      const values = Object.values(data);
+      const colors = values.map(v => v >= 0 ? 'rgba(52,211,153,0.7)' : 'rgba(248,113,113,0.7)');
+
+      this[chartRef] = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{ data: values, backgroundColor: colors, borderWidth: 0, borderRadius: 4 }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { display: false } },
+            y: { ticks: { color: '#6b7280', callback: v => '$' + v.toFixed(0) }, grid: { color: '#1f2937' } }
+          }
+        }
+      });
+    },
+
+    fmt(v) { return (v || 0).toFixed(2); },
+    pct(v) { return ((v || 0) * 100).toFixed(1) + '%'; },
+    fmtDuration(s) {
+      if (!s) return '—';
+      if (s < 60) return s + 's';
+      if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+      return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+    },
+    tierClass(t) {
+      return { A: 'pill-green', B: 'pill-blue', C: 'pill-yellow' }[t] || 'pill-yellow';
+    },
+    exitClass(r) {
+      const m = { hard_stop: 'pill-red', stale_data: 'pill-red', spread_blowout: 'pill-red',
+                  thesis_failure: 'pill-yellow', no_progress: 'pill-yellow',
+                  winner_trailing: 'pill-green', runner_trailing: 'pill-green' };
+      return m[r] || 'pill-blue';
+    }
+  };
+}
+</script>
+</body>
+</html>
