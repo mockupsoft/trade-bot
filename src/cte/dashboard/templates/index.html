@@ -820,29 +820,34 @@
       <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
         <div>
           <h3 class="text-sm font-semibold text-white tracking-tight">Alerts</h3>
-          <p class="text-[11px] text-slate-500 mt-1 max-w-2xl leading-relaxed" x-text="(alertsSnap && alertsSnap.meta && alertsSnap.meta.legend) || ''"></p>
-          <p class="text-[10px] text-slate-600 font-mono mt-2" x-show="alertsSnap && alertsSnap.meta && alertsSnap.meta.utc" x-text="alertsEvaluatedLine()"></p>
+          <p class="text-[11px] text-slate-500 mt-1 max-w-2xl leading-relaxed" x-text="(alertsSnap.meta && alertsSnap.meta.legend) || ''"></p>
+          <p class="text-[10px] text-slate-600 font-mono mt-2" x-show="alertsSnap.meta && alertsSnap.meta.utc" x-text="alertsEvaluatedLine()"></p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <span x-show="alertsLoading" class="text-[11px] text-slate-500">Loading…</span>
           <button type="button" class="btn btn-ok !py-2 !px-3 !text-xs" @click="loadAlerts()">Refresh</button>
         </div>
       </div>
+      <div x-show="alertsSnap.error" class="card border-red-500/30 mb-4">
+        <p class="text-sm text-red-400 font-medium">Alerts status failed</p>
+        <p class="text-xs text-slate-500 font-mono mt-2 break-all" x-text="alertsSnap.error"></p>
+      </div>
       <div class="card">
         <h4 class="cfg-section-title">Rules &amp; live state</h4>
+        <div x-show="!alertsLoading && !alertsSnap.error && alertsRulesForTemplate().length===0" class="py-10 text-center text-xs text-slate-500">
+          No alert rules in the response. Try <span class="font-mono text-slate-400">Refresh</span> or open <span class="font-mono text-slate-400">/api/alerts/status</span> in this origin.
+        </div>
         <div class="space-y-0 divide-y divide-white/[0.06] text-xs">
-          <template x-for="rule in (alertsSnap && alertsSnap.rules) ? alertsSnap.rules : []" :key="rule.id">
-            <div class="py-3.5">
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="min-w-0 flex-1">
-                  <span class="text-slate-200 font-medium" x-text="rule.title"></span>
-                  <p class="text-[10px] text-slate-500 mt-1 font-mono leading-relaxed" x-text="rule.condition"></p>
-                  <p class="text-[10px] text-slate-600 mt-1.5 font-mono break-all" x-show="rule.detail" x-text="rule.detail"></p>
-                </div>
-                <span class="pill shrink-0 text-[10px]" :class="alertStatePill(rule)" x-text="alertStateLabel(rule)"></span>
+          <div class="py-3.5" x-for="(rule, idx) in alertsRulesForTemplate()" :key="rule.id || rule.title || idx">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <span class="text-slate-200 font-medium" x-text="rule.title"></span>
+                <p class="text-[10px] text-slate-500 mt-1 font-mono leading-relaxed" x-text="rule.condition"></p>
+                <p class="text-[10px] text-slate-600 mt-1.5 font-mono break-all" x-show="rule.detail" x-text="rule.detail"></p>
               </div>
+              <span class="pill shrink-0 text-[10px]" :class="alertStatePill(rule)" x-text="alertStateLabel(rule)"></span>
             </div>
-          </template>
+          </div>
         </div>
       </div>
     </div>
@@ -875,7 +880,7 @@ function app(){return{
     {id:'config',label:'Config',svg:ICON.config},
     {id:'alerts',label:'Alerts',svg:ICON.alerts},
   ],
-  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:{meta:{hint:'',utc:''},sections:[]},configLoading:false,alertsSnap:null,alertsLoading:false,researchTiers:{},tf:{tier:'',symbol:'',exit:'',source:''},
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:{meta:{hint:'',utc:''},sections:[]},configLoading:false,alertsSnap:{meta:{legend:'',utc:'',firing_count:0},rules:[]},alertsLoading:false,researchTiers:{},tf:{tier:'',symbol:'',exit:'',source:''},
   mkt:{},mktHealth:{},
   ddTier:false,ddSym:false,ddExit:false,ddSource:false,
   tierOpts:[
@@ -1065,17 +1070,43 @@ function app(){return{
     if(rule.state==='unknown')return'N/A';
     return'FIRING';
   },
+  alertsRulesForTemplate(){
+    const s=this.alertsSnap;
+    if(!s||!Array.isArray(s.rules))return[];
+    return s.rules;
+  },
   async loadAlerts(){
     this.alertsLoading=true;
     try{
-      this.alertsSnap=await(await fetch('/api/alerts/status')).json();
+      const r=await fetch('/api/alerts/status');
+      const j=await r.json();
+      if(!r.ok){
+        const detail=j&&j.detail;
+        const msg=typeof detail==='string'?detail:(detail?JSON.stringify(detail):'HTTP '+r.status);
+        this.alertsSnap={
+          meta:{legend:'',utc:'',firing_count:0},
+          rules:[],
+          error:msg,
+        };
+      }else{
+        const rules=Array.isArray(j.rules)?j.rules:[];
+        this.alertsSnap={
+          meta:j.meta&&typeof j.meta==='object'?j.meta:{legend:'',utc:'',firing_count:0},
+          rules,
+          error:j.error,
+        };
+      }
     }catch(e){
-      this.alertsSnap={meta:{legend:'',utc:'',firing_count:0},rules:[]};
+      this.alertsSnap={
+        meta:{legend:'',utc:'',firing_count:0},
+        rules:[],
+        error:String(e),
+      };
     }
     this.alertsLoading=false;
   },
   alertsEvaluatedLine(){
-    const m=this.alertsSnap&&this.alertsSnap.meta;
+    const m=this.alertsSnap.meta;
     if(!m||!m.utc)return'';
     const n=Number(m.firing_count)||0;
     return'Evaluated · '+m.utc+(n>0?' · '+n+' firing':' · all quiet');
