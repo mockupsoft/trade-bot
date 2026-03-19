@@ -1,19 +1,24 @@
-"""CTE Dashboard — Professional multi-page operations + research platform.
+"""CTE Dashboard — Mode-aware operations platform.
 
-Three surfaces:
-A. Monitoring Dashboard — KPIs, charts, trade journal
-B. Operations Console — kill switch, venue health, reconciliation, mode control
-C. Research Console — score distributions, tier comparison, exit attribution
+Modes:
+  seed  = UI preview with fake data (default for development)
+  paper = live market data + simulated fills
+  demo  = live market data + testnet/demo exchange orders
+  live  = disabled in v1
 
-Run: uvicorn cte.dashboard.app:app --host 0.0.0.0 --port 8080
+Run: CTE_ENGINE_MODE=paper uvicorn cte.dashboard.app:app --port 8080
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import os
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import structlog
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
@@ -23,30 +28,62 @@ from cte.api.analytics_routes import router as analytics_router
 from cte.api.analytics_routes import set_engine
 from cte.api.health import router as health_router
 from cte.core.logging import setup_logging
+from cte.market.feed import MarketDataFeed
 from cte.ops.kill_switch import OperationsController
 from cte.ops.readiness import (
     build_demo_to_live_checklist,
     build_paper_to_demo_checklist,
     evaluate_readiness,
 )
+from cte.ops.safety import SystemMode, enforce_safety, print_startup_banner
 from cte.ops.validation import ValidationCampaign
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+log = structlog.get_logger("dashboard")
+
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
+# ── Global State ──────────────────────────────────────────────
+_system_mode: SystemMode = SystemMode.SEED
 _epoch_manager = EpochManager()
 _analytics_engine: AnalyticsEngine | None = None
 _ops_controller = OperationsController()
+_market_feed: MarketDataFeed | None = None
+_feed_task: asyncio.Task | None = None
 _validation_campaigns: dict[str, ValidationCampaign] = {}
+
+
+def _resolve_mode() -> SystemMode:
+    raw = os.environ.get("CTE_ENGINE_MODE", "seed").lower()
+    try:
+        return SystemMode(raw)
+    except ValueError:
+        return SystemMode.SEED
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _analytics_engine
+    global _analytics_engine, _market_feed, _feed_task, _system_mode
     setup_logging(level="INFO", service_name="dashboard")
 
+    _system_mode = _resolve_mode()
+    print_startup_banner(_system_mode.value)
+
+    # Safety checks for demo mode
+    if _system_mode == SystemMode.DEMO:
+        enforce_safety(
+            "demo",
+            binance_rest_url=os.environ.get("CTE_BINANCE_TESTNET_REST_URL", "https://testnet.binancefuture.com"),
+            binance_api_key=os.environ.get("CTE_BINANCE_TESTNET_API_KEY", ""),
+            binance_api_secret=os.environ.get("CTE_BINANCE_TESTNET_API_SECRET", ""),
+        )
+
+    if _system_mode == SystemMode.LIVE:
+        enforce_safety("live")
+
+    # Epochs
     for name, mode, desc in [
         ("crypto_v1_paper", EpochMode.PAPER, "Paper trading phase"),
         ("crypto_v1_demo", EpochMode.DEMO, "Testnet demo phase"),
@@ -54,19 +91,42 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         ("crypto_v1_shadow_short", EpochMode.SHADOW, "Shadow short experiment"),
     ]:
         _epoch_manager.create_epoch(name, mode, desc)
-    _epoch_manager.activate("crypto_v1_paper")
+
+    epoch_name = {
+        SystemMode.SEED: "crypto_v1_paper",
+        SystemMode.PAPER: "crypto_v1_paper",
+        SystemMode.DEMO: "crypto_v1_demo",
+        SystemMode.LIVE: "crypto_v1_live",
+    }[_system_mode]
+    _epoch_manager.activate(epoch_name)
 
     _analytics_engine = AnalyticsEngine(_epoch_manager, initial_capital=Decimal("10000"))
     set_engine(_analytics_engine)
 
-    from cte.dashboard.seed import inject_seed_data
-    count = inject_seed_data(_analytics_engine)
+    # Seed mode: inject fake data for UI preview
+    if _system_mode == SystemMode.SEED:
+        from cte.dashboard.seed import inject_seed_data
+        count = inject_seed_data(_analytics_engine)
+        await log.ainfo("seed_data_injected", trades=count, mode="seed")
 
-    import structlog
-    log = structlog.get_logger("dashboard")
-    await log.ainfo("seed_data_injected", trades=count)
+    # Paper & Demo: start live market data feed
+    if _system_mode in (SystemMode.PAPER, SystemMode.DEMO):
+        _market_feed = MarketDataFeed()
+        _feed_task = asyncio.create_task(_market_feed.start())
+        await log.ainfo("market_feed_started", mode=_system_mode.value)
+
+    await log.ainfo("dashboard_ready", mode=_system_mode.value)
 
     yield
+
+    # Shutdown
+    if _market_feed:
+        _market_feed.stop()
+    if _feed_task:
+        _feed_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _feed_task
+    await log.ainfo("dashboard_stopped")
 
 
 app = FastAPI(title="CTE Dashboard", version="0.1.0", lifespan=lifespan)
@@ -81,11 +141,57 @@ async def index():
     return HTMLResponse(content=(TEMPLATE_DIR / "index.html").read_text())
 
 
+# ── Market Data API ───────────────────────────────────────────
+
+@app.get("/api/market/tickers")
+async def market_tickers():
+    """Live ticker data for all symbols."""
+    if not _market_feed:
+        return {"source": "none", "mode": _system_mode.value, "tickers": {}}
+    return {
+        "source": "binance_ws",
+        "mode": _system_mode.value,
+        "tickers": {
+            sym: {
+                "last_price": str(t.last_price),
+                "best_bid": str(t.best_bid),
+                "best_ask": str(t.best_ask),
+                "mark_price": str(t.mark_price),
+                "spread_bps": round(t.spread_bps, 2),
+                "age_ms": t.age_ms,
+                "is_stale": t.is_stale,
+                "trade_count_1m": t.trade_count_1m,
+            }
+            for sym, t in _market_feed.tickers.items()
+        },
+    }
+
+
+@app.get("/api/market/health")
+async def market_health():
+    """Market data feed health status."""
+    if not _market_feed:
+        return {"connected": False, "mode": _system_mode.value, "detail": "No feed in this mode"}
+    h = _market_feed.health
+    return {
+        "connected": h.connected,
+        "mode": _system_mode.value,
+        "messages_total": h.messages_total,
+        "reconnect_count": h.reconnect_count,
+        "errors_total": h.errors_total,
+        "latency_ms": round(h.latency_ms, 1),
+        "uptime_seconds": round(h.uptime_seconds, 1),
+        "symbols": h.symbols,
+    }
+
+
 # ── Ops API ───────────────────────────────────────────────────
 
 @app.get("/api/ops/status")
 async def ops_status():
-    return _ops_controller.status()
+    status = _ops_controller.status()
+    status["system_mode"] = _system_mode.value
+    return status
 
 
 @app.post("/api/ops/emergency_stop")
@@ -135,6 +241,13 @@ async def demo_to_live_checklist():
     return evaluate_readiness(gates)
 
 
+@app.get("/api/readiness/edge_proof")
+async def edge_proof_checklist():
+    from cte.ops.readiness import build_edge_proof_checklist
+    gates = build_edge_proof_checklist()
+    return evaluate_readiness(gates)
+
+
 # ── Validation API ────────────────────────────────────────────
 
 @app.post("/api/validation/start")
@@ -161,14 +274,7 @@ async def campaign_report(name: str):
     return campaign.generate_report()
 
 
-# ── Edge Proof API ────────────────────────────────────────────
-
-@app.get("/api/readiness/edge_proof")
-async def edge_proof_checklist():
-    from cte.ops.readiness import build_edge_proof_checklist
-    gates = build_edge_proof_checklist()
-    return evaluate_readiness(gates)
-
+# ── Reports ───────────────────────────────────────────────────
 
 @app.get("/api/report/go_no_go")
 async def go_no_go_report():
@@ -179,7 +285,7 @@ async def go_no_go_report():
     )
 
 
-# ── Config API (read-only) ────────────────────────────────────
+# ── Config API ────────────────────────────────────────────────
 
 @app.get("/api/config")
 async def get_config():
@@ -187,6 +293,7 @@ async def get_config():
     try:
         s = get_settings()
         return {
+            "system_mode": _system_mode.value,
             "engine_mode": s.engine.mode.value,
             "symbols": s.engine.symbols,
             "max_leverage": s.engine.max_leverage,
@@ -213,4 +320,4 @@ async def get_config():
             },
         }
     except Exception:
-        return {"error": "Settings not available"}
+        return {"error": "Settings not available", "system_mode": _system_mode.value}

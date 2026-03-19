@@ -65,6 +65,9 @@
         <template x-for="e in epochs"><option :value="e.name" x-text="e.name"></option></template>
       </select>
       <span class="text-gray-600">|</span>
+      <div :class="(ops.system_mode||'seed')==='demo'?'pill pill-p':(ops.system_mode||'seed')==='paper'?'pill pill-b':'pill pill-y'"
+           x-text="(ops.system_mode||'seed').toUpperCase()+' MODE'"></div>
+      <div :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'FEED LIVE':'NO FEED'"></div>
       <div :class="ops.mode==='halted'?'pill pill-r':ops.mode==='paused'?'pill pill-y':'pill pill-g'" x-text="ops.mode?.toUpperCase()"></div>
     </div>
   </header>
@@ -91,6 +94,72 @@
         <div class="card"><div class="sv text-yellow-400" x-text="m.killed_winners||0"></div><div class="sl">Killed Winners</div></div>
         <div class="card"><div class="sv text-blue-400" x-text="(m.no_progress_regret||{}).count||0"></div><div class="sl">No-Progress Exits</div></div>
         <div class="card"><div class="sv text-purple-400" x-text="(m.runner_outcomes||{}).count||0"></div><div class="sl">Runner Trades</div></div>
+      </div>
+    </div>
+
+    <!-- ═══ MARKET FEEDS ═══ -->
+    <div x-show="page==='market'">
+      <!-- Feed Health -->
+      <div class="card mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-semibold text-gray-400">Feed Status</h3>
+          <div class="flex gap-2">
+            <span :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'CONNECTED':'DISCONNECTED'"></span>
+            <span class="pill pill-b" x-text="'Source: '+(mkt.source||'none')"></span>
+            <span class="pill pill-y" x-text="(ops.system_mode||'seed').toUpperCase()+' MODE'"></span>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+          <div><span class="text-gray-500">Messages</span><p class="font-mono text-white" x-text="(mktHealth.messages_total||0).toLocaleString()"></p></div>
+          <div><span class="text-gray-500">Latency</span><p class="font-mono" :class="(mktHealth.latency_ms||0)<200?'text-emerald-400':'text-yellow-400'" x-text="(mktHealth.latency_ms||0).toFixed(0)+' ms'"></p></div>
+          <div><span class="text-gray-500">Reconnects</span><p class="font-mono" :class="(mktHealth.reconnect_count||0)>3?'text-red-400':'text-white'" x-text="mktHealth.reconnect_count||0"></p></div>
+          <div><span class="text-gray-500">Errors</span><p class="font-mono" :class="(mktHealth.errors_total||0)>0?'text-red-400':'text-white'" x-text="mktHealth.errors_total||0"></p></div>
+          <div><span class="text-gray-500">Uptime</span><p class="font-mono text-white" x-text="dur(Math.floor(mktHealth.uptime_seconds||0))"></p></div>
+        </div>
+      </div>
+      <!-- Per-Symbol Tickers -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <template x-for="(ticker, sym) in (mkt.tickers||{})" :key="sym">
+          <div class="card">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-mono font-bold text-white" x-text="sym"></h3>
+              <span :class="ticker.is_stale?'pill pill-r':'pill pill-g'" x-text="ticker.is_stale?'STALE':'LIVE'"></span>
+            </div>
+            <div class="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <span class="text-gray-500">Last Price</span>
+                <p class="text-xl font-mono font-bold text-white" x-text="'$'+parseFloat(ticker.last_price||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+              </div>
+              <div>
+                <span class="text-gray-500">Best Bid</span>
+                <p class="font-mono text-emerald-400" x-text="'$'+parseFloat(ticker.best_bid||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+              </div>
+              <div>
+                <span class="text-gray-500">Best Ask</span>
+                <p class="font-mono text-red-400" x-text="'$'+parseFloat(ticker.best_ask||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+              </div>
+              <div>
+                <span class="text-gray-500">Mark Price</span>
+                <p class="font-mono text-blue-400" x-text="'$'+parseFloat(ticker.mark_price||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+              </div>
+              <div>
+                <span class="text-gray-500">Spread</span>
+                <p class="font-mono" :class="(ticker.spread_bps||0)<3?'text-emerald-400':'text-yellow-400'" x-text="(ticker.spread_bps||0).toFixed(2)+' bps'"></p>
+              </div>
+              <div>
+                <span class="text-gray-500">Age</span>
+                <p class="font-mono" :class="(ticker.age_ms||0)<2000?'text-emerald-400':(ticker.age_ms||0)<5000?'text-yellow-400':'text-red-400'" x-text="(ticker.age_ms||0)+'ms'"></p>
+              </div>
+            </div>
+            <div class="mt-3 text-xs text-gray-600">
+              Trades/min: <span class="text-gray-400" x-text="ticker.trade_count_1m||0"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div x-show="!mkt.tickers || Object.keys(mkt.tickers).length===0" class="card mt-6 text-center text-gray-600 py-8">
+        <p>No market data feed active.</p>
+        <p class="text-xs mt-2">Start with <code class="text-gray-400">CTE_ENGINE_MODE=paper</code> or <code class="text-gray-400">CTE_ENGINE_MODE=demo</code> for live data.</p>
       </div>
     </div>
 
@@ -297,6 +366,7 @@ function app(){return{
   page:'overview',epoch:'crypto_v1_paper',
   pages:[
     {id:'overview',label:'Overview',icon:'📊'},
+    {id:'market',label:'Market Feeds',icon:'📡'},
     {id:'positions',label:'Positions',icon:'📋'},
     {id:'ops',label:'Operations',icon:'🛡️'},
     {id:'readiness',label:'Readiness',icon:'✅'},
@@ -305,15 +375,18 @@ function app(){return{
     {id:'alerts',label:'Alerts',icon:'🔔'},
   ],
   epochs:[],m:{},trades:[],ops:{},tf:{tier:'',symbol:'',exit:''},
+  mkt:{},mktHealth:{},
   _charts:{},
   async init(){
     await this.loadEpochs();await this.refresh();
-    setInterval(()=>this.refresh(),10000);
+    setInterval(()=>this.refresh(),5000);
   },
   async loadEpochs(){try{this.epochs=await(await fetch('/api/analytics/epochs')).json();const a=this.epochs.find(e=>e.is_active);if(a)this.epoch=a.name}catch{this.epochs=[{name:'crypto_v1_paper'}]}},
   async refresh(){
     try{this.m=await(await fetch(`/api/analytics/summary?epoch=${this.epoch}`)).json()}catch{}
     try{this.ops=await(await fetch('/api/ops/status')).json()}catch{}
+    try{this.mkt=await(await fetch('/api/market/tickers')).json()}catch{}
+    try{this.mktHealth=await(await fetch('/api/market/health')).json()}catch{}
     await this.loadTrades();this.updateCharts();
   },
   async loadTrades(){
