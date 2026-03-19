@@ -57,6 +57,22 @@ class OrderRejectedError(ExecutionError):
     """Raised when an order is rejected by the venue."""
 
 
+class RateLimitError(ExecutionError):
+    """Raised when a venue rate limit is hit (HTTP 429)."""
+
+
+class InsufficientBalanceError(OrderRejectedError):
+    """Raised when venue rejects due to insufficient margin/balance."""
+
+
+class InvalidQuantityError(OrderRejectedError):
+    """Raised when venue rejects due to invalid lot size or quantity."""
+
+
+class ReconciliationError(CTEError):
+    """Raised when local and venue position states diverge."""
+
+
 class ExitError(CTEError):
     """Raised when exit logic encounters an error."""
 
