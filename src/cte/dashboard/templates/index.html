@@ -306,87 +306,97 @@
 
     <div x-show="page==='market'" x-cloak>
       <div class="card mb-6">
-        <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
-          <div>
-            <h3 class="text-sm font-semibold text-white tracking-tight">Feed pipeline</h3>
-            <p class="text-[11px] text-slate-500 mt-1">WebSocket throughput · auto refresh 2s on this page</p>
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <div class="min-w-0 flex-1">
+            <h3 class="text-base font-semibold text-white tracking-tight">Market feeds</h3>
+            <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">
+              Binance USDⓈ-M <span class="text-cyan-500/80">testnet</span> combined stream · poll <span class="font-mono text-slate-400">~0.85s</span>
+            </p>
+            <p class="text-[10px] text-slate-600 font-mono mt-1.5 truncate" x-text="mkt.stream_url || mktHealth.stream_url || ''" title="WebSocket base URL"></p>
           </div>
-          <div class="flex flex-wrap gap-2">
-            <span :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'CONNECTED':'DISCONNECTED'"></span>
-            <span class="pill pill-b" x-text="'Source: '+(mkt.source||'none')"></span>
+          <div class="flex flex-wrap gap-2 shrink-0">
+            <span :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'WS LIVE':'OFFLINE'"></span>
+            <span class="pill pill-b" x-text="'src: '+(mkt.source||'—')"></span>
             <span class="pill pill-p">TESTNET</span>
           </div>
         </div>
-        <div class="stream-bar mb-6"><div class="stream-fill" :style="'width:'+streamPct+'%'"></div></div>
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-5 text-sm">
+        <div class="stream-bar mb-5"><div class="stream-fill" :style="'width:'+streamPct+'%'"></div></div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm">
           <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
-            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Messages</span>
-            <p class="font-mono text-lg text-white mt-1 tabular-nums" x-text="(mktHealth.messages_total||0).toLocaleString()"></p>
+            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Msgs</span>
+            <p class="font-mono text-base text-white mt-1 tabular-nums" x-text="(mktHealth.messages_total||0).toLocaleString()"></p>
           </div>
           <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
-            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Latency</span>
-            <p class="font-mono text-lg mt-1 tabular-nums" :class="(mktHealth.latency_ms||0)<200?'text-emerald-400':'text-amber-400'" x-text="(mktHealth.latency_ms||0).toFixed(0)+' ms'"></p>
+            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Last pkt</span>
+            <p class="font-mono text-base mt-1 tabular-nums" :class="(mktHealth.last_message_age_ms||999999)<1500?'text-emerald-400':'text-amber-400'" x-text="mktHealth.last_message_age_ms!=null?mktHealth.last_message_age_ms+' ms':'—'"></p>
+          </div>
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
+            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Venue Δt</span>
+            <p class="font-mono text-base mt-1 tabular-nums" :class="(mktHealth.latency_ms||0)<250?'text-emerald-400':'text-amber-400'" x-text="(mktHealth.latency_ms||0).toFixed(0)+' ms'"></p>
           </div>
           <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
             <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Reconnects</span>
-            <p class="font-mono text-lg mt-1 tabular-nums" :class="(mktHealth.reconnect_count||0)>3?'text-red-400':'text-white'" x-text="mktHealth.reconnect_count||0"></p>
+            <p class="font-mono text-base mt-1 tabular-nums" :class="(mktHealth.reconnect_count||0)>2?'text-red-400':'text-white'" x-text="mktHealth.reconnect_count||0"></p>
           </div>
           <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
             <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Errors</span>
-            <p class="font-mono text-lg mt-1 tabular-nums" :class="(mktHealth.errors_total||0)>0?'text-red-400':'text-white'" x-text="mktHealth.errors_total||0"></p>
+            <p class="font-mono text-base mt-1 tabular-nums" :class="(mktHealth.errors_total||0)>0?'text-red-400':'text-white'" x-text="mktHealth.errors_total||0"></p>
           </div>
           <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
             <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Uptime</span>
-            <p class="font-mono text-lg text-white mt-1 tabular-nums" x-text="dur(Math.floor(mktHealth.uptime_seconds||0))"></p>
+            <p class="font-mono text-base text-white mt-1 tabular-nums" x-text="dur(Math.floor(mktHealth.uptime_seconds||0))"></p>
           </div>
         </div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <template x-for="(ticker, sym) in (mkt.tickers||{})" :key="sym">
+        <template x-for="sym in marketSymbols()" :key="sym">
           <div class="card card-hover overflow-hidden">
             <div class="flex items-center justify-between mb-4">
-              <h3 class="font-mono font-bold text-base text-white tracking-tight" x-text="sym"></h3>
-              <span :class="ticker.is_stale?'pill pill-r':'pill pill-g'" x-text="ticker.is_stale?'STALE':'LIVE'"></span>
+              <h3 class="font-mono font-bold text-lg text-white tracking-tight" x-text="sym"></h3>
+              <span :class="ti(sym).is_stale?'pill pill-r':'pill pill-g'" x-text="ti(sym).is_stale?'STALE':'LIVE'"></span>
             </div>
             <div class="rounded-xl bg-[#06080c] p-4 border border-white/[0.05] mb-4">
-              <span class="text-[10px] text-slate-500 uppercase font-semibold tracking-wider">Last price</span>
-              <p class="text-3xl font-mono font-semibold text-white mt-1 tabular-nums transition-colors"
-                 :class="flashClass(sym)"
-                 x-text="'$'+parseFloat(ticker.last_price||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+              <span class="text-[10px] text-slate-500 uppercase font-semibold tracking-wider">Last trade</span>
+              <p class="text-3xl font-mono font-semibold mt-1 tabular-nums transition-colors min-h-[2.5rem]"
+                 :class="[flashClass(sym), parseFloat(ti(sym).last_price)>0?'text-white':'text-slate-600']"
+                 x-text="fmtUsd(ti(sym).last_price)"></p>
             </div>
-            <div class="grid grid-cols-3 gap-3 text-sm">
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 text-sm">
               <div>
                 <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Bid</span>
-                <p class="font-mono text-emerald-400/90 font-medium mt-0.5" x-text="'$'+parseFloat(ticker.best_bid||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+                <p class="font-mono text-emerald-400/95 font-medium mt-0.5" x-text="fmtUsd(ti(sym).best_bid)"></p>
+                <p class="text-[10px] font-mono text-slate-600 mt-0.5" x-text="'Sz '+fmtQty(ti(sym).bid_qty)"></p>
               </div>
               <div>
                 <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Ask</span>
-                <p class="font-mono text-red-400/90 font-medium mt-0.5" x-text="'$'+parseFloat(ticker.best_ask||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+                <p class="font-mono text-red-400/95 font-medium mt-0.5" x-text="fmtUsd(ti(sym).best_ask)"></p>
+                <p class="text-[10px] font-mono text-slate-600 mt-0.5" x-text="'Sz '+fmtQty(ti(sym).ask_qty)"></p>
               </div>
               <div>
                 <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Mark</span>
-                <p class="font-mono text-sky-400 font-medium mt-0.5" x-text="'$'+parseFloat(ticker.mark_price||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+                <p class="font-mono text-sky-400 font-medium mt-0.5" x-text="fmtUsd(ti(sym).mark_price)"></p>
               </div>
               <div>
                 <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Spread</span>
-                <p class="font-mono text-sm mt-0.5" :class="(ticker.spread_bps||0)<3?'text-emerald-400':'text-amber-400'" x-text="(ticker.spread_bps||0).toFixed(2)+' bps'"></p>
+                <p class="font-mono text-sm mt-0.5" :class="(ti(sym).spread_bps||0)<3?'text-emerald-400':'text-amber-400'" x-text="(parseFloat(ti(sym).best_bid)>0&&parseFloat(ti(sym).best_ask)>0)?(ti(sym).spread_bps||0).toFixed(2)+' bps':'—'"></p>
               </div>
               <div>
-                <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Age</span>
-                <p class="font-mono text-sm mt-0.5" :class="(ticker.age_ms||0)<2000?'text-emerald-400':(ticker.age_ms||0)<5000?'text-amber-400':'text-red-400'" x-text="(ticker.age_ms||0)+' ms'"></p>
+                <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Book age</span>
+                <p class="font-mono text-sm mt-0.5" :class="(ti(sym).age_ms||0)<2000?'text-emerald-400':(ti(sym).age_ms||0)<5000?'text-amber-400':'text-red-400'" x-text="(ti(sym).age_ms||0)<999000?(ti(sym).age_ms||0)+' ms':'—'"></p>
               </div>
               <div>
-                <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Trades/min</span>
-                <p class="font-mono text-white mt-0.5" x-text="ticker.trade_count_1m||0"></p>
+                <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">60s window</span>
+                <p class="font-mono text-white font-semibold mt-0.5" x-text="ti(sym).trade_count_1m||0"></p>
+                <p class="text-[10px] font-mono text-slate-500 mt-0.5" x-text="'Σq '+fmtBase(ti(sym).volume_1m)+' · rolling'"></p>
               </div>
             </div>
           </div>
         </template>
       </div>
       <div x-show="!mkt.tickers || Object.keys(mkt.tickers).length===0" class="card mt-6 text-center py-14 border-dashed border-white/10">
-        <p class="text-slate-400">No live market stream</p>
-        <p class="text-xs text-slate-600 mt-3 max-w-md mx-auto">Run with <code class="text-cyan-500/90 font-mono">CTE_ENGINE_MODE=paper</code> or <code class="text-cyan-500/90 font-mono">demo</code> for Binance ticker cards.</p>
+        <p class="text-slate-400">Stream not ready</p>
+        <p class="text-xs text-slate-600 mt-3 max-w-md mx-auto">Check testnet API keys and outbound WSS to <span class="font-mono text-slate-500">stream.binancefuture.com</span>.</p>
       </div>
     </div>
 
@@ -655,7 +665,32 @@ function app(){return{
   get liveConnected(){return !!(this.mktHealth&&this.mktHealth.connected);},
   get streamPct(){
     const m=this.mktHealth.messages_total||0;
-    return Math.min(100,15+Math.log10(10+m)*18);
+    const age=this.mktHealth.last_message_age_ms;
+    const fresh=age!=null&&age<1200?1.15:1;
+    return Math.min(100,fresh*(12+Math.log10(10+m)*18));
+  },
+  marketSymbols(){
+    return Object.keys(this.mkt.tickers||{}).sort();
+  },
+  ti(sym){
+    return (this.mkt.tickers||{})[sym]||{};
+  },
+  fmtUsd(v){
+    const x=parseFloat(String(v??'0'));
+    if(!isFinite(x)||x<=0)return '—';
+    return '$'+x.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  },
+  fmtQty(v){
+    const x=parseFloat(String(v??'0'));
+    if(!isFinite(x)||x<=0)return '—';
+    if(x>=1000)return x.toLocaleString(undefined,{maximumFractionDigits:3});
+    const s=x.toFixed(6).replace(/\.?0+$/,'');
+    return s||'0';
+  },
+  fmtBase(v){
+    const x=parseFloat(String(v??'0'));
+    if(!isFinite(x)||x<=0)return '—';
+    return x>=1?x.toFixed(4):x.toFixed(6);
   },
   get relativeAgo(){
     void this._clockTick;
@@ -673,9 +708,10 @@ function app(){return{
       Chart.defaults.font.family="'DM Sans',system-ui,sans-serif";
       Chart.defaults.font.size=11;
     }
+    await this.pollMarket();
     await this.refresh();
     this._slowTimer=setInterval(()=>this.refresh(),7000);
-    this._tickTimer=setInterval(()=>this.tickFast(),2200);
+    this._mktTimer=setInterval(()=>this.pollMarket(),850);
     setInterval(()=>{this._clockTick++;},1000);
     document.addEventListener('keydown',(e)=>{
       if(e.key==='Escape'){
@@ -686,29 +722,27 @@ function app(){return{
   async refresh(){
     try{this.m=await(await fetch(`/api/analytics/summary?epoch=${encodeURIComponent(this.epoch)}`)).json()}catch(e){this.m={}}
     try{this.ops=await(await fetch('/api/ops/status')).json()}catch(e){this.ops={}}
-    try{this.mkt=await(await fetch('/api/market/tickers')).json()}catch(e){this.mkt={}}
-    try{this.mktHealth=await(await fetch('/api/market/health')).json()}catch(e){this.mktHealth={}}
     await this.loadTrades();
-    this.updateCharts();
+    if(this.page==='overview')this.updateCharts();
     this.lastSync=Date.now();
   },
-  async tickFast(){
+  async pollMarket(){
+    try{this.mkt=await(await fetch('/api/market/tickers')).json()}catch(e){}
+    try{this.mktHealth=await(await fetch('/api/market/health')).json()}catch(e){}
     if(this.page==='market'){
-      try{this.mkt=await(await fetch('/api/market/tickers')).json()}catch(e){}
-      try{this.mktHealth=await(await fetch('/api/market/health')).json()}catch(e){}
       const tickers=this.mkt.tickers||{};
       for(const sym of Object.keys(tickers)){
         const lp=String(tickers[sym].last_price||'');
         const prev=this._lastPrice[sym];
-        if(prev!==undefined&&lp!==prev){
+        if(prev!==undefined&&lp!==prev&&parseFloat(lp)>0){
           const dir=parseFloat(lp)>parseFloat(prev)?'up':'down';
           this._flash[sym]=dir;
           setTimeout(()=>{delete this._flash[sym];},650);
         }
         this._lastPrice[sym]=lp;
       }
-      this.lastSync=Date.now();
     }
+    this.lastSync=Date.now();
   },
   flashClass(sym){
     const d=this._flash[sym];

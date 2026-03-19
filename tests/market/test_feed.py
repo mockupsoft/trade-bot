@@ -123,3 +123,27 @@ class TestMarketDataFeed:
         h = feed.health
         assert "BTCUSDT" in h.symbols
         assert h.symbols["BTCUSDT"]["last_price"] == "65000"
+        assert "volume_1m" in h.symbols["BTCUSDT"]
+
+    def test_trade_window_expires(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import time_machine
+
+        feed = MarketDataFeed()
+        with time_machine.travel("2025-06-01 12:00:00", tick=False):
+            feed._process_message(
+                orjson.dumps({
+                    "stream": "btcusdt@trade",
+                    "data": {"p": "100", "q": "1", "T": 1_748_764_800_000},
+                })
+            )
+            assert feed.get_ticker("BTCUSDT").trade_count_1m == 1
+        with time_machine.travel("2025-06-01 12:02:00", tick=False):
+            feed._process_message(
+                orjson.dumps({
+                    "stream": "btcusdt@trade",
+                    "data": {"p": "101", "q": "2", "T": 1_748_764_920_000},
+                })
+            )
+            t = feed.get_ticker("BTCUSDT")
+            assert t.trade_count_1m == 1
+            assert t.volume_1m == Decimal("2")

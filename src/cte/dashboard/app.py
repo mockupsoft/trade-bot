@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import time
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
@@ -149,13 +150,17 @@ async def market_tickers():
                 "best_bid": str(t.best_bid),
                 "best_ask": str(t.best_ask),
                 "mark_price": str(t.mark_price),
+                "bid_qty": str(t.bid_qty),
+                "ask_qty": str(t.ask_qty),
                 "spread_bps": round(t.spread_bps, 2),
                 "age_ms": t.age_ms,
                 "is_stale": t.is_stale,
                 "trade_count_1m": t.trade_count_1m,
+                "volume_1m": str(t.volume_1m),
             }
             for sym, t in _market_feed.tickers.items()
         },
+        "stream_url": _market_feed.stream_url,
     }
 
 
@@ -165,6 +170,10 @@ async def market_health():
     if not _market_feed:
         return {"connected": False, "mode": "testnet", "detail": "Feed not initialized"}
     h = _market_feed.health
+    now_ms = int(time.time() * 1000)
+    last_age: int | None = None
+    if h.last_message_ms:
+        last_age = max(0, now_ms - h.last_message_ms)
     return {
         "connected": h.connected,
         "mode": "testnet",
@@ -173,6 +182,8 @@ async def market_health():
         "errors_total": h.errors_total,
         "latency_ms": round(h.latency_ms, 1),
         "uptime_seconds": round(h.uptime_seconds, 1),
+        "last_message_age_ms": last_age,
+        "stream_url": _market_feed.stream_url,
         "symbols": h.symbols,
     }
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -45,8 +46,16 @@ class TickerState:
     ask_qty: Decimal = Decimal("0")
     last_trade_time_ms: int = 0
     last_update_ms: int = 0
-    trade_count_1m: int = 0
-    volume_1m: Decimal = Decimal("0")
+    # Rolling ~60s window by local receive time (wall clock) for live dashboard rates
+    _recv_trades: deque[tuple[int, Decimal]] = field(default_factory=deque)
+
+    @property
+    def trade_count_1m(self) -> int:
+        return len(self._recv_trades)
+
+    @property
+    def volume_1m(self) -> Decimal:
+        return sum((q for _, q in self._recv_trades), start=Decimal("0"))
 
     @property
     def spread_bps(self) -> float:
@@ -109,6 +118,11 @@ class MarketDataFeed:
     def tickers(self) -> dict[str, TickerState]:
         return self._tickers
 
+    @property
+    def stream_url(self) -> str:
+        """Combined WebSocket URL (without stream query)."""
+        return self._ws_url
+
     def get_ticker(self, symbol: str) -> TickerState | None:
         return self._tickers.get(symbol.upper())
 
@@ -122,10 +136,13 @@ class MarketDataFeed:
                 "best_bid": str(t.best_bid),
                 "best_ask": str(t.best_ask),
                 "mark_price": str(t.mark_price),
+                "bid_qty": str(t.bid_qty),
+                "ask_qty": str(t.ask_qty),
                 "spread_bps": round(t.spread_bps, 2),
                 "age_ms": t.age_ms,
                 "is_stale": t.is_stale,
                 "trade_count_1m": t.trade_count_1m,
+                "volume_1m": str(t.volume_1m),
             }
             for sym, t in self._tickers.items()
         }
@@ -210,8 +227,11 @@ class MarketDataFeed:
         ticker.last_price = Decimal(str(d.get("p", "0")))
         ticker.last_trade_time_ms = d.get("T", now_ms)
         ticker.last_update_ms = now_ms
-        ticker.trade_count_1m += 1
-        ticker.volume_1m += Decimal(str(d.get("q", "0")))
+        qty = Decimal(str(d.get("q", "0")))
+        ticker._recv_trades.append((now_ms, qty))
+        cutoff = now_ms - 60_000
+        while ticker._recv_trades and ticker._recv_trades[0][0] < cutoff:
+            ticker._recv_trades.popleft()
 
     def _handle_depth(self, ticker: TickerState, d: dict, now_ms: int) -> None:
         bids = d.get("b", d.get("bids", []))
