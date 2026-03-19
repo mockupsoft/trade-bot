@@ -41,5 +41,5 @@ class TestCTESettings:
         assert settings.risk.emergency_stop_drawdown_pct == 0.05
 
     def test_leverage_cap(self):
-        with pytest.raises(Exception):
+        with pytest.raises((TypeError, ValueError)):
             CTESettings(engine={"max_leverage": 10})

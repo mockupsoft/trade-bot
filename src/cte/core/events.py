@@ -5,9 +5,9 @@ Every model is immutable (frozen) and carries provenance metadata.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _new_id() -> UUID:
@@ -26,27 +26,27 @@ def _new_id() -> UUID:
 # Enums
 # ---------------------------------------------------------------------------
 
-class Venue(str, Enum):
+class Venue(StrEnum):
     BINANCE = "binance"
     BYBIT = "bybit"
 
 
-class Symbol(str, Enum):
+class Symbol(StrEnum):
     BTCUSDT = "BTCUSDT"
     ETHUSDT = "ETHUSDT"
 
 
-class Side(str, Enum):
+class Side(StrEnum):
     BUY = "buy"
     SELL = "sell"
 
 
-class OrderType(str, Enum):
+class OrderType(StrEnum):
     MARKET = "market"
     LIMIT = "limit"
 
 
-class OrderStatus(str, Enum):
+class OrderStatus(StrEnum):
     CREATED = "created"
     SUBMITTED = "submitted"
     PARTIAL = "partial"
@@ -55,13 +55,13 @@ class OrderStatus(str, Enum):
     REJECTED = "rejected"
 
 
-class SignalAction(str, Enum):
+class SignalAction(StrEnum):
     OPEN_LONG = "open_long"
     CLOSE_LONG = "close_long"
     HOLD = "hold"
 
 
-class ExitReason(str, Enum):
+class ExitReason(StrEnum):
     # Layer 1: Hard risk
     HARD_STOP = "hard_stop"
     STALE_DATA = "stale_data"
@@ -84,7 +84,7 @@ class ExitReason(str, Enum):
     MANUAL = "manual"
 
 
-class RiskDecision(str, Enum):
+class RiskDecision(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
 
@@ -220,7 +220,7 @@ class SignalReason(BaseModel):
     human_readable: str
 
 
-class SignalTier(str, Enum):
+class SignalTier(StrEnum):
     """Signal quality tier."""
     A = "A"
     B = "B"
@@ -395,7 +395,7 @@ class PositionSnapshot(BaseEvent):
 
 
 # ---------------------------------------------------------------------------
-# Context Events (whale, news – read-only signals, not primary triggers)
+# Context Events (whale, news - read-only signals, not primary triggers)
 # ---------------------------------------------------------------------------
 
 class WhaleAlertEvent(BaseEvent):

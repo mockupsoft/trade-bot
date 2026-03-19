@@ -78,13 +78,14 @@ def _bullish_vector(symbol: str = "BTCUSDT") -> StreamingFeatureVector:
 
 def _neutral_vector() -> StreamingFeatureVector:
     """Neutral conditions — all z-scores near zero."""
-    tf = lambda ws: TimeframeFeatures(
-        window_seconds=ws, returns_z=0.0, momentum_z=0.0,
-        taker_flow_imbalance=0.0, spread_bps=3.0,
-        spread_widening=1.0, ob_imbalance=0.0,
-        venue_divergence_bps=0.0,
-        trade_count=100, volume=5.0, window_fill_pct=1.0,
-    )
+    def tf(ws):
+        return TimeframeFeatures(
+            window_seconds=ws, returns_z=0.0, momentum_z=0.0,
+            taker_flow_imbalance=0.0, spread_bps=3.0,
+            spread_widening=1.0, ob_imbalance=0.0,
+            venue_divergence_bps=0.0,
+            trade_count=100, volume=5.0, window_fill_pct=1.0,
+        )
     return StreamingFeatureVector(
         symbol=Symbol.BTCUSDT,
         tf_10s=tf(10), tf_30s=tf(30), tf_60s=tf(60), tf_5m=tf(300),

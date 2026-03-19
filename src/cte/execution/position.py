@@ -11,13 +11,16 @@ PnL the position experienced during its lifetime.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+if TYPE_CHECKING:
+    from datetime import datetime
 
-class PositionStatus(str, Enum):
+
+class PositionStatus(StrEnum):
     PENDING = "pending"
     OPEN = "open"
     REDUCED = "reduced"
@@ -66,7 +69,7 @@ class PaperPosition:
     # Risk
     stop_loss_pct: float = 0.0
     take_profit_pct: float = 0.0
-    stop_distance_usd: Decimal = Decimal("0")  # entry × stop_pct × qty
+    stop_distance_usd: Decimal = Decimal("0")  # entry x stop_pct x qty
 
     # Price tracking (updated on every tick)
     current_price: Decimal = Decimal("0")

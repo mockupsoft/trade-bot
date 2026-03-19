@@ -1,7 +1,7 @@
 """Tests for the StreamingFeatureEngine coordinator."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
@@ -21,7 +21,7 @@ from cte.core.events import (
 )
 from cte.core.settings import FeatureSettings
 from cte.core.streams import StreamPublisher
-from cte.features.engine import StreamingFeatureEngine, SymbolState
+from cte.features.engine import StreamingFeatureEngine
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def _trade(symbol: str, price: float, qty: float, ts_sec: int, venue: str = "bin
         price=Decimal(str(price)),
         quantity=Decimal(str(qty)),
         side=Side.BUY,
-        trade_time=datetime.fromtimestamp(ts_sec, tz=timezone.utc),
+        trade_time=datetime.fromtimestamp(ts_sec, tz=UTC),
         venue_trade_id=f"t-{ts_sec}",
     )
 
@@ -66,7 +66,7 @@ def _orderbook(symbol: str, bid: float, ask: float, ts_sec: int, venue: str = "b
             OrderbookLevel(price=Decimal(str(ask + 1)), quantity=Decimal("10.0")),
         ],
         sequence=ts_sec,
-        snapshot_time=datetime.fromtimestamp(ts_sec, tz=timezone.utc),
+        snapshot_time=datetime.fromtimestamp(ts_sec, tz=UTC),
     )
 
 
@@ -157,7 +157,7 @@ class TestFeatureVectorContents:
                 price=Decimal("50000"),
                 quantity=Decimal("1.0"),
                 side=Side.BUY,
-                trade_time=datetime.fromtimestamp(1000 + i, tz=timezone.utc),
+                trade_time=datetime.fromtimestamp(1000 + i, tz=UTC),
                 venue_trade_id=f"t-{i}",
             )
             await engine.handle_trade(trade)
@@ -318,7 +318,7 @@ class TestDeterminism:
                     run_results.append(r)
 
         assert len(results_a) == len(results_b)
-        for a, b in zip(results_a, results_b):
+        for a, b in zip(results_a, results_b, strict=False):
             assert a.tf_10s.returns == b.tf_10s.returns
             assert a.tf_10s.taker_flow_imbalance == b.tf_10s.taker_flow_imbalance
             assert a.tf_10s.trade_count == b.tf_10s.trade_count

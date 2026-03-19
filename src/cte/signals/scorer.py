@@ -14,9 +14,10 @@ to 0.5 (neutral). The reason object tracks which inputs were imputed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from cte.core.events import StreamingFeatureVector, TimeframeFeatures
-
+if TYPE_CHECKING:
+    from cte.core.events import StreamingFeatureVector, TimeframeFeatures
 
 # ── Mapping Helpers ──────────────────────────────────────────────
 
@@ -83,10 +84,10 @@ def compute_momentum_score(
     """Weighted multi-timeframe momentum from returns_z and momentum_z.
 
     For each timeframe:
-      combined_z = 0.6 × returns_z + 0.4 × momentum_z
+      combined_z = 0.6 x returns_z + 0.4 x momentum_z
       tf_score = z_to_score(combined_z)
 
-    Final = Σ(tf_score × tf_weight)
+    Final = Σ(tf_score x tf_weight)
 
     Returns_z captures price movement; momentum_z captures flow pressure.
     A move with both rising price AND strong buy flow is more convincing.
@@ -117,7 +118,7 @@ def compute_momentum_score(
         score=round(total, 4),
         components=components,
         imputed_count=imputed,
-        description="Multi-timeframe momentum (returns_z × 0.6 + momentum_z × 0.4)",
+        description="Multi-timeframe momentum (returns_z x 0.6 + momentum_z x 0.4)",
     )
 
 
@@ -213,7 +214,7 @@ def compute_microstructure_score(
     - widening_health: penalty when spread widens vs average.
     - ob_favorability: OBI mapped to [0,1]. Bid-heavy = good for longs.
 
-    Weighted: 0.4 × spread + 0.3 × widening + 0.3 × OB
+    Weighted: 0.4 x spread + 0.3 x widening + 0.3 x OB
     """
     tf = vector.tf_60s
     imputed = 0
@@ -298,11 +299,11 @@ def compute_context_score(
     Range: [0, 1] where 1.0 = no modification.
 
     Penalties:
-    - whale_risk_flag active: × 0.7
-    - urgent_news_flag active: × 0.7
-    - warmup not complete: × 0.0 (hard block)
+    - whale_risk_flag active: x 0.7
+    - urgent_news_flag active: x 0.7
+    - warmup not complete: x 0.0 (hard block)
 
-    Both flags active: 0.7 × 0.7 = 0.49
+    Both flags active: 0.7 x 0.7 = 0.49
 
     This is NOT a primary entry source. It gates/dampens the primary scores.
     """

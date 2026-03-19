@@ -5,8 +5,9 @@ them into venue-agnostic canonical CTE events.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -22,7 +23,9 @@ from cte.core.events import (
     TradeEvent,
 )
 from cte.core.exceptions import DataValidationError, NormalizationError
-from cte.core.streams import StreamPublisher
+
+if TYPE_CHECKING:
+    from cte.core.streams import StreamPublisher
 
 logger = structlog.get_logger(__name__)
 
@@ -75,7 +78,7 @@ class EventNormalizer:
             )
 
         side = Side.SELL if raw.is_buyer_maker else Side.BUY
-        trade_time = datetime.fromtimestamp(raw.trade_time / 1000, tz=timezone.utc)
+        trade_time = datetime.fromtimestamp(raw.trade_time / 1000, tz=UTC)
 
         event = TradeEvent(
             venue=raw.venue,
@@ -120,7 +123,7 @@ class EventNormalizer:
             ) from e
 
         snapshot_time = datetime.fromtimestamp(
-            raw.venue_timestamp / 1000, tz=timezone.utc
+            raw.venue_timestamp / 1000, tz=UTC
         ) if raw.venue_timestamp > 0 else raw.timestamp
 
         event = OrderbookSnapshotEvent(

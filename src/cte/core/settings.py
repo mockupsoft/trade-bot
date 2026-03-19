@@ -5,31 +5,31 @@ Environment variables take highest precedence.
 """
 from __future__ import annotations
 
-from enum import Enum
+import tomllib
+from enum import StrEnum
 from pathlib import Path
 from typing import Self
 
-import tomllib
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class EngineMode(str, Enum):
+class EngineMode(StrEnum):
     PAPER = "paper"
     DEMO = "demo"
     LIVE = "live"
 
 
-class Direction(str, Enum):
+class Direction(StrEnum):
     LONG_ONLY = "long_only"
 
 
-class SizingMethod(str, Enum):
+class SizingMethod(StrEnum):
     FIXED_FRACTION = "fixed_fraction"
     KELLY = "kelly"
 
 
-class ExecutionMode(str, Enum):
+class ExecutionMode(StrEnum):
     PAPER = "paper"
     TESTNET = "testnet"
     LIVE = "live"

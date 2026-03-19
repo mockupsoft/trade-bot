@@ -21,9 +21,12 @@ State diagram:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 from cte.execution.adapter import VenueOrderStatus
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 # Valid transitions: {from_state: {to_states}}
 VALID_TRANSITIONS: dict[VenueOrderStatus, set[VenueOrderStatus]] = {

@@ -5,15 +5,11 @@ and that both paper and venue modes of the ExecutionEngine work.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
 import pytest
 
-from cte.core.events import (
-    ScoredSignalEvent, SignalAction, SignalReason, SignalTier, Symbol,
-)
 from cte.core.settings import ExecutionMode, ExecutionSettings, ExitSettings
 from cte.core.streams import StreamPublisher
 from cte.execution.adapter import (

@@ -7,7 +7,7 @@ Pipeline:
   StreamingFeatureVector
     → Hard Gates (any fail → REJECT immediately)
     → 6 Sub-scores (pure functions)
-    → Weighted Composite (primary_score × context_multiplier)
+    → Weighted Composite (primary_score x context_multiplier)
     → Tier Mapping (A/B/C/REJECT)
     → Cooldown Check
     → Emit ScoredSignalEvent
@@ -17,7 +17,7 @@ Every decision is deterministic and carries a complete reason chain.
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
@@ -32,17 +32,15 @@ from cte.core.events import (
     StreamingFeatureVector,
     SubScoreBreakdown,
 )
-from cte.core.settings import SignalSettings
-from cte.core.streams import StreamPublisher
 from cte.signals.composite import (
-    DEFAULT_TIER_THRESHOLDS,
     CompositeResult,
-    SignalTier as CompositeTier,
     compute_composite,
 )
-from cte.signals.gates import GateVerdict, check_all_gates
+from cte.signals.composite import (
+    SignalTier as CompositeTier,
+)
+from cte.signals.gates import check_all_gates
 from cte.signals.scorer import (
-    ScoreDetail,
     compute_context_score,
     compute_cross_venue_score,
     compute_liquidation_score,
@@ -50,6 +48,10 @@ from cte.signals.scorer import (
     compute_momentum_score,
     compute_orderflow_score,
 )
+
+if TYPE_CHECKING:
+    from cte.core.settings import SignalSettings
+    from cte.core.streams import StreamPublisher
 
 logger = structlog.get_logger(__name__)
 
@@ -282,7 +284,7 @@ def _build_reason(result: CompositeResult, vector: StreamingFeatureVector) -> Si
     human = (
         f"Composite {result.composite_score:.2f} (Tier {result.tier.value}). "
         f"Strongest: {top_score_name} at {top_score_val:.2f}. "
-        f"Primary {result.primary_score:.2f} × context {result.context_multiplier:.2f}. "
+        f"Primary {result.primary_score:.2f} x context {result.context_multiplier:.2f}. "
         f"Imputed {result.total_imputed} features."
     )
 

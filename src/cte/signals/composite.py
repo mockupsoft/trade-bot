@@ -1,21 +1,23 @@
 """Weighted composite score computation and tier mapping.
 
 The composite formula:
-  primary_score = Σ(weight_i × sub_score_i)  for i in {momentum, orderflow, liquidation, micro, cross_venue}
-  composite     = primary_score × context_multiplier
+  primary_score = Σ(weight_i x sub_score_i)  for i in {momentum, orderflow, liquidation, micro, cross_venue}
+  composite     = primary_score x context_multiplier
 
 Context can only dampen (multiply by [0, 1]), never amplify.
 This ensures context flags (whale, news) act as gates, not entry triggers.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import TYPE_CHECKING
 
-from cte.signals.scorer import ScoreDetail
+if TYPE_CHECKING:
+    from cte.signals.scorer import ScoreDetail
 
 
-class SignalTier(str, Enum):
+class SignalTier(StrEnum):
     """Signal quality tier based on composite score."""
     A = "A"       # Strong — high confidence, favorable conditions
     B = "B"       # Moderate — acceptable, proceed with normal sizing
@@ -66,9 +68,9 @@ def compute_composite(
     """Compute the weighted composite score and assign tier.
 
     Formula:
-      primary = w_mom × momentum + w_flow × orderflow + w_liq × liquidation
-              + w_micro × microstructure + w_xv × cross_venue
-      composite = primary × context_multiplier
+      primary = w_mom x momentum + w_flow x orderflow + w_liq x liquidation
+              + w_micro x microstructure + w_xv x cross_venue
+      composite = primary x context_multiplier
 
     The context multiplier is in [0, 1]. It can only reduce the score.
     """

@@ -1,7 +1,6 @@
 """Tests for sub-score computations."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -125,7 +124,7 @@ class TestMomentumScore:
                          tf_5m=TimeframeFeatures(window_seconds=300, returns_z=None, momentum_z=None, trade_count=0, volume=0.0, window_fill_pct=0.0))
         result = compute_momentum_score(v)
         assert result.score == pytest.approx(0.5, abs=0.01)
-        assert result.imputed_count == 8  # 4 timeframes × 2 features
+        assert result.imputed_count == 8  # 4 timeframes x 2 features
 
 
 class TestOrderflowScore:

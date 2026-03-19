@@ -5,7 +5,7 @@ through all stages with proper provenance tracking.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
@@ -17,9 +17,7 @@ from cte.core.events import (
     DataQuality,
     FreshnessScore,
     RiskDecision,
-    ScoredSignalEvent,
     SignalAction,
-    SignalReason,
     SignalTier,
     StreamingFeatureVector,
     Symbol,
@@ -33,8 +31,8 @@ from cte.core.settings import (
     SizingSettings,
 )
 from cte.core.streams import StreamPublisher
-from cte.execution.paper import PaperExecutionEngine
 from cte.execution.fill_model import FillMode
+from cte.execution.paper import PaperExecutionEngine
 from cte.exits.engine import LayeredExitEngine
 from cte.risk.manager import PortfolioState, RiskManager
 from cte.signals.engine import ScoringSignalEngine
@@ -47,7 +45,7 @@ def publisher():
 
 
 def _t(minute=0, second=0):
-    return datetime(2024, 1, 1, 12, minute, second, tzinfo=timezone.utc)
+    return datetime(2024, 1, 1, 12, minute, second, tzinfo=UTC)
 
 
 def _bullish_features() -> StreamingFeatureVector:
@@ -135,7 +133,7 @@ class TestFullPipeline:
         assert position.fill_price > Decimal("65001")  # filled above ask
 
         # 5. Price moves up → exit engine monitors
-        exit_engine = LayeredExitEngine()
+        LayeredExitEngine()
 
         # Price rises to TP
         tp_price = position.entry_price * Decimal("1.04")

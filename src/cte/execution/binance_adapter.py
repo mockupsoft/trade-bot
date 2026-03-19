@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from urllib.parse import urlencode
 
@@ -260,7 +260,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
                 if attempt == 2:
                     raise ExecutionError(
                         f"Binance request failed after 3 attempts: {method} {path}"
-                    )
+                    ) from None
                 await logger.awarning("binance_retry", attempt=attempt, path=path)
 
         return {}
@@ -285,7 +285,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
             average_price=Decimal(str(data.get("avgPrice", "0"))),
             venue_timestamp=(
                 datetime.fromtimestamp(
-                    data.get("updateTime", 0) / 1000, tz=timezone.utc
+                    data.get("updateTime", 0) / 1000, tz=UTC
                 )
                 if data.get("updateTime")
                 else None

@@ -9,8 +9,10 @@ that no amount of positive momentum can compensate for.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from cte.core.events import StreamingFeatureVector
+if TYPE_CHECKING:
+    from cte.core.events import StreamingFeatureVector
 
 
 @dataclass(frozen=True)

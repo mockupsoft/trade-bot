@@ -22,9 +22,8 @@ compatibility with the signal engine (which consumes FeatureVector).
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING
 
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
@@ -40,11 +39,8 @@ from cte.core.events import (
     Symbol,
     TimeframeFeatures,
     TradeEvent,
-    Venue,
     WhaleAlertEvent,
 )
-from cte.core.settings import FeatureSettings
-from cte.core.streams import StreamPublisher
 from cte.features.accumulators import MomentumHistory, ReturnHistory, WindowState
 from cte.features.formulas import (
     compute_execution_feasibility,
@@ -71,6 +67,10 @@ from cte.features.types import (
     empty_bucket,
 )
 
+if TYPE_CHECKING:
+    from cte.core.settings import FeatureSettings
+    from cte.core.streams import StreamPublisher
+
 logger = structlog.get_logger(__name__)
 
 # Prometheus metrics
@@ -91,7 +91,7 @@ class SymbolState:
     """All mutable state for one symbol's feature computation.
 
     Holds window states, z-score histories, venue states, and context flags.
-    Memory per symbol: ~100KB (dominated by 300 SecondBuckets × 4 windows,
+    Memory per symbol: ~100KB (dominated by 300 SecondBuckets x 4 windows,
     though shorter windows share the same bucket objects).
     """
 
@@ -424,7 +424,7 @@ class StreamingFeatureEngine:
         )
 
         # Assemble the vector
-        windows_sorted = sorted(tf_map.keys())
+        sorted(tf_map.keys())
         vector = StreamingFeatureVector(
             symbol=Symbol(state.symbol),
             tf_10s=tf_map.get(10, _empty_tf(10)),

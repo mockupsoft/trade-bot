@@ -15,24 +15,25 @@ Key differences from the old paper engine:
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from decimal import Decimal
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
 
 from cte.core.events import (
-    STREAM_KEYS,
     ExitReason,
     ScoredSignalEvent,
-    Side,
-    Symbol,
 )
-from cte.core.settings import ExecutionSettings, ExitSettings
-from cte.core.streams import StreamPublisher
 from cte.execution.fill_model import BookLevel, FillMode, compute_fill
 from cte.execution.position import PaperPosition, PositionStatus
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from cte.core.settings import ExecutionSettings, ExitSettings
+    from cte.core.streams import StreamPublisher
 
 logger = structlog.get_logger(__name__)
 

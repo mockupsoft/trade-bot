@@ -1,7 +1,7 @@
 """Tests for the PaperExecutionEngine — full integration."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
@@ -60,7 +60,7 @@ def _signal(symbol="BTCUSDT", tier="A", score=0.82):
 
 
 def _t(second=0, minute=0):
-    return datetime(2024, 1, 1, 12, minute, second, tzinfo=timezone.utc)
+    return datetime(2024, 1, 1, 12, minute, second, tzinfo=UTC)
 
 
 class TestOpenPosition:
@@ -153,7 +153,7 @@ class TestExitEvaluation:
         assert closed[0].exit_reason == "take_profit"
 
     def test_timeout_triggered(self, engine):
-        pos = engine.open_position(_signal(), Decimal("1"), Decimal("65000"), _t())
+        engine.open_position(_signal(), Decimal("1"), Decimal("65000"), _t())
         # Time far in the future (>24h)
         future = _t() + __import__("datetime").timedelta(hours=25)
         closed = engine.evaluate_exits("BTCUSDT", Decimal("65000"), future)
@@ -228,6 +228,6 @@ class TestVWAPMode:
 
         pos = eng.open_position(_signal(), Decimal("10"), Decimal("650000"), _t())
         assert pos is not None
-        # VWAP of 5×65001 + 5×65010 = 65005.5 with 0 slip
+        # VWAP of 5x65001 + 5x65010 = 65005.5 with 0 slip
         assert pos.fill_price == Decimal("65005.50")
         assert pos.fill_model_used == "vwap_depth"

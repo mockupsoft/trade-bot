@@ -7,8 +7,8 @@ This is not a dashboard metric. This is an investment decision document.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 
 @dataclass(frozen=True)
@@ -217,9 +217,7 @@ def build_go_no_go_report(
     any_warning = "warning" in section_verdicts
     avg_score = sum(s.score for s in sections) / len(sections) if sections else 0
 
-    if any_fail:
-        final_verdict = "NO-GO"
-    elif any_warning and avg_score < 65:
+    if any_fail or (any_warning and avg_score < 65):
         final_verdict = "NO-GO"
     elif any_warning:
         final_verdict = "CONDITIONAL-GO"
@@ -228,7 +226,7 @@ def build_go_no_go_report(
 
     return {
         "report_title": "CTE GO/NO-GO Decision Report",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "campaign_days": campaign_days,
         "total_trades": total_trades,
         "final_verdict": final_verdict,

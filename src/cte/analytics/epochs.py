@@ -7,11 +7,11 @@ filtered and compared across epochs.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 
 
-class EpochMode(str, Enum):
+class EpochMode(StrEnum):
     PAPER = "paper"
     DEMO = "demo"
     LIVE = "live"
@@ -32,7 +32,7 @@ class Epoch:
 
     name: str
     mode: EpochMode
-    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     ended_at: datetime | None = None
     description: str = ""
     config_snapshot: dict = field(default_factory=dict)
@@ -43,11 +43,11 @@ class Epoch:
 
     @property
     def duration_hours(self) -> float:
-        end = self.ended_at or datetime.now(timezone.utc)
+        end = self.ended_at or datetime.now(UTC)
         return (end - self.started_at).total_seconds() / 3600
 
     def close(self) -> None:
-        self.ended_at = datetime.now(timezone.utc)
+        self.ended_at = datetime.now(UTC)
 
 
 class EpochManager:

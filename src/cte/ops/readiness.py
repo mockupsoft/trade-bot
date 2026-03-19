@@ -9,10 +9,10 @@ No phase transition without ALL gates passing.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class GateStatus(str, Enum):
+class GateStatus(StrEnum):
     PASS = "pass"
     FAIL = "fail"
     SKIP = "skip"

@@ -10,16 +10,19 @@ Replaces the basic PnL tracker with a rich analytics system that:
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
 
-from cte.analytics.epochs import EpochManager
 from cte.analytics.metrics import CompletedTrade, compute_all_metrics
-from cte.execution.position import PaperPosition
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from cte.analytics.epochs import EpochManager
+    from cte.execution.position import PaperPosition
 
 logger = structlog.get_logger(__name__)
 
@@ -172,8 +175,14 @@ class AnalyticsEngine:
 
         from cte.analytics.metrics import (
             expectancy as calc_expectancy,
+        )
+        from cte.analytics.metrics import (
             max_drawdown_pct,
+        )
+        from cte.analytics.metrics import (
             profit_factor as calc_pf,
+        )
+        from cte.analytics.metrics import (
             win_rate as calc_wr,
         )
 

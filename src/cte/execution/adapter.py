@@ -14,29 +14,32 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+if TYPE_CHECKING:
+    from datetime import datetime
 
-class OrderSide(str, Enum):
+
+class OrderSide(StrEnum):
     BUY = "buy"
     SELL = "sell"
 
 
-class OrderRequestType(str, Enum):
+class OrderRequestType(StrEnum):
     MARKET = "market"
     LIMIT = "limit"
 
 
-class TimeInForce(str, Enum):
+class TimeInForce(StrEnum):
     GTC = "GTC"   # Good til cancelled
     IOC = "IOC"   # Immediate or cancel
     FOK = "FOK"   # Fill or kill
 
 
-class VenueOrderStatus(str, Enum):
+class VenueOrderStatus(StrEnum):
     """Comprehensive order status covering all venue states."""
     PENDING = "pending"           # created locally, not yet sent
     SUBMITTING = "submitting"     # send in progress

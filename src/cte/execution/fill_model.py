@@ -13,10 +13,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 
 
-class FillMode(str, Enum):
+class FillMode(StrEnum):
     SPREAD_CROSSING = "spread_crossing"
     VWAP_DEPTH = "vwap_depth"
     WORST_CASE = "worst_case"
@@ -164,10 +164,7 @@ def _worst_case_fill(
     """Pessimistic model: 2x slippage for stress testing."""
     doubled_slip = slip_factor * 2
 
-    if side == "buy":
-        fill = best_ask * (1 + doubled_slip)
-    else:
-        fill = best_bid * (1 - doubled_slip)
+    fill = best_ask * (1 + doubled_slip) if side == "buy" else best_bid * (1 - doubled_slip)
 
     mid = (best_bid + best_ask) / 2
     eff_spread = abs(fill - mid) / mid * 10000 if mid > 0 else Decimal("0")
@@ -180,5 +177,5 @@ def _worst_case_fill(
         slippage_bps=actual_slip.quantize(Decimal("0.01")),
         effective_spread_bps=eff_spread.quantize(Decimal("0.01")),
         model_used=FillMode.WORST_CASE,
-        detail=f"Worst-case: 2× slippage ({doubled_slip * 10000:.0f} bps)",
+        detail=f"Worst-case: 2x slippage ({doubled_slip * 10000:.0f} bps)",
     )

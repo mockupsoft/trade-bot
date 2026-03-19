@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from cte.execution.fill_model import BookLevel, FillMode, FillResult, compute_fill
+from cte.execution.fill_model import BookLevel, FillMode, compute_fill
 
 
 class TestSpreadCrossingFill:

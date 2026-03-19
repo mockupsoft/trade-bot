@@ -1,9 +1,7 @@
 """Tests for order lifecycle state machine."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from cte.execution.adapter import VenueOrderStatus
 from cte.execution.state_machine import (
@@ -13,7 +11,7 @@ from cte.execution.state_machine import (
 
 
 def _t():
-    return datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    return datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
 class TestValidTransitions:

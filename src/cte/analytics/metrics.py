@@ -6,7 +6,10 @@ No I/O, no side effects, fully deterministic, fully testable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from decimal import Decimal
 
 
 @dataclass(frozen=True)

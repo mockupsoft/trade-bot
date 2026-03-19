@@ -66,7 +66,7 @@ class SecondBucket:
     close_price: float = 0.0
     high_price: float = -inf
     low_price: float = inf
-    pq_sum: float = 0.0        # Σ(price × qty) for VWAP
+    pq_sum: float = 0.0        # Σ(price x qty) for VWAP
     volume: float = 0.0         # Σ qty
     buy_volume: float = 0.0     # Σ qty where taker is buyer
     sell_volume: float = 0.0    # Σ qty where taker is seller

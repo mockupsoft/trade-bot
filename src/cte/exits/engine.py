@@ -19,17 +19,14 @@ Every exit produces an ExitDecision with:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from decimal import Decimal
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 import structlog
 from prometheus_client import Counter, Gauge
 
-from cte.core.events import StreamingFeatureVector
-from cte.execution.position import PaperPosition
-from cte.exits.config import TierExitProfile, get_profile
+from cte.exits.config import get_profile
 from cte.exits.layers import (
     ExitContext,
     LayerResult,
@@ -40,6 +37,13 @@ from cte.exits.layers import (
     check_layer4_winner_protection,
     check_layer5_runner,
 )
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
+    from cte.core.events import StreamingFeatureVector
+    from cte.execution.position import PaperPosition
 
 logger = structlog.get_logger(__name__)
 

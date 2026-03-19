@@ -4,9 +4,7 @@ from __future__ import annotations
 import pytest
 
 from cte.signals.composite import (
-    DEFAULT_TIER_THRESHOLDS,
     DEFAULT_WEIGHTS,
-    CompositeResult,
     SignalTier,
     compute_composite,
 )

@@ -1,18 +1,18 @@
 """Tests for the epoch-aware analytics engine."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
 from cte.analytics.engine import AnalyticsEngine
 from cte.analytics.epochs import EpochManager, EpochMode
-from cte.execution.position import PaperPosition, PositionStatus
+from cte.execution.position import PaperPosition
 
 
 def _t(minute=0):
-    return datetime(2024, 1, 1, 12, minute, 0, tzinfo=timezone.utc)
+    return datetime(2024, 1, 1, 12, minute, 0, tzinfo=UTC)
 
 
 def _closed_position(

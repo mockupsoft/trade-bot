@@ -5,15 +5,17 @@ everything, we aggregate into 1-second buckets and maintain running
 totals. When a bucket exits a window, we subtract its values.
 Cost: O(1) per event, O(1) per window tick.
 
-Memory per symbol: 300 SecondBuckets (5m) × ~200 bytes = 60KB.
-Compare: raw trade storage at 100 trades/sec × 5m = 30,000 records.
+Memory per symbol: 300 SecondBuckets (5m) x ~200 bytes = 60KB.
+Compare: raw trade storage at 100 trades/sec x 5m = 30,000 records.
 """
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from cte.features.types import SecondBucket
+if TYPE_CHECKING:
+    from cte.features.types import SecondBucket
 
 
 @dataclass(slots=True)
@@ -24,7 +26,7 @@ class RunningTotals:
     All operations are O(1).
     """
 
-    pq_sum: float = 0.0          # Σ(price × qty) for VWAP
+    pq_sum: float = 0.0          # Σ(price x qty) for VWAP
     volume: float = 0.0           # Σ qty
     buy_volume: float = 0.0       # Σ buy qty (taker flow)
     sell_volume: float = 0.0      # Σ sell qty (taker flow)
@@ -87,7 +89,7 @@ class WindowState:
     is auto-evicted and subtracted from the totals.
     """
 
-    __slots__ = ("max_seconds", "buckets", "totals")
+    __slots__ = ("buckets", "max_seconds", "totals")
 
     def __init__(self, max_seconds: int) -> None:
         self.max_seconds = max_seconds
@@ -165,10 +167,10 @@ class ReturnHistory:
     to prevent floating-point drift.
 
     For a 10s window with depth=180, stores 30 minutes of 10-second returns.
-    Memory: 180 × 8 bytes = 1.4KB per timeframe per symbol.
+    Memory: 180 x 8 bytes = 1.4KB per timeframe per symbol.
     """
 
-    __slots__ = ("_entries", "_sum", "_sum_sq", "_recompute_counter")
+    __slots__ = ("_entries", "_recompute_counter", "_sum", "_sum_sq")
 
     def __init__(self, max_entries: int) -> None:
         self._entries: deque[float] = deque(maxlen=max_entries)

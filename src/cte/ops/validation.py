@@ -6,12 +6,11 @@ Produces daily snapshots and a final campaign report.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
-from decimal import Decimal
-from enum import Enum
+from datetime import UTC, date, datetime
+from enum import StrEnum
 
 
-class CampaignStatus(str, Enum):
+class CampaignStatus(StrEnum):
     PLANNED = "planned"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -51,18 +50,18 @@ class ValidationCampaign:
 
     def start(self) -> None:
         self.status = CampaignStatus.RUNNING
-        self.started_at = datetime.now(timezone.utc)
+        self.started_at = datetime.now(UTC)
 
     def add_snapshot(self, snapshot: DailySnapshot) -> None:
         self.snapshots.append(snapshot)
 
     def complete(self) -> None:
         self.status = CampaignStatus.COMPLETED
-        self.ended_at = datetime.now(timezone.utc)
+        self.ended_at = datetime.now(UTC)
 
     def abort(self, reason: str) -> None:
         self.status = CampaignStatus.ABORTED
-        self.ended_at = datetime.now(timezone.utc)
+        self.ended_at = datetime.now(UTC)
         if self.snapshots:
             self.snapshots[-1].notes = f"ABORTED: {reason}"
 

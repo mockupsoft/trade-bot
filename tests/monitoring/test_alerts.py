@@ -1,8 +1,6 @@
 """Tests for alert rule evaluation."""
 from __future__ import annotations
 
-import pytest
-
 from cte.monitoring.alerts import (
     ALL_RULES,
     DAILY_DRAWDOWN_EMERGENCY,
@@ -11,7 +9,6 @@ from cte.monitoring.alerts import (
     ORDER_REJECT_SPIKE,
     RECONNECT_LOOP,
     SLIPPAGE_DRIFT,
-    STALE_FEED_CRITICAL,
     STALE_FEED_WARNING,
     AlertSeverity,
     evaluate_rule,

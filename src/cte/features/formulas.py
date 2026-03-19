@@ -17,7 +17,8 @@ All 10 required feature families:
 """
 from __future__ import annotations
 
-from cte.features.accumulators import MomentumHistory, ReturnHistory, WindowState
+from typing import TYPE_CHECKING
+
 from cte.features.types import (
     FRESHNESS_MAX_AGE_MS,
     MAX_ACCEPTABLE_SPREAD_BPS,
@@ -27,6 +28,8 @@ from cte.features.types import (
     VenueState,
 )
 
+if TYPE_CHECKING:
+    from cte.features.accumulators import MomentumHistory, ReturnHistory, WindowState
 
 # ──────────────────────────────────────────────────────────────────
 # 1. Returns & Momentum Z-scores
@@ -174,7 +177,7 @@ def compute_venue_divergence_bps(
     binance: VenueState,
     bybit: VenueState,
 ) -> float | None:
-    """(binance_mid - bybit_mid) / avg_mid × 10000.
+    """(binance_mid - bybit_mid) / avg_mid x 10000.
 
     Positive → Binance trades higher than Bybit
     Negative → Binance trades lower
@@ -260,7 +263,7 @@ def compute_execution_feasibility(
     - depth_score: min(available_depth / target_depth, 1.0)
     - freshness: composite freshness
 
-    Final = min(spread_score, depth_score) × freshness
+    Final = min(spread_score, depth_score) x freshness
     Using min() instead of weighted average because any single bad component
     should tank the score (you can't trade well with wide spread OR no depth).
     """

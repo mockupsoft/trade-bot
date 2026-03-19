@@ -12,14 +12,15 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
 from cte.analytics.engine import AnalyticsEngine
 from cte.analytics.epochs import EpochManager, EpochMode
-from cte.api.analytics_routes import router as analytics_router, set_engine
+from cte.api.analytics_routes import router as analytics_router
+from cte.api.analytics_routes import set_engine
 from cte.api.health import router as health_router
 from cte.core.logging import setup_logging
 from cte.ops.kill_switch import OperationsController
@@ -29,6 +30,9 @@ from cte.ops.readiness import (
     evaluate_readiness,
 )
 from cte.ops.validation import ValidationCampaign
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 

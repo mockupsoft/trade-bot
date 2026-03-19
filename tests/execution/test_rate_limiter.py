@@ -54,8 +54,9 @@ class TestReconcilerBasic:
 
     @pytest.mark.asyncio
     async def test_clean_reconciliation(self):
-        from unittest.mock import AsyncMock
         from decimal import Decimal
+        from unittest.mock import AsyncMock
+
         from cte.execution.adapter import ExecutionAdapter, VenuePosition
         from cte.execution.reconciliation import LocalPositionView, PositionReconciler
 
@@ -72,10 +73,15 @@ class TestReconcilerBasic:
 
     @pytest.mark.asyncio
     async def test_phantom_local(self):
-        from unittest.mock import AsyncMock
         from decimal import Decimal
+        from unittest.mock import AsyncMock
+
         from cte.execution.adapter import ExecutionAdapter
-        from cte.execution.reconciliation import LocalPositionView, PositionReconciler, DiscrepancyType
+        from cte.execution.reconciliation import (
+            DiscrepancyType,
+            LocalPositionView,
+            PositionReconciler,
+        )
 
         adapter = AsyncMock(spec=ExecutionAdapter)
         adapter.get_positions.return_value = []
@@ -87,10 +93,11 @@ class TestReconcilerBasic:
 
     @pytest.mark.asyncio
     async def test_phantom_venue(self):
-        from unittest.mock import AsyncMock
         from decimal import Decimal
+        from unittest.mock import AsyncMock
+
         from cte.execution.adapter import ExecutionAdapter, VenuePosition
-        from cte.execution.reconciliation import PositionReconciler, DiscrepancyType
+        from cte.execution.reconciliation import DiscrepancyType, PositionReconciler
 
         adapter = AsyncMock(spec=ExecutionAdapter)
         adapter.get_positions.return_value = [
@@ -102,10 +109,15 @@ class TestReconcilerBasic:
 
     @pytest.mark.asyncio
     async def test_quantity_mismatch(self):
-        from unittest.mock import AsyncMock
         from decimal import Decimal
+        from unittest.mock import AsyncMock
+
         from cte.execution.adapter import ExecutionAdapter, VenuePosition
-        from cte.execution.reconciliation import LocalPositionView, PositionReconciler, DiscrepancyType
+        from cte.execution.reconciliation import (
+            DiscrepancyType,
+            LocalPositionView,
+            PositionReconciler,
+        )
 
         adapter = AsyncMock(spec=ExecutionAdapter)
         adapter.get_positions.return_value = [
@@ -118,10 +130,15 @@ class TestReconcilerBasic:
 
     @pytest.mark.asyncio
     async def test_side_mismatch(self):
-        from unittest.mock import AsyncMock
         from decimal import Decimal
+        from unittest.mock import AsyncMock
+
         from cte.execution.adapter import ExecutionAdapter, VenuePosition
-        from cte.execution.reconciliation import LocalPositionView, PositionReconciler, DiscrepancyType
+        from cte.execution.reconciliation import (
+            DiscrepancyType,
+            LocalPositionView,
+            PositionReconciler,
+        )
 
         adapter = AsyncMock(spec=ExecutionAdapter)
         adapter.get_positions.return_value = [

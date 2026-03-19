@@ -1,7 +1,7 @@
 """Tests for PaperPosition state machine and analytics."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -10,7 +10,7 @@ from cte.execution.position import PaperPosition, PositionStatus
 
 
 def _utc(year=2024, month=1, day=1, hour=12, minute=0, second=0):
-    return datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
+    return datetime(year, month, day, hour, minute, second, tzinfo=UTC)
 
 
 class TestPositionLifecycle:

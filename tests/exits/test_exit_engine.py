@@ -1,21 +1,22 @@
 """Tests for the LayeredExitEngine coordinator."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
-import pytest
-
 from cte.core.events import (
-    DataQuality, FreshnessScore, StreamingFeatureVector,
-    Symbol, TimeframeFeatures,
+    DataQuality,
+    FreshnessScore,
+    StreamingFeatureVector,
+    Symbol,
+    TimeframeFeatures,
 )
 from cte.execution.position import PaperPosition
-from cte.exits.engine import ExitDecision, LayeredExitEngine
+from cte.exits.engine import LayeredExitEngine
 
 
 def _t(minute=0, second=0):
-    return datetime(2024, 1, 1, 12, minute, second, tzinfo=timezone.utc)
+    return datetime(2024, 1, 1, 12, minute, second, tzinfo=UTC)
 
 
 def _pos(entry=Decimal("50000"), tier="A", stop=0.025, fill_time=None):
@@ -78,7 +79,7 @@ class TestExplainability:
         feat = _feat()
         decision = engine.evaluate(pos, Decimal("50100"), _t(minute=2), feat)
         assert len(decision.all_layers) > 0
-        layer_names = {l.layer_name for l in decision.all_layers}
+        layer_names = {layer_result.layer_name for layer_result in decision.all_layers}
         assert "hard_risk" in layer_names
 
     def test_exit_has_reason_detail(self):

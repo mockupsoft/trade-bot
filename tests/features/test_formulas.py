@@ -359,7 +359,7 @@ class TestVWAP:
         ws = WindowState(max_seconds=3)
         for i in range(3):
             b = empty_bucket(i)
-            b.add_trade(100.0 + i * 10, 1.0, True)  # 100, 110, 120 × 1.0 each
+            b.add_trade(100.0 + i * 10, 1.0, True)  # 100, 110, 120 x 1.0 each
             ws.push(b)
         v = compute_vwap(ws)
         assert v is not None

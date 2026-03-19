@@ -72,4 +72,4 @@ async def metrics() -> Response:
     )
 
 
-import asyncio  # noqa: E402 – imported at bottom to avoid circular import in registration
+import asyncio  # noqa: E402 - imported at bottom to avoid circular import in registration

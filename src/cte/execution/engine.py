@@ -6,25 +6,28 @@ All backends implement the ExecutionAdapter interface.
 """
 from __future__ import annotations
 
-from datetime import datetime
-from decimal import Decimal
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 import structlog
 
-from cte.core.events import ScoredSignalEvent
 from cte.core.settings import ExecutionMode, ExecutionSettings, ExitSettings
-from cte.core.streams import StreamPublisher
-from cte.execution.adapter import (
-    ExecutionAdapter,
-    OrderRequest,
-    OrderResult,
-    OrderSide,
-    VenuePosition,
-)
 from cte.execution.fill_model import FillMode
 from cte.execution.paper import PaperExecutionEngine
-from cte.execution.position import PaperPosition
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from decimal import Decimal
+
+    from cte.core.events import ScoredSignalEvent
+    from cte.core.streams import StreamPublisher
+    from cte.execution.adapter import (
+        ExecutionAdapter,
+        OrderRequest,
+        OrderResult,
+        OrderSide,
+        VenuePosition,
+    )
+    from cte.execution.position import PaperPosition
 
 logger = structlog.get_logger(__name__)
 

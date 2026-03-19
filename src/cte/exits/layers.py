@@ -13,12 +13,15 @@ Priority order (highest first):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
-from cte.core.events import StreamingFeatureVector
-from cte.execution.position import PaperPosition
-from cte.exits.config import TierExitProfile
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from cte.core.events import StreamingFeatureVector
+    from cte.execution.position import PaperPosition
+    from cte.exits.config import TierExitProfile
 
 
 @dataclass(frozen=True)
@@ -170,22 +173,21 @@ def check_layer2_thesis_failure(
     failures: list[str] = []
 
     # Orderflow flip
-    if tf.taker_flow_imbalance is not None:
-        if tf.taker_flow_imbalance < profile.thesis_tfi_flip_threshold:
+    if tf.taker_flow_imbalance is not None and tf.taker_flow_imbalance < profile.thesis_tfi_flip_threshold:
             failures.append(
                 f"TFI={tf.taker_flow_imbalance:.2f} < {profile.thesis_tfi_flip_threshold}"
             )
 
     # Momentum collapse
-    if tf.returns_z is not None:
-        if tf.returns_z < profile.thesis_momentum_collapse_z:
-            failures.append(
-                f"returns_z={tf.returns_z:.2f} < {profile.thesis_momentum_collapse_z}"
-            )
+    if tf.returns_z is not None and tf.returns_z < profile.thesis_momentum_collapse_z:
+        failures.append(
+            f"returns_z={tf.returns_z:.2f} < {profile.thesis_momentum_collapse_z}"
+        )
 
     # Liquidation shift (for longs: positive liq_imb = longs being liquidated = bad)
-    if tf.liquidation_imbalance is not None:
-        if ctx.position.direction == "long" and tf.liquidation_imbalance > profile.thesis_liq_shift_threshold:
+    if (tf.liquidation_imbalance is not None
+            and ctx.position.direction == "long"
+            and tf.liquidation_imbalance > profile.thesis_liq_shift_threshold):
             failures.append(
                 f"liq_imbalance={tf.liquidation_imbalance:.2f} > {profile.thesis_liq_shift_threshold}"
             )

@@ -3,17 +3,14 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
+from cte.ops.go_no_go import build_go_no_go_report
 from cte.ops.kill_switch import OperationsController, TradingMode
 from cte.ops.readiness import (
-    GateStatus,
     build_demo_to_live_checklist,
     build_edge_proof_checklist,
     build_paper_to_demo_checklist,
     evaluate_readiness,
 )
-from cte.ops.go_no_go import build_go_no_go_report
 from cte.ops.validation import CampaignStatus, DailySnapshot, ValidationCampaign
 
 

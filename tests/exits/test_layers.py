@@ -1,27 +1,31 @@
 """Tests for 5-layer exit checks."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
-import pytest
-
 from cte.core.events import (
-    DataQuality, FreshnessScore, StreamingFeatureVector,
-    Symbol, TimeframeFeatures,
+    DataQuality,
+    FreshnessScore,
+    StreamingFeatureVector,
+    Symbol,
+    TimeframeFeatures,
 )
-from cte.execution.position import PaperPosition, PositionStatus
-from cte.exits.config import TIER_A_PROFILE, TIER_B_PROFILE, TIER_C_PROFILE, TierExitProfile
+from cte.execution.position import PaperPosition
+from cte.exits.config import TIER_A_PROFILE, TIER_C_PROFILE
 from cte.exits.layers import (
-    ExitContext, PositionExitState,
-    check_layer1_hard_risk, check_layer2_thesis_failure,
-    check_layer3_no_progress, check_layer4_winner_protection,
+    ExitContext,
+    PositionExitState,
+    check_layer1_hard_risk,
+    check_layer2_thesis_failure,
+    check_layer3_no_progress,
+    check_layer4_winner_protection,
     check_layer5_runner,
 )
 
 
 def _t(minute=0, second=0):
-    return datetime(2024, 1, 1, 12, minute, second, tzinfo=timezone.utc)
+    return datetime(2024, 1, 1, 12, minute, second, tzinfo=UTC)
 
 
 def _pos(entry=Decimal("50000"), qty=Decimal("1"), tier="A", stop=0.025,
@@ -211,11 +215,11 @@ class TestLayer4WinnerProtection:
         pos = _pos(entry=Decimal("50000"), fill_time=_t())
         # Push price up enough to qualify as winner (≥1% gain)
         pos.update_price(Decimal("51500"))  # +3% gain, high watermark set
-        state = PositionExitState(position_mode="winner_protection")
+        PositionExitState(position_mode="winner_protection")
 
         # Current price still qualifies as winner (above 1% gain)
         # but drawdown from high exceeds 2% trailing
-        drop_price = Decimal("50400")  # ~2.14% below 51500, still +0.8% from entry
+        Decimal("50400")  # ~2.14% below 51500, still +0.8% from entry
         # Need drop >= 2% from 51500: 51500 * 0.98 = 50470
         # But also need gain_pct >= 1% → price >= 50500
         # Use price just above 50500 but > 2% down from 51500
@@ -263,7 +267,7 @@ class TestLayer5Runner:
     def test_runner_trailing_triggers(self):
         pos = _pos(entry=Decimal("50000"), stop=0.025, fill_time=_t())
         pos.update_price(Decimal("53000"))  # high watermark
-        state = PositionExitState(position_mode="runner")
+        PositionExitState(position_mode="runner")
 
         # Price still qualifies as runner (≥2.5% gain) but drop ≥3.5% from high
         # 53000 * (1-0.035) = 51145. Gain from 50000 = 2.29% < 2.5% → not runner

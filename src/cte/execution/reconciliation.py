@@ -14,12 +14,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
+from typing import TYPE_CHECKING
 
 import structlog
 from prometheus_client import Counter
 
-from cte.execution.adapter import ExecutionAdapter, VenuePosition
+if TYPE_CHECKING:
+    from cte.execution.adapter import ExecutionAdapter, VenuePosition
 
 logger = structlog.get_logger(__name__)
 
@@ -29,7 +31,7 @@ recon_discrepancies = Counter(
 )
 
 
-class DiscrepancyType(str, Enum):
+class DiscrepancyType(StrEnum):
     PHANTOM_LOCAL = "phantom_local"     # local has position, venue doesn't
     PHANTOM_VENUE = "phantom_venue"     # venue has position, local doesn't
     QUANTITY_MISMATCH = "quantity_mismatch"

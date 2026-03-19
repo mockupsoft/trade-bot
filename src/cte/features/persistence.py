@@ -6,12 +6,12 @@ On restart, the engine can read the last snapshot to seed window state.
 from __future__ import annotations
 
 from collections import deque
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from cte.core.events import StreamingFeatureVector, TimeframeFeatures
+if TYPE_CHECKING:
+    from cte.core.events import StreamingFeatureVector, TimeframeFeatures
 
 logger = structlog.get_logger(__name__)
 

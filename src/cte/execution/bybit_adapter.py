@@ -13,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
-from datetime import datetime, timezone
 from decimal import Decimal
 
 import aiohttp
@@ -259,7 +258,7 @@ class BybitDemoAdapter(ExecutionAdapter):
             except (aiohttp.ClientError, TimeoutError):
                 self._error_count += 1
                 if attempt == 2:
-                    raise ExecutionError(f"Bybit request failed after 3 attempts: {path}")
+                    raise ExecutionError(f"Bybit request failed after 3 attempts: {path}") from None
 
         return {}
 
