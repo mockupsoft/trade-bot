@@ -134,9 +134,28 @@ class FeatureSettings(BaseSettings):
 
 
 class SignalSettings(BaseSettings):
+    # Legacy settings (kept for backward compat with old SignalEngine)
     min_confidence: float = Field(default=0.6, ge=0.0, le=1.0)
     cooldown_seconds: int = 300
     max_signals_per_hour: int = 10
+
+    # Scoring signal engine weights (must sum to 1.0)
+    w_momentum: float = 0.35
+    w_orderflow: float = 0.25
+    w_liquidation: float = 0.10
+    w_microstructure: float = 0.20
+    w_cross_venue: float = 0.10
+
+    # Tier thresholds
+    tier_a_threshold: float = 0.72
+    tier_b_threshold: float = 0.55
+    tier_c_threshold: float = 0.40
+
+    # Hard gate thresholds
+    gate_min_freshness: float = 0.5
+    gate_max_spread_bps: float = 15.0
+    gate_max_divergence_bps: float = 50.0
+    gate_min_feasibility: float = 0.3
 
     model_config = SettingsConfigDict(env_prefix="CTE_SIGNALS_")
 
