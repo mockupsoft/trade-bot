@@ -45,6 +45,7 @@ dev = [
 
 [project.scripts]
 cte = "cte.core.cli:main"
+cte-dashboard = "cte.dashboard.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cte"]

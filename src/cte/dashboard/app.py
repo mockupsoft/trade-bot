@@ -6,7 +6,7 @@ Modes:
   demo  = live market data + testnet/demo exchange orders
   live  = disabled in v1
 
-Run: CTE_ENGINE_MODE=paper uvicorn cte.dashboard.app:app --port 8080
+Run: CTE_ENGINE_MODE=seed cte-dashboard  OR  python -m cte.dashboard  (port from CTE_SERVICE_PORT, default 8080).
 """
 from __future__ import annotations
 

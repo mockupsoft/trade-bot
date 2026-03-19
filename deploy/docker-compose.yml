@@ -183,14 +183,23 @@ services:
         limits:
           memory: 128M
 
+  # Full HTML + REST UI (not the analytics library module alone).
   analytics:
     <<: *cte-service
-    command: ["cte.analytics.engine"]
+    command: ["cte.dashboard"]
     ports:
       - "8080:8080"
     environment:
       <<: *cte-env
       CTE_SERVICE_PORT: "8080"
+      # Seed = demo trades + charts without Binance WS (works in isolated Docker).
+      CTE_ENGINE_MODE: "seed"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/dashboard/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     deploy:
       resources:
         limits:

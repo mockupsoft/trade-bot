@@ -125,9 +125,15 @@ pytest tests/ -v
 ### Start Dashboard
 
 ```bash
-uvicorn cte.dashboard.app:app --host 0.0.0.0 --port 8080
-# Open http://localhost:8080
+pip install -e .
+CTE_ENGINE_MODE=seed cte-dashboard
+# → http://localhost:8080  (binds 0.0.0.0 — reachable from LAN / port-forward)
+
+# Equivalent:
+# CTE_ENGINE_MODE=seed uvicorn cte.dashboard.app:app --host 0.0.0.0 --port 8080
 ```
+
+**Docker:** `docker compose -f deploy/docker-compose.yml up -d analytics` — the `analytics` service runs `python -m cte.dashboard` on **8080** with `CTE_ENGINE_MODE=seed` so the UI has data without live WebSocket feeds.
 
 ### Start Infrastructure (Docker)
 
