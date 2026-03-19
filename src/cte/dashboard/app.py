@@ -135,6 +135,15 @@ async def index():
     return HTMLResponse(content=(TEMPLATE_DIR / "index.html").read_text())
 
 
+@app.get("/api/dashboard/meta")
+async def dashboard_meta() -> dict[str, str]:
+    """Process fingerprint for debugging wrong-port / stale servers on :8080."""
+    return {
+        "service": "cte.dashboard",
+        "market_profile": "binance_usdm_testnet",
+    }
+
+
 # ── Market Data API ───────────────────────────────────────────
 
 

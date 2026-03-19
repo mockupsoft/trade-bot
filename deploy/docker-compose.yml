@@ -190,6 +190,10 @@ services:
     command: ["cte.dashboard"]
     ports:
       - "8080:8080"
+    # Loads repo-root `.env` when present (optional so compose works without a local `.env`).
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       <<: *cte-env
       CTE_SERVICE_PORT: "8080"

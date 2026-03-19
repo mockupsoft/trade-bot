@@ -34,11 +34,20 @@ docker compose -f deploy/docker-compose.yml up -d analytics
 ## Verify
 
 ```bash
+curl -s http://localhost:8080/api/dashboard/meta | python -m json.tool
 curl -s http://localhost:8080/api/market/health | python -m json.tool
 curl -s http://localhost:8080/api/market/tickers | python -m json.tool
 ```
 
-`source` should be `binance_testnet` when the feed is up.
+- `meta` must include `"service": "cte.dashboard"` and `"market_profile": "binance_usdm_testnet"`. If you get **404**, another app owns port **8080** (stop it).
+- `health` must show `"mode": "testnet"` (not `seed`). If you see `seed` or empty `tickers`, the process is **not** this dashboard build — kill whatever is bound to 8080 and start `python -m cte.dashboard` from the repo root (or recreate the `analytics` container).
+- `tickers` `source` should be `binance_testnet` when the WebSocket feed is up.
+
+## Troubleshooting (Market feeds empty / OFFLINE)
+
+1. **Port conflict:** `lsof -i :8080` or `ss -tlnp | grep 8080` — only one listener. Stop stray `python`/`uvicorn` jobs or Docker services using 8080.
+2. **Local run:** use repo root so `.env` loads (`python -m cte.dashboard`); keys live in `.env` (`CTE_ENGINE_MODE=demo`, testnet key/secret).
+3. **Docker:** `analytics` uses `env_file: ../.env` — place keys in the repository root `.env` next to `deploy/`, then `docker compose -f deploy/docker-compose.yml up -d --force-recreate analytics`.
 
 ## Production mainnet
 
