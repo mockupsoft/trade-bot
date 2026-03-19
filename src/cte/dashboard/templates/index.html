@@ -486,31 +486,31 @@
           <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.06]">
             <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Execution &amp; capital</p>
             <ul class="space-y-1.5 text-slate-300 leading-relaxed">
-              <li><span class="text-slate-500">Surface:</span> <span class="font-mono text-slate-200" x-text="ops.v1_policy?.execution_surface||'—'"></span></li>
-              <li><span class="text-slate-500">Live wallet v1:</span> <span class="text-amber-400/90 font-medium" x-text="ops.v1_policy?.live_wallet_v1===false?'No (paper/demo)':'—'"></span></li>
-              <li><span class="text-slate-500">Direction:</span> <span class="font-mono text-emerald-400/90" x-text="ops.v1_policy?.direction||'—'"></span></li>
-              <li><span class="text-slate-500">Max leverage:</span> <span class="font-mono text-white" x-text="String(ops.v1_policy?.max_leverage??'—')+'×'"></span></li>
+              <li><span class="text-slate-500">Surface:</span> <span class="font-mono text-slate-200" x-text="v1Policy.execution_surface"></span></li>
+              <li><span class="text-slate-500">Live wallet v1:</span> <span class="text-amber-400/90 font-medium" x-text="v1Policy.live_wallet_v1===false?'No (paper/demo)':'—'"></span></li>
+              <li><span class="text-slate-500">Direction:</span> <span class="font-mono text-emerald-400/90" x-text="v1Policy.direction"></span></li>
+              <li><span class="text-slate-500">Max leverage:</span> <span class="font-mono text-white" x-text="String(v1Policy.max_leverage)+'×'"></span></li>
             </ul>
           </div>
           <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.06]">
             <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Symbols &amp; venues</p>
             <ul class="space-y-1.5 text-slate-300 leading-relaxed">
-              <li><span class="text-slate-500">Universe:</span> <span class="font-mono text-slate-200" x-text="(ops.v1_policy?.symbols||[]).join(', ')||'—'"></span></li>
-              <li><span class="text-slate-500">Primary:</span> <span class="font-mono text-slate-200 break-all" x-text="ops.v1_policy?.venues?.primary||'—'"></span></li>
-              <li><span class="text-slate-500">Secondary:</span> <span class="font-mono text-slate-400 break-all" x-text="ops.v1_policy?.venues?.secondary_context||'—'"></span></li>
+              <li><span class="text-slate-500">Universe:</span> <span class="font-mono text-slate-200" x-text="(v1Policy.symbols||[]).join(', ')"></span></li>
+              <li><span class="text-slate-500">Primary:</span> <span class="font-mono text-slate-200 break-all" x-text="v1Policy.venues.primary"></span></li>
+              <li><span class="text-slate-500">Secondary:</span> <span class="font-mono text-slate-400 break-all" x-text="v1Policy.venues.secondary_context"></span></li>
             </ul>
           </div>
           <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.06] sm:col-span-2 lg:col-span-1">
             <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Governance &amp; data plane</p>
             <ul class="space-y-1.5 text-slate-300 leading-relaxed">
-              <li><span class="text-slate-500">Risk manager:</span> <span class="text-sky-400/90" x-text="ops.v1_policy?.risk_manager||'—'"></span></li>
-              <li><span class="text-slate-500">Signal reasons:</span> <span class="text-slate-200" x-text="ops.v1_policy?.signal_reason_payload||'—'"></span></li>
-              <li><span class="text-slate-500">Event bus:</span> <span class="font-mono text-slate-400" x-text="ops.v1_policy?.inter_service_bus||'—'"></span></li>
-              <li><span class="text-slate-500">Context feeds:</span> <span class="text-slate-400" x-text="ops.v1_policy?.whale_news_role||'—'"></span></li>
+              <li><span class="text-slate-500">Risk manager:</span> <span class="text-sky-400/90" x-text="v1Policy.risk_manager"></span></li>
+              <li><span class="text-slate-500">Signal reasons:</span> <span class="text-slate-200" x-text="v1Policy.signal_reason_payload"></span></li>
+              <li><span class="text-slate-500">Event bus:</span> <span class="font-mono text-slate-400" x-text="v1Policy.inter_service_bus"></span></li>
+              <li><span class="text-slate-500">Context feeds:</span> <span class="text-slate-400" x-text="v1Policy.whale_news_role"></span></li>
             </ul>
           </div>
         </div>
-        <p class="text-[10px] text-slate-600 mt-4 leading-relaxed border-t border-white/[0.06] pt-3" x-text="ops.v1_policy?.dashboard_note||''"></p>
+        <p class="text-[10px] text-slate-600 mt-4 leading-relaxed border-t border-white/[0.06] pt-3" x-text="v1Policy.dashboard_note"></p>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -797,6 +797,31 @@ function app(){return{
     if(s<60)return s+'s ago';
     if(s<3600)return Math.floor(s/60)+'m ago';
     return Math.floor(s/3600)+'h ago';
+  },
+  _defaultV1Policy(){
+    return{
+      direction:'long_only',
+      symbols:['BTCUSDT','ETHUSDT'],
+      venues:{
+        primary:'binance_usdm_futures_testnet',
+        secondary_context:'bybit_v5_public_testnet',
+      },
+      max_leverage:3,
+      live_wallet_v1:false,
+      execution_surface:'paper_demo_testnet',
+      risk_manager:'absolute_veto_over_signals',
+      signal_reason_payload:'required_per_trade_decision',
+      inter_service_bus:'redis_streams_cte_prefix',
+      whale_news_role:'context_only_not_primary_trigger',
+      dashboard_note:'This UI drives the in-process ops controller. Distributed services must mirror state via Redis Streams (cte:{module}:{event_type}).',
+    };
+  },
+  get v1Policy(){
+    const o=this.ops;
+    const d=this._defaultV1Policy();
+    if(!o||!o.v1_policy)return d;
+    const p=o.v1_policy;
+    return{...d,...p,venues:{...d.venues,...(p.venues||{})}};
   },
   async init(){
     if(!location.hash||location.hash==='#'){
