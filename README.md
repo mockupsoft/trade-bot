@@ -70,6 +70,19 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete design document includin
 - Python 3.12+
 - Docker & Docker Compose (for infrastructure)
 
+### Control UI (Vite + React)
+
+The operator dashboard lives in `frontend/`. Development server listens on **port 8080** (see `frontend/vite.config.ts`).
+
+```bash
+cd frontend && npm install && npm run dev
+# http://localhost:8080
+```
+
+Production assets: `npm run build` → `frontend/dist/`.
+
+**Port note:** the Docker Compose `analytics` service also publishes **8080** by default. Run either the Vite dev server or that container on the same host port, or remap one of them.
+
 ### Development Setup
 
 ```bash

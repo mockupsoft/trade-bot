@@ -1,0 +1,66 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+:root {
+  --cte-canvas: #06080c;
+  --cte-surface: #0b0e14;
+  --cte-elevated: #11151d;
+  --cte-border: #232a38;
+  --cte-muted: #8b929e;
+  --cte-text: #eef1f5;
+  --cte-subtle: #5c6575;
+  --cte-accent: #4f8ff7;
+  --cte-accent-muted: #3a6bb8;
+  --cte-btc: #f5a524;
+  --cte-eth: #7c8ce8;
+  --cte-positive: #3dd68c;
+  --cte-negative: #f87171;
+  --cte-grid: #1a2130;
+  --cte-tooltip-bg: #1a1f2e;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--cte-canvas);
+  color: var(--cte-text);
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+/* Recharts: keep tooltips readable on dark UI */
+.recharts-default-tooltip {
+  border-radius: 8px !important;
+  border: 1px solid var(--cte-border) !important;
+  background: var(--cte-tooltip-bg) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45) !important;
+}
+
+.recharts-tooltip-label {
+  color: var(--cte-muted) !important;
+  font-size: 11px !important;
+  margin-bottom: 4px !important;
+}
+
+.recharts-tooltip-item-list {
+  font-family: var(--font-mono);
+  font-size: 12px !important;
+}
