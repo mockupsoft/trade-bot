@@ -149,6 +149,24 @@ async def campaign_report(name: str):
     return campaign.generate_report()
 
 
+# ── Edge Proof API ────────────────────────────────────────────
+
+@app.get("/api/readiness/edge_proof")
+async def edge_proof_checklist():
+    from cte.ops.readiness import build_edge_proof_checklist
+    gates = build_edge_proof_checklist()
+    return evaluate_readiness(gates)
+
+
+@app.get("/api/report/go_no_go")
+async def go_no_go_report():
+    from cte.ops.go_no_go import build_go_no_go_report
+    return build_go_no_go_report(
+        campaign_days=0,
+        total_trades=_analytics_engine.total_trades if _analytics_engine else 0,
+    )
+
+
 # ── Config API (read-only) ────────────────────────────────────
 
 @app.get("/api/config")

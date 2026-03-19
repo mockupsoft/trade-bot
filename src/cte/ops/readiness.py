@@ -1,7 +1,10 @@
 """Live readiness gate — automated checklist for phase transitions.
 
-Before transitioning from paper→demo or demo→live, every gate in the
-checklist must pass. Any failure blocks the transition.
+Two levels of gates:
+1. Infrastructure gates (paper→demo, demo→live) — "does the system work?"
+2. Edge gates (pre-live) — "does the system actually make money?"
+
+No phase transition without ALL gates passing.
 """
 from __future__ import annotations
 
@@ -36,7 +39,6 @@ def build_paper_to_demo_checklist(
     state_machine_violations: int = 0,
     api_keys_configured: bool = False,
 ) -> list[ReadinessGate]:
-    """Checklist for paper → demo transition."""
     return [
         ReadinessGate(
             name="paper_duration", category="validation",
@@ -87,7 +89,6 @@ def build_demo_to_live_checklist(
     max_capital_configured: bool = False,
     monitoring_alerts_configured: bool = False,
 ) -> list[ReadinessGate]:
-    """Checklist for demo → live transition (10-point gate)."""
     return [
         ReadinessGate(
             name="demo_duration", category="validation",
@@ -110,7 +111,7 @@ def build_demo_to_live_checklist(
         ReadinessGate(
             name="fill_latency", category="performance",
             description="Fill latency p99 < 5 seconds",
-            status=GateStatus.PASS if fill_latency_p99_ms < 5000 else GateStatus.FAIL,
+            status=GateStatus.PASS if 0 < fill_latency_p99_ms < 5000 else GateStatus.FAIL,
             value=f"{fill_latency_p99_ms:.0f}ms", threshold="5000ms",
         ),
         ReadinessGate(
@@ -122,7 +123,7 @@ def build_demo_to_live_checklist(
         ReadinessGate(
             name="slippage_drift", category="validation",
             description="Slippage drift < 3 bps vs paper model",
-            status=GateStatus.PASS if slippage_drift_bps < 3.0 else GateStatus.FAIL,
+            status=GateStatus.PASS if 0 <= slippage_drift_bps < 3.0 else GateStatus.FAIL,
             value=f"{slippage_drift_bps:.1f}bps", threshold="3.0bps",
         ),
         ReadinessGate(
@@ -148,6 +149,108 @@ def build_demo_to_live_checklist(
     ]
 
 
+# ══════════════════════════════════════════════════════════════
+# EDGE PROOF GATES — "Does the system actually make money?"
+# ══════════════════════════════════════════════════════════════
+
+def build_edge_proof_checklist(
+    # Edge stability
+    expectancy_overall: float = 0.0,
+    expectancy_low_vol: float = 0.0,
+    expectancy_high_vol: float = 0.0,
+    expectancy_trending: float = 0.0,
+    positive_regime_count: int = 0,
+    # Tier separation
+    tier_a_expectancy: float = 0.0,
+    tier_b_expectancy: float = 0.0,
+    tier_c_expectancy: float = 0.0,
+    tier_a_better_than_b: bool = False,
+    tier_b_better_than_c: bool = False,
+    # Exit value-add
+    smart_exit_pnl: float = 0.0,
+    flat_exit_pnl: float = 0.0,
+    exit_value_add_pct: float = 0.0,
+    # Worst-case survival
+    worst_case_expectancy: float = 0.0,
+    worst_case_max_dd: float = 0.0,
+    # Kill switch accuracy
+    kill_switch_false_positive_rate: float = 0.0,
+    kill_switch_response_ms: float = 0.0,
+) -> list[ReadinessGate]:
+    """Edge proof gates — must pass before any real capital is risked."""
+    return [
+        # ── Edge Stability ────────────────────────────────────
+        ReadinessGate(
+            name="edge_overall", category="edge_stability",
+            description="Overall expectancy is positive",
+            status=GateStatus.PASS if expectancy_overall > 0 else GateStatus.FAIL,
+            value=f"${expectancy_overall:.2f}", threshold="> $0",
+        ),
+        ReadinessGate(
+            name="edge_regime_count", category="edge_stability",
+            description="Expectancy positive in ≥3 volatility regimes",
+            status=GateStatus.PASS if positive_regime_count >= 3 else GateStatus.FAIL,
+            value=str(positive_regime_count), threshold="3",
+            detail=(
+                f"Low-vol: ${expectancy_low_vol:.2f}, "
+                f"High-vol: ${expectancy_high_vol:.2f}, "
+                f"Trending: ${expectancy_trending:.2f}"
+            ),
+        ),
+        # ── Tier Separation ───────────────────────────────────
+        ReadinessGate(
+            name="tier_a_gt_b", category="tier_separation",
+            description="Tier A expectancy > Tier B (directionally)",
+            status=GateStatus.PASS if tier_a_better_than_b else GateStatus.FAIL,
+            value=f"A=${tier_a_expectancy:.2f} B=${tier_b_expectancy:.2f}",
+            detail="Scoring model must rank signals correctly",
+        ),
+        ReadinessGate(
+            name="tier_b_gt_c", category="tier_separation",
+            description="Tier B expectancy > Tier C (directionally)",
+            status=GateStatus.PASS if tier_b_better_than_c else GateStatus.FAIL,
+            value=f"B=${tier_b_expectancy:.2f} C=${tier_c_expectancy:.2f}",
+            detail="If tiers don't separate, scoring model is noise",
+        ),
+        # ── Exit Value-Add ────────────────────────────────────
+        ReadinessGate(
+            name="exit_value_add", category="exit_effectiveness",
+            description="Smart exit net PnL > flat SL/TP net PnL",
+            status=GateStatus.PASS if exit_value_add_pct > 0 else GateStatus.FAIL,
+            value=f"+{exit_value_add_pct:.1f}%",
+            detail=f"Smart: ${smart_exit_pnl:.2f} vs Flat: ${flat_exit_pnl:.2f}",
+        ),
+        # ── Worst-Case Survival ───────────────────────────────
+        ReadinessGate(
+            name="worst_case_expectancy", category="robustness",
+            description="Expectancy stays positive under worst-case fills",
+            status=GateStatus.PASS if worst_case_expectancy > 0 else GateStatus.FAIL,
+            value=f"${worst_case_expectancy:.2f}",
+            detail="2x slippage model must not collapse the edge",
+        ),
+        ReadinessGate(
+            name="worst_case_dd", category="robustness",
+            description="Worst-case max drawdown < 10%",
+            status=GateStatus.PASS if worst_case_max_dd < 0.10 else GateStatus.FAIL,
+            value=f"{worst_case_max_dd:.1%}", threshold="< 10%",
+        ),
+        # ── Kill Switch Accuracy ──────────────────────────────
+        ReadinessGate(
+            name="kill_switch_false_positive", category="ops_quality",
+            description="Kill switch false positive rate < 20%",
+            status=GateStatus.PASS if kill_switch_false_positive_rate < 0.20 else GateStatus.FAIL,
+            value=f"{kill_switch_false_positive_rate:.0%}", threshold="< 20%",
+            detail="Too many false positives = lost alpha from unnecessary stops",
+        ),
+        ReadinessGate(
+            name="kill_switch_speed", category="ops_quality",
+            description="Kill switch response time < 2 seconds",
+            status=GateStatus.PASS if 0 < kill_switch_response_ms < 2000 else GateStatus.FAIL,
+            value=f"{kill_switch_response_ms:.0f}ms", threshold="< 2000ms",
+        ),
+    ]
+
+
 def evaluate_readiness(gates: list[ReadinessGate]) -> dict:
     """Evaluate a readiness checklist. All gates must pass for go."""
     passed = sum(1 for g in gates if g.status == GateStatus.PASS)
@@ -161,14 +264,19 @@ def evaluate_readiness(gates: list[ReadinessGate]) -> dict:
         "total": total,
         "completion_pct": round(passed / total * 100, 1) if total > 0 else 0,
         "blockers": [
-            {"name": g.name, "description": g.description, "value": g.value, "threshold": g.threshold}
+            {
+                "name": g.name, "category": g.category,
+                "description": g.description,
+                "value": g.value, "threshold": g.threshold,
+                "detail": g.detail,
+            }
             for g in gates if g.status == GateStatus.FAIL
         ],
         "gates": [
             {
                 "name": g.name, "category": g.category,
                 "description": g.description, "status": g.status.value,
-                "value": g.value, "threshold": g.threshold,
+                "value": g.value, "threshold": g.threshold, "detail": g.detail,
             }
             for g in gates
         ],

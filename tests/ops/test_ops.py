@@ -9,9 +9,11 @@ from cte.ops.kill_switch import OperationsController, TradingMode
 from cte.ops.readiness import (
     GateStatus,
     build_demo_to_live_checklist,
+    build_edge_proof_checklist,
     build_paper_to_demo_checklist,
     evaluate_readiness,
 )
+from cte.ops.go_no_go import build_go_no_go_report
 from cte.ops.validation import CampaignStatus, DailySnapshot, ValidationCampaign
 
 
@@ -110,6 +112,104 @@ class TestReadinessGate:
         assert not result["ready"]
         blocker_names = [b["name"] for b in result["blockers"]]
         assert "fill_latency" in blocker_names
+
+
+class TestEdgeProofGates:
+    def test_all_pass(self):
+        gates = build_edge_proof_checklist(
+            expectancy_overall=15.0,
+            expectancy_low_vol=5.0, expectancy_high_vol=10.0, expectancy_trending=20.0,
+            positive_regime_count=3,
+            tier_a_expectancy=25.0, tier_b_expectancy=10.0, tier_c_expectancy=2.0,
+            tier_a_better_than_b=True, tier_b_better_than_c=True,
+            smart_exit_pnl=500.0, flat_exit_pnl=350.0, exit_value_add_pct=42.8,
+            worst_case_expectancy=5.0, worst_case_max_dd=0.06,
+            kill_switch_false_positive_rate=0.10, kill_switch_response_ms=500,
+        )
+        result = evaluate_readiness(gates)
+        assert result["ready"]
+
+    def test_tier_separation_fail(self):
+        gates = build_edge_proof_checklist(
+            expectancy_overall=10.0, positive_regime_count=3,
+            tier_a_expectancy=5.0, tier_b_expectancy=15.0,  # B > A = wrong
+            tier_a_better_than_b=False, tier_b_better_than_c=True,
+        )
+        result = evaluate_readiness(gates)
+        assert not result["ready"]
+        blocker_names = [b["name"] for b in result["blockers"]]
+        assert "tier_a_gt_b" in blocker_names
+
+    def test_worst_case_survival_fail(self):
+        gates = build_edge_proof_checklist(
+            expectancy_overall=10.0, positive_regime_count=3,
+            worst_case_expectancy=-5.0,  # collapses under worst-case fills
+            worst_case_max_dd=0.15,      # 15% > 10% threshold
+        )
+        result = evaluate_readiness(gates)
+        blocker_names = [b["name"] for b in result["blockers"]]
+        assert "worst_case_expectancy" in blocker_names
+        assert "worst_case_dd" in blocker_names
+
+    def test_edge_regime_count(self):
+        gates = build_edge_proof_checklist(
+            expectancy_overall=10.0, positive_regime_count=1,
+        )
+        result = evaluate_readiness(gates)
+        blocker_names = [b["name"] for b in result["blockers"]]
+        assert "edge_regime_count" in blocker_names
+
+
+class TestGoNoGoReport:
+    def test_go_report(self):
+        report = build_go_no_go_report(
+            uptime_pct=99.9, crash_count=0, stale_feed_events=1, reconnect_events=2,
+            paper_pnl=500, demo_pnl=480, pnl_drift_pct=4.0,
+            avg_slippage_paper=4.0, avg_slippage_demo=5.5,
+            reconciliation_clean_pct=100,
+            overall_expectancy=15.0, win_rate=0.58, profit_factor=1.8,
+            tier_a_expectancy=25.0, tier_b_expectancy=10.0, tier_c_expectancy=3.0,
+            smart_exit_value_add_pct=15.0, saved_losers=12, killed_winners=3,
+            no_progress_regret_rate=0.2, runner_avg_r=2.5,
+            max_drawdown_pct=0.025, worst_case_dd=0.06, dd_recovery_hours=4,
+            positive_regime_count=3, worst_case_expectancy=8.0,
+            campaign_days=7, total_trades=120,
+        )
+        assert report["final_verdict"] == "GO"
+        assert report["overall_score"] > 60
+        assert len(report["critical_blockers"]) == 0
+
+    def test_no_go_negative_expectancy(self):
+        report = build_go_no_go_report(
+            overall_expectancy=-10.0, win_rate=0.35, profit_factor=0.6,
+            tier_a_expectancy=-5, tier_b_expectancy=-8, tier_c_expectancy=-15,
+            max_drawdown_pct=0.08, worst_case_dd=0.15,
+            positive_regime_count=0, worst_case_expectancy=-20.0,
+        )
+        assert report["final_verdict"] == "NO-GO"
+        assert len(report["critical_blockers"]) > 0
+
+    def test_conditional_go(self):
+        report = build_go_no_go_report(
+            uptime_pct=99.5, overall_expectancy=8.0, win_rate=0.52,
+            profit_factor=1.3,
+            tier_a_expectancy=12.0, tier_b_expectancy=5.0, tier_c_expectancy=2.0,
+            smart_exit_value_add_pct=-2.0,  # exit underperforms → warning
+            max_drawdown_pct=0.02, worst_case_dd=0.05,
+            positive_regime_count=3, worst_case_expectancy=3.0,
+            reconciliation_clean_pct=100,
+        )
+        assert report["final_verdict"] in ("CONDITIONAL-GO", "GO")
+
+    def test_report_has_all_sections(self):
+        report = build_go_no_go_report()
+        section_names = [s["name"] for s in report["sections"]]
+        assert "system_health" in section_names
+        assert "execution_reality" in section_names
+        assert "signal_quality" in section_names
+        assert "exit_effectiveness" in section_names
+        assert "risk_behavior" in section_names
+        assert "edge_stability" in section_names
 
 
 class TestValidationCampaign:
