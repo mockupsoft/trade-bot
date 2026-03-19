@@ -29,6 +29,7 @@ from cte.api.analytics_routes import set_engine
 from cte.api.health import router as health_router
 from cte.core.logging import setup_logging
 from cte.market.feed import MarketDataFeed
+from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
 from cte.ops.readiness import (
     build_demo_to_live_checklist,
@@ -53,6 +54,8 @@ _ops_controller = OperationsController()
 _market_feed: MarketDataFeed | None = None
 _feed_task: asyncio.Task | None = None
 _validation_campaigns: dict[str, ValidationCampaign] = {}
+_campaign_collector = CampaignCollector()
+_recon_status: dict = {"status": "not_run", "mismatches": 0, "last_run": None, "details": []}
 
 
 def _resolve_mode() -> SystemMode:
@@ -274,14 +277,78 @@ async def campaign_report(name: str):
     return campaign.generate_report()
 
 
+# ── Campaign Metrics API ──────────────────────────────────────
+
+@app.post("/api/campaign/snapshot")
+async def take_snapshot(period: str = "hourly"):
+    """Take a metric snapshot from current analytics data."""
+    if not _analytics_engine:
+        return {"error": "Analytics not initialized"}
+    trades = _analytics_engine._filter_trades()
+    feed_health = _market_feed.health if _market_feed else None
+    snapshot = compute_snapshot(
+        trades, epoch=_epoch_manager.active_name, period=period,
+        stale_event_count=feed_health.errors_total if feed_health else 0,
+        reconnect_count=feed_health.reconnect_count if feed_health else 0,
+        recon_mismatch_count=_recon_status.get("mismatches", 0),
+    )
+    _campaign_collector.add_snapshot(snapshot)
+    return snapshot.to_dict()
+
+
+@app.get("/api/campaign/summary")
+async def campaign_summary():
+    return _campaign_collector.summary()
+
+
+@app.get("/api/campaign/snapshots")
+async def campaign_snapshots(period: str | None = None):
+    snaps = _campaign_collector.snapshots
+    if period:
+        snaps = [s for s in snaps if s.period == period]
+    return [s.to_dict() for s in snaps[-100:]]
+
+
+# ── Reconciliation API ────────────────────────────────────────
+
+@app.get("/api/reconciliation/status")
+async def reconciliation_status():
+    return _recon_status
+
+
+@app.get("/api/readiness/campaign")
+async def campaign_readiness():
+    """Readiness gates wired to REAL campaign metrics."""
+    from cte.ops.readiness import build_campaign_validation_checklist
+    collector = _campaign_collector
+    latest = collector.latest
+    trades = _analytics_engine._filter_trades() if _analytics_engine else []
+    seed_count = sum(1 for t in trades if t.source == "seed")
+    return evaluate_readiness(build_campaign_validation_checklist(
+        campaign_days=collector.campaign_days,
+        total_trades=collector.total_trades,
+        all_recon_clean=collector.all_recon_clean,
+        max_dd_observed=collector.max_dd_observed,
+        avg_latency_p95_ms=collector.avg_latency_p95,
+        stale_ratio=0.0,
+        reject_ratio=latest.reject_rate if latest else 0.0,
+        error_count=latest.error_count if latest else 0,
+        expectancy=latest.expectancy if latest else 0.0,
+        seed_trade_count=seed_count,
+    ))
+
+
 # ── Reports ───────────────────────────────────────────────────
 
 @app.get("/api/report/go_no_go")
 async def go_no_go_report():
     from cte.ops.go_no_go import build_go_no_go_report
+    collector = _campaign_collector
     return build_go_no_go_report(
-        campaign_days=0,
-        total_trades=_analytics_engine.total_trades if _analytics_engine else 0,
+        campaign_days=collector.campaign_days,
+        total_trades=collector.total_trades or (
+            _analytics_engine.total_trades if _analytics_engine else 0
+        ),
     )
 
 

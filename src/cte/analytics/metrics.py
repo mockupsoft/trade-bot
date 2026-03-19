@@ -20,6 +20,7 @@ class CompletedTrade:
     venue: str
     tier: str
     epoch: str
+    source: str  # "seed" | "paper_simulated" | "demo_exchange"
     pnl: Decimal
     exit_reason: str
     exit_layer: int
@@ -211,4 +212,5 @@ def compute_all_metrics(
             round(sum(t.hold_seconds for t in trades) / len(trades), 1)
             if trades else 0.0
         ),
+        "count_by_source": count_by_dimension(trades, "source"),
     }

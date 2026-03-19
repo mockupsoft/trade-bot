@@ -28,12 +28,13 @@ from cte.analytics.metrics import (
 
 def _trade(
     pnl=10, symbol="BTCUSDT", venue="binance", tier="A", epoch="paper",
+    source="paper_simulated",
     exit_reason="winner_trailing", exit_layer=4, hold=300, r=1.0,
     latency=100, slip=5.0, mfe=0.02, mae=0.005, profitable_at_exit=True,
     mode="normal",
 ) -> CompletedTrade:
     return CompletedTrade(
-        symbol=symbol, venue=venue, tier=tier, epoch=epoch,
+        symbol=symbol, venue=venue, tier=tier, epoch=epoch, source=source,
         pnl=Decimal(str(pnl)), exit_reason=exit_reason, exit_layer=exit_layer,
         hold_seconds=hold, r_multiple=r, entry_latency_ms=latency,
         modeled_slippage_bps=slip, mfe_pct=mfe, mae_pct=mae,
@@ -200,3 +201,29 @@ class TestComputeAll:
         result = compute_all_metrics([])
         assert result["trade_count"] == 0
         assert result["win_rate"] == 0.0
+
+    def test_count_by_source(self):
+        trades = [
+            _trade(source="seed"),
+            _trade(source="paper_simulated"),
+            _trade(source="paper_simulated"),
+            _trade(source="demo_exchange"),
+        ]
+        result = compute_all_metrics(trades)
+        assert result["count_by_source"]["seed"] == 1
+        assert result["count_by_source"]["paper_simulated"] == 2
+        assert result["count_by_source"]["demo_exchange"] == 1
+
+
+class TestSourceFiltering:
+    def test_source_in_trade(self):
+        t = _trade(source="demo_exchange")
+        assert t.source == "demo_exchange"
+
+    def test_seed_vs_paper(self):
+        seed = _trade(source="seed", pnl=100)
+        paper = _trade(source="paper_simulated", pnl=200)
+        trades = [seed, paper]
+        paper_only = [t for t in trades if t.source != "seed"]
+        assert len(paper_only) == 1
+        assert float(paper_only[0].pnl) == 200

@@ -281,3 +281,81 @@ def evaluate_readiness(gates: list[ReadinessGate]) -> dict:
             for g in gates
         ],
     }
+
+
+def build_campaign_validation_checklist(
+    campaign_days: int = 0,
+    total_trades: int = 0,
+    all_recon_clean: bool = False,
+    max_dd_observed: float = 0.0,
+    avg_latency_p95_ms: float = 0.0,
+    stale_ratio: float = 0.0,
+    reject_ratio: float = 0.0,
+    error_count: int = 0,
+    expectancy: float = 0.0,
+    seed_trade_count: int = 0,
+) -> list[ReadinessGate]:
+    """Build gates from REAL campaign metrics (not placeholders)."""
+    return [
+        ReadinessGate(
+            name="campaign_duration", category="campaign",
+            description="Campaign ran for >=7 days",
+            status=GateStatus.PASS if campaign_days >= 7 else GateStatus.FAIL,
+            value=str(campaign_days), threshold="7",
+        ),
+        ReadinessGate(
+            name="trade_count", category="campaign",
+            description=">=100 trades recorded",
+            status=GateStatus.PASS if total_trades >= 100 else GateStatus.FAIL,
+            value=str(total_trades), threshold="100",
+        ),
+        ReadinessGate(
+            name="no_seed_data", category="data_integrity",
+            description="Zero seed trades in campaign data",
+            status=GateStatus.PASS if seed_trade_count == 0 else GateStatus.FAIL,
+            value=str(seed_trade_count), threshold="0",
+            detail="Seed data must never mix with real validation data",
+        ),
+        ReadinessGate(
+            name="recon_integrity", category="reconciliation",
+            description="100% reconciliation clean throughout campaign",
+            status=GateStatus.PASS if all_recon_clean else GateStatus.FAIL,
+            value="clean" if all_recon_clean else "mismatches found",
+        ),
+        ReadinessGate(
+            name="max_drawdown", category="risk",
+            description="Max drawdown < 5% during campaign",
+            status=GateStatus.PASS if max_dd_observed < 0.05 else GateStatus.FAIL,
+            value=f"{max_dd_observed:.2%}", threshold="< 5%",
+        ),
+        ReadinessGate(
+            name="latency_p95", category="performance",
+            description="Latency p95 < 5000ms",
+            status=GateStatus.PASS if 0 < avg_latency_p95_ms < 5000 else GateStatus.FAIL,
+            value=f"{avg_latency_p95_ms:.0f}ms", threshold="< 5000ms",
+        ),
+        ReadinessGate(
+            name="stale_ratio", category="data_quality",
+            description="Stale data ratio < 1%",
+            status=GateStatus.PASS if stale_ratio < 0.01 else GateStatus.FAIL,
+            value=f"{stale_ratio:.2%}", threshold="< 1%",
+        ),
+        ReadinessGate(
+            name="reject_ratio", category="execution",
+            description="Order reject ratio < 5%",
+            status=GateStatus.PASS if reject_ratio < 0.05 else GateStatus.FAIL,
+            value=f"{reject_ratio:.2%}", threshold="< 5%",
+        ),
+        ReadinessGate(
+            name="no_critical_errors", category="stability",
+            description="Zero critical errors during campaign",
+            status=GateStatus.PASS if error_count == 0 else GateStatus.FAIL,
+            value=str(error_count), threshold="0",
+        ),
+        ReadinessGate(
+            name="positive_expectancy", category="edge",
+            description="Expectancy > $0 per trade",
+            status=GateStatus.PASS if expectancy > 0 else GateStatus.FAIL,
+            value=f"${expectancy:.2f}", threshold="> $0",
+        ),
+    ]

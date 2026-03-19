@@ -46,13 +46,15 @@ async def trades(
     symbol: str | None = None,
     tier: str | None = None,
     exit_reason: str | None = None,
+    source: str | None = None,
     limit: int = Query(default=100, le=1000),
 ) -> list[dict]:
-    """Individual trade records for drilldown."""
+    """Individual trade records for drilldown. Filter by source: seed|paper_simulated|demo_exchange."""
     if not _engine:
         return []
     return _engine.get_trades(
-        epoch=epoch, symbol=symbol, tier=tier, exit_reason=exit_reason, limit=limit
+        epoch=epoch, symbol=symbol, tier=tier, exit_reason=exit_reason,
+        source=source, limit=limit,
     )
 
 

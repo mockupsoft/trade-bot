@@ -63,6 +63,7 @@ class AnalyticsEngine:
         exit_layer: int = 0,
         was_profitable_at_exit: bool = False,
         position_mode: str = "normal",
+        source: str = "paper_simulated",
     ) -> CompletedTrade:
         """Record a completed trade from a closed position."""
         epoch = self._epochs.active_name
@@ -72,6 +73,7 @@ class AnalyticsEngine:
             venue=venue,
             tier=position.signal_tier,
             epoch=epoch,
+            source=source,
             pnl=position.realized_pnl,
             exit_reason=position.exit_reason,
             exit_layer=exit_layer,
@@ -131,16 +133,18 @@ class AnalyticsEngine:
         symbol: str | None = None,
         tier: str | None = None,
         exit_reason: str | None = None,
+        source: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         """Get individual trade records for drilldown."""
-        filtered = self._filter_trades(epoch, symbol, tier, exit_reason=exit_reason)
+        filtered = self._filter_trades(epoch, symbol, tier, exit_reason=exit_reason, source=source)
         return [
             {
                 "symbol": t.symbol,
                 "venue": t.venue,
                 "tier": t.tier,
                 "epoch": t.epoch,
+                "source": t.source,
                 "pnl": str(t.pnl),
                 "exit_reason": t.exit_reason,
                 "exit_layer": t.exit_layer,
@@ -205,12 +209,15 @@ class AnalyticsEngine:
         tier: str | None = None,
         venue: str | None = None,
         exit_reason: str | None = None,
+        source: str | None = None,
     ) -> list[CompletedTrade]:
         result = self._trades
         if epoch:
             result = [t for t in result if t.epoch == epoch]
         if symbol:
             result = [t for t in result if t.symbol == symbol]
+        if source:
+            result = [t for t in result if t.source == source]
         if tier:
             result = [t for t in result if t.tier == tier]
         if venue:
