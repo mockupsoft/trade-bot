@@ -31,6 +31,11 @@ export CTE_BINANCE_TESTNET_API_SECRET="..."
 docker compose -f deploy/docker-compose.yml up -d analytics
 ```
 
+## Alerts page
+
+- `GET /api/alerts/status` returns static rule text plus **live** `state`: `ok`, `firing`, or `unknown` (no data). Inputs: market WebSocket + book ages, analytics `max_drawdown_pct` / slippage, `_recon_status`, optional campaign snapshot for reject rate.
+- UI **Refresh** mirrors `/api/config` behaviour (also refreshed on the global 7s poll when the Alerts tab is open).
+
 ## Config page
 
 - `GET /api/config` returns grouped **sections** (runtime, universe, Binance URLs, execution, exits, risk, signals, infrastructure). **No secrets**: Redis URL passwords are redacted; testnet keys are only `configured` / `missing`.

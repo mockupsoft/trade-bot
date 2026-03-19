@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse, urlunparse
 
 import structlog
@@ -449,6 +449,191 @@ async def campaign_snapshots(period: str | None = None):
 @app.get("/api/reconciliation/status")
 async def reconciliation_status():
     return _recon_status
+
+
+def _worst_ticker_book_age_ms() -> int | None:
+    if not _market_feed:
+        return None
+    ages = [t.age_ms for t in _market_feed.tickers.values()]
+    return max(ages) if ages else None
+
+
+def _feed_packet_age_ms() -> int | None:
+    if not _market_feed or not _market_feed.health.last_message_ms:
+        return None
+    return max(0, int(time.time() * 1000) - _market_feed.health.last_message_ms)
+
+
+def _build_alerts_status() -> dict[str, Any]:
+    """Operational alert rules with live evaluation from feed, analytics, and recon."""
+    s = get_settings()
+    h = _market_feed.health if _market_feed else None
+    connected = bool(h and h.connected)
+    book_age = _worst_ticker_book_age_ms()
+    pkt_age = _feed_packet_age_ms()
+    recon_m = int(_recon_status.get("mismatches") or 0)
+    reconnects = int(h.reconnect_count) if h else 0
+
+    metrics: dict[str, Any] = {}
+    if _analytics_engine:
+        metrics = _analytics_engine.get_metrics(epoch=ACTIVE_TESTNET_EPOCH)
+    dd = float(metrics.get("max_drawdown_pct") or 0.0)
+    trade_count = int(metrics.get("trade_count") or 0)
+    avg_slip = float(metrics.get("avg_slippage_bps") or 0.0)
+    model_slip = float(s.execution.slippage_bps)
+
+    latest = _campaign_collector.latest
+    reject_rate = float(latest.reject_rate) if latest else None
+
+    stale_warn = False
+    stale_crit = False
+    if not connected:
+        stale_warn = True
+        stale_crit = True
+    else:
+        if book_age is not None and book_age > 2000:
+            stale_warn = True
+        if pkt_age is not None and pkt_age > 2000:
+            stale_warn = True
+        if book_age is not None and book_age >= 5000:
+            stale_crit = True
+        if pkt_age is not None and pkt_age >= 5000:
+            stale_crit = True
+
+    rules: list[dict[str, Any]] = [
+        {
+            "id": "stale_warn",
+            "title": "Stale data (warning)",
+            "condition": "Book or WS packet age > 2s",
+            "severity": "warning",
+            "state": "firing" if stale_warn else "ok",
+            "detail": _alert_stale_detail(connected, book_age, pkt_age),
+        },
+    ]
+    rules.append(
+        {
+            "id": "stale_crit",
+            "title": "Stale data (critical)",
+            "condition": "WS offline or age ≥ 5s",
+            "severity": "critical",
+            "state": "firing" if stale_crit else "ok",
+            "detail": _alert_stale_detail(connected, book_age, pkt_age),
+        },
+    )
+    rules.append(
+        {
+            "id": "reconnect_loop",
+            "title": "Reconnect loop",
+            "condition": ">5 reconnects since process start",
+            "severity": "warning",
+            "state": "firing" if reconnects > 5 else "ok",
+            "detail": f"reconnect_count={reconnects}",
+        },
+    )
+    rules.append(
+        {
+            "id": "dd_warn",
+            "title": "Drawdown warning",
+            "condition": "max DD > 2%",
+            "severity": "warning",
+            "state": "firing" if dd > 0.02 else "ok",
+            "detail": f"max_drawdown_pct={dd:.2%}",
+        },
+    )
+    rules.append(
+        {
+            "id": "dd_halt",
+            "title": "Drawdown halt",
+            "condition": "max DD > 3%",
+            "severity": "critical",
+            "state": "firing" if dd > 0.03 else "ok",
+            "detail": f"max_drawdown_pct={dd:.2%}",
+        },
+    )
+    emerg = float(s.risk.emergency_stop_drawdown_pct)
+    rules.append(
+        {
+            "id": "dd_emergency",
+            "title": "Drawdown emergency",
+            "condition": f"max DD ≥ {emerg:.0%} (risk config)",
+            "severity": "critical",
+            "state": "firing" if dd >= emerg else "ok",
+            "detail": f"max_drawdown_pct={dd:.2%}",
+        },
+    )
+    rules.append(
+        {
+            "id": "order_reject",
+            "title": "Order reject spike",
+            "condition": "reject_rate > 5% (last campaign snapshot)",
+            "severity": "warning",
+            "state": (
+                "unknown"
+                if reject_rate is None
+                else ("firing" if reject_rate > 0.05 else "ok")
+            ),
+            "detail": (
+                "no snapshot yet — POST /api/campaign/snapshot"
+                if reject_rate is None
+                else f"reject_rate={reject_rate:.2%}"
+            ),
+        },
+    )
+    rules.append(
+        {
+            "id": "reconciliation",
+            "title": "Reconciliation",
+            "condition": "any mismatch",
+            "severity": "critical",
+            "state": "firing" if recon_m > 0 else "ok",
+            "detail": f"mismatches={recon_m}",
+        },
+    )
+    slip_state = "unknown"
+    slip_detail = "no trades in epoch"
+    if trade_count > 0:
+        drift = abs(avg_slip - model_slip)
+        slip_state = "firing" if drift > 3.0 else "ok"
+        slip_detail = f"avg_slippage_bps={avg_slip:.1f} vs model={model_slip:.0f} (Δ{drift:.1f} bps)"
+    rules.append(
+        {
+            "id": "slippage_drift",
+            "title": "Slippage drift",
+            "condition": ">3 bps vs execution.slippage_bps model",
+            "severity": "warning",
+            "state": slip_state,
+            "detail": slip_detail,
+        },
+    )
+
+    firing = sum(1 for r in rules if r["state"] == "firing")
+    return {
+        "meta": {
+            "utc": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "legend": "OK = healthy, FIRING = threshold breached, N/A = insufficient data.",
+            "firing_count": firing,
+        },
+        "rules": rules,
+    }
+
+
+def _alert_stale_detail(
+    connected: bool,
+    book_age: int | None,
+    pkt_age: int | None,
+) -> str:
+    parts = [f"ws={'up' if connected else 'down'}"]
+    if book_age is not None:
+        parts.append(f"book_age_ms={book_age}")
+    if pkt_age is not None:
+        parts.append(f"last_pkt_age_ms={pkt_age}")
+    return " · ".join(parts)
+
+
+@app.get("/api/alerts/status")
+async def alerts_status():
+    """Alert rulebook + live signal evaluation for the dashboard Alerts page."""
+    return _build_alerts_status()
 
 
 @app.get("/api/readiness/campaign")

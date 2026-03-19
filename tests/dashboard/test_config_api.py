@@ -1,23 +1,7 @@
 """Dashboard /api/config snapshot."""
 from __future__ import annotations
 
-import os
-
 import pytest
-
-pytest.importorskip("fastapi")
-
-
-@pytest.fixture()
-def client():
-    os.environ.setdefault("CTE_BINANCE_TESTNET_API_KEY", "x" * 12)
-    os.environ.setdefault("CTE_BINANCE_TESTNET_API_SECRET", "y" * 12)
-    from fastapi.testclient import TestClient
-
-    from cte.dashboard.app import app
-
-    with TestClient(app) as c:
-        yield c
 
 
 def test_redacted_redis_url_hides_password() -> None:
@@ -29,8 +13,8 @@ def test_redacted_redis_url_hides_password() -> None:
     assert _redacted_redis_url("redis://localhost:6379/0") == "redis://localhost:6379/0"
 
 
-def test_config_returns_sections_and_meta(client) -> None:
-    r = client.get("/api/config")
+def test_config_returns_sections_and_meta(dashboard_client) -> None:
+    r = dashboard_client.get("/api/config")
     assert r.status_code == 200
     data = r.json()
     assert data["meta"]["read_only"] is True

@@ -762,18 +762,32 @@
     </div>
 
     <div x-show="page==='alerts'" x-cloak>
+      <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
+        <div>
+          <h3 class="text-sm font-semibold text-white tracking-tight">Alerts</h3>
+          <p class="text-[11px] text-slate-500 mt-1 max-w-2xl leading-relaxed" x-text="(alertsSnap && alertsSnap.meta && alertsSnap.meta.legend) || ''"></p>
+          <p class="text-[10px] text-slate-600 font-mono mt-2" x-show="alertsSnap && alertsSnap.meta && alertsSnap.meta.utc" x-text="alertsEvaluatedLine()"></p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span x-show="alertsLoading" class="text-[11px] text-slate-500">Loading…</span>
+          <button type="button" class="btn btn-ok !py-2 !px-3 !text-xs" @click="loadAlerts()">Refresh</button>
+        </div>
+      </div>
       <div class="card">
-        <h3 class="text-sm font-semibold text-white mb-4 tracking-tight">Alert rules</h3>
+        <h4 class="cfg-section-title">Rules &amp; live state</h4>
         <div class="space-y-0 divide-y divide-white/[0.06] text-xs">
-          <div class="flex items-center justify-between py-3"><span class="text-slate-400">Stale data (warning)</span><span class="pill pill-y">freshness &lt; 0.5 for 2m</span></div>
-          <div class="flex items-center justify-between py-3"><span class="text-slate-400">Stale data (critical)</span><span class="pill pill-r">freshness &lt; 0.3 for 5m</span></div>
-          <div class="flex items-center justify-between py-3"><span class="text-slate-400">Reconnect loop</span><span class="pill pill-y">&gt;5 reconnects / 5m</span></div>
-          <div class="flex items-center justify-between py-3"><span class="text-slate-400">Drawdown warning</span><span class="pill pill-y">&gt; 2%</span></div>
-          <div class="flex items-center justify-between py-3"><span class="text-slate-400">Drawdown halt</span><span class="pill pill-r">&gt; 3%</span></div>
-          <div class="flex items-center justify-between py-3"><span class="text-slate-400">Drawdown emergency</span><span class="pill pill-r">&gt; 5% close all</span></div>
-          <div class="flex items-center justify-between py-3"><span class="text-slate-400">Order reject spike</span><span class="pill pill-y">&gt;5 / 1h</span></div>
-          <div class="flex items-center justify-between py-3"><span class="text-slate-400">Reconciliation</span><span class="pill pill-r">any mismatch</span></div>
-          <div class="flex items-center justify-between py-3"><span class="text-slate-400">Slippage drift</span><span class="pill pill-y">&gt;3 bps vs paper</span></div>
+          <template x-for="rule in (alertsSnap && alertsSnap.rules) ? alertsSnap.rules : []" :key="rule.id">
+            <div class="py-3.5">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0 flex-1">
+                  <span class="text-slate-200 font-medium" x-text="rule.title"></span>
+                  <p class="text-[10px] text-slate-500 mt-1 font-mono leading-relaxed" x-text="rule.condition"></p>
+                  <p class="text-[10px] text-slate-600 mt-1.5 font-mono break-all" x-show="rule.detail" x-text="rule.detail"></p>
+                </div>
+                <span class="pill shrink-0 text-[10px]" :class="alertStatePill(rule)" x-text="alertStateLabel(rule)"></span>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -806,7 +820,7 @@ function app(){return{
     {id:'config',label:'Config',svg:ICON.config},
     {id:'alerts',label:'Alerts',svg:ICON.alerts},
   ],
-  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:null,configLoading:false,tf:{tier:'',symbol:'',exit:''},
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:null,configLoading:false,alertsSnap:null,alertsLoading:false,tf:{tier:'',symbol:'',exit:''},
   mkt:{},mktHealth:{},
   ddTier:false,ddSym:false,ddExit:false,
   tierOpts:[
@@ -957,6 +971,34 @@ function app(){return{
       await navigator.clipboard.writeText(JSON.stringify(this.configSnap,null,2));
     }catch(e){}
   },
+  alertStatePill(rule){
+    if(!rule)return'pill pill-b';
+    if(rule.state==='unknown')return'pill pill-b';
+    if(rule.state==='ok')return'pill pill-g';
+    if(rule.severity==='critical')return'pill pill-r';
+    return'pill pill-y';
+  },
+  alertStateLabel(rule){
+    if(!rule)return'—';
+    if(rule.state==='ok')return'OK';
+    if(rule.state==='unknown')return'N/A';
+    return'FIRING';
+  },
+  async loadAlerts(){
+    this.alertsLoading=true;
+    try{
+      this.alertsSnap=await(await fetch('/api/alerts/status')).json();
+    }catch(e){
+      this.alertsSnap={meta:{legend:'',utc:'',firing_count:0},rules:[]};
+    }
+    this.alertsLoading=false;
+  },
+  alertsEvaluatedLine(){
+    const m=this.alertsSnap&&this.alertsSnap.meta;
+    if(!m||!m.utc)return'';
+    const n=Number(m.firing_count)||0;
+    return'Evaluated · '+m.utc+(n>0?' · '+n+' firing':' · all quiet');
+  },
   async init(){
     if(!location.hash||location.hash==='#'){
       history.replaceState(null,'','#/overview');
@@ -989,6 +1031,7 @@ function app(){return{
     try{this.ops=await(await fetch('/api/ops/status')).json()}catch(e){this.ops={}}
     if(this.page==='readiness')await this.loadReadiness();
     if(this.page==='config')await this.loadConfig();
+    if(this.page==='alerts')await this.loadAlerts();
     await this.loadTrades();
     if(this.page==='overview')this.updateCharts();
     this.lastSync=Date.now();
