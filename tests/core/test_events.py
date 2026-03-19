@@ -130,7 +130,7 @@ class TestRiskAssessmentEvent:
     def test_risk_approved(self, sample_risk_approved):
         assert sample_risk_approved.decision == RiskDecision.APPROVED
 
-    def test_risk_rejected():
+    def test_risk_rejected(self):
         assessment = RiskAssessmentEvent(
             signal_id=SignalEvent(
                 symbol=Symbol.BTCUSDT,
