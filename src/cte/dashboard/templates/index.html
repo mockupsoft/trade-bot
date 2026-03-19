@@ -156,7 +156,7 @@
   </div>
   <nav class="flex-1 p-2.5 space-y-1 overflow-y-auto scroll-smooth" aria-label="Main">
     <template x-for="p in pages" :key="p.id">
-      <div :class="page===p.id ? 'nav-item nav-active' : 'nav-item nav-inactive'" @click="page=p.id; refresh()" role="button" tabindex="0">
+      <div :class="page===p.id ? 'nav-item nav-active' : 'nav-item nav-inactive'" @click="openPage(p.id)" @keydown.enter.prevent="openPage(p.id)" role="button" tabindex="0">
         <span class="nav-active-bar" x-show="page===p.id" x-cloak></span>
         <span class="nav-ic" x-html="p.svg"></span>
         <span x-text="p.label" class="nav-label"></span>
@@ -394,9 +394,9 @@
           </div>
         </template>
       </div>
-      <div x-show="!mkt.tickers || Object.keys(mkt.tickers).length===0" class="card mt-6 text-center py-14 border-dashed border-white/10">
-        <p class="text-slate-400">Stream not ready</p>
-        <p class="text-xs text-slate-600 mt-3 max-w-md mx-auto">Check testnet API keys and outbound WSS to <span class="font-mono text-slate-500">stream.binancefuture.com</span>.</p>
+      <div x-show="!liveConnected" x-cloak class="card mt-6 border border-amber-500/25 bg-amber-500/[0.05]">
+        <p class="text-sm font-medium text-amber-200/95">WebSocket offline — prices below are placeholders until the feed connects.</p>
+        <p class="text-xs text-slate-500 mt-2 leading-relaxed max-w-2xl">Set <span class="font-mono text-slate-400">CTE_BINANCE_TESTNET_API_KEY</span> / <span class="font-mono text-slate-400">SECRET</span>, run with <span class="font-mono text-slate-400">CTE_ENGINE_MODE=demo</span>, and allow outbound WSS to <span class="font-mono text-slate-500">stream.binancefuture.com</span>.</p>
       </div>
     </div>
 
@@ -631,7 +631,9 @@ const ICON = {
   alerts: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.102V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>',
 };
 function app(){return{
-  page:'overview',epoch:'crypto_v1_demo',
+  page:'overview',
+  pageIds:['overview','market','positions','ops','readiness','research','config','alerts'],
+  epoch:'crypto_v1_demo',
   pages:[
     {id:'overview',label:'Overview',svg:ICON.overview},
     {id:'market',label:'Market feeds',svg:ICON.market},
@@ -659,6 +661,21 @@ function app(){return{
   setTier(v){this.tf.tier=v;this.ddTier=false;this.loadTrades()},
   setSym(v){this.tf.symbol=v;this.ddSym=false;this.loadTrades()},
   setExit(v){this.tf.exit=v;this.ddExit=false;this.loadTrades()},
+  pageFromHash(){
+    const raw=(location.hash||'').replace(/^#/,'').replace(/^\//,'').split('/')[0]||'overview';
+    return this.pageIds.includes(raw)?raw:'overview';
+  },
+  openPage(p){
+    if(!this.pageIds.includes(p))return;
+    const full='/'+p;
+    const want='#'+full;
+    if(location.hash!==want)location.hash=want;
+    else{
+      this.page=p;
+      if(this.page==='overview')this.updateCharts();
+      this.refresh();
+    }
+  },
   tierLbl(){const o=this.tierOpts.find(x=>x.v===this.tf.tier);return o?o.l:'All tiers'},
   symLbl(){const o=this.symOpts.find(x=>x.v===this.tf.symbol);return o?o.l:'All symbols'},
   exitLbl(){const o=this.exitOpts.find(x=>x.v===this.tf.exit);return o?o.l:'All exits'},
@@ -702,6 +719,15 @@ function app(){return{
     return Math.floor(s/3600)+'h ago';
   },
   async init(){
+    if(!location.hash||location.hash==='#'){
+      history.replaceState(null,'','#/overview');
+    }
+    this.page=this.pageFromHash();
+    window.addEventListener('hashchange',()=>{
+      this.page=this.pageFromHash();
+      if(this.page==='overview')this.updateCharts();
+      this.refresh();
+    });
     if(typeof Chart!=='undefined'){
       Chart.defaults.color='#8b9cae';
       Chart.defaults.borderColor='rgba(255,255,255,0.06)';
@@ -726,9 +752,37 @@ function app(){return{
     if(this.page==='overview')this.updateCharts();
     this.lastSync=Date.now();
   },
+  _skelTicker(){
+    return{
+      last_price:'0',best_bid:'0',best_ask:'0',mark_price:'0',
+      bid_qty:'0',ask_qty:'0',spread_bps:0,age_ms:999999,is_stale:true,
+      trade_count_1m:0,volume_1m:'0',
+    };
+  },
   async pollMarket(){
-    try{this.mkt=await(await fetch('/api/market/tickers')).json()}catch(e){}
-    try{this.mktHealth=await(await fetch('/api/market/health')).json()}catch(e){}
+    try{
+      const j=await(await fetch('/api/market/tickers')).json();
+      const tickers={...(j.tickers||{})};
+      for(const sym of ['BTCUSDT','ETHUSDT']){
+        if(!tickers[sym])tickers[sym]=this._skelTicker();
+      }
+      this.mkt={
+        source:j.source,
+        mode:j.mode||'testnet',
+        stream_url:j.stream_url||'',
+        feed_ready:j.feed_ready!==false,
+        tickers,
+      };
+    }catch(e){
+      this.mkt={
+        source:'error',
+        mode:'testnet',
+        stream_url:'',
+        feed_ready:false,
+        tickers:{BTCUSDT:this._skelTicker(),ETHUSDT:this._skelTicker()},
+      };
+    }
+    try{this.mktHealth=await(await fetch('/api/market/health')).json()}catch(e){this.mktHealth={};}
     if(this.page==='market'){
       const tickers=this.mkt.tickers||{};
       for(const sym of Object.keys(tickers)){

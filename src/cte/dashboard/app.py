@@ -27,7 +27,7 @@ from cte.api.analytics_routes import set_engine
 from cte.api.health import router as health_router
 from cte.core.logging import setup_logging
 from cte.core.settings import get_settings
-from cte.market.feed import MarketDataFeed
+from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
 from cte.ops.readiness import (
@@ -47,6 +47,7 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 # ── Global State ──────────────────────────────────────────────
 ACTIVE_TESTNET_EPOCH = "crypto_v1_demo"
+DASHBOARD_MARKET_SYMBOLS: tuple[str, ...] = ("BTCUSDT", "ETHUSDT")
 
 _system_mode: SystemMode = SystemMode.DEMO
 _epoch_manager = EpochManager()
@@ -136,39 +137,94 @@ async def index():
 
 # ── Market Data API ───────────────────────────────────────────
 
-@app.get("/api/market/tickers")
-async def market_tickers():
-    """Live ticker data for all symbols."""
+
+def _empty_ticker_payload() -> dict[str, object]:
+    """Placeholder row when the feed is down or a symbol has not ticked yet."""
+    return {
+        "last_price": "0",
+        "best_bid": "0",
+        "best_ask": "0",
+        "mark_price": "0",
+        "bid_qty": "0",
+        "ask_qty": "0",
+        "spread_bps": 0.0,
+        "age_ms": 999999,
+        "is_stale": True,
+        "trade_count_1m": 0,
+        "volume_1m": "0",
+    }
+
+
+def _serialize_ticker(t: TickerState) -> dict[str, object]:
+    """JSON-serialize a live ``TickerState``."""
+    return {
+        "last_price": str(t.last_price),
+        "best_bid": str(t.best_bid),
+        "best_ask": str(t.best_ask),
+        "mark_price": str(t.mark_price),
+        "bid_qty": str(t.bid_qty),
+        "ask_qty": str(t.ask_qty),
+        "spread_bps": round(t.spread_bps, 2),
+        "age_ms": t.age_ms,
+        "is_stale": t.is_stale,
+        "trade_count_1m": t.trade_count_1m,
+        "volume_1m": str(t.volume_1m),
+    }
+
+
+def _build_market_tickers_payload() -> dict[str, object]:
+    """Always return v1 symbols so the dashboard grid is never empty."""
+    settings = get_settings()
+    stream_url = str(settings.binance.ws_combined_url)
+    base_rows = {sym: _empty_ticker_payload() for sym in DASHBOARD_MARKET_SYMBOLS}
     if not _market_feed:
-        return {"source": "none", "mode": "testnet", "tickers": {}}
+        return {
+            "source": "none",
+            "mode": "testnet",
+            "tickers": base_rows,
+            "stream_url": stream_url,
+            "feed_ready": False,
+        }
+    tickers: dict[str, dict[str, object]] = {}
+    for sym in DASHBOARD_MARKET_SYMBOLS:
+        t = _market_feed.tickers.get(sym)
+        tickers[sym] = _serialize_ticker(t) if t else _empty_ticker_payload()
+    for sym, t in _market_feed.tickers.items():
+        if sym not in tickers:
+            tickers[sym] = _serialize_ticker(t)
     return {
         "source": "binance_testnet",
         "mode": "testnet",
-        "tickers": {
-            sym: {
-                "last_price": str(t.last_price),
-                "best_bid": str(t.best_bid),
-                "best_ask": str(t.best_ask),
-                "mark_price": str(t.mark_price),
-                "bid_qty": str(t.bid_qty),
-                "ask_qty": str(t.ask_qty),
-                "spread_bps": round(t.spread_bps, 2),
-                "age_ms": t.age_ms,
-                "is_stale": t.is_stale,
-                "trade_count_1m": t.trade_count_1m,
-                "volume_1m": str(t.volume_1m),
-            }
-            for sym, t in _market_feed.tickers.items()
-        },
+        "tickers": tickers,
         "stream_url": _market_feed.stream_url,
+        "feed_ready": True,
     }
+
+
+@app.get("/api/market/tickers")
+async def market_tickers():
+    """Live ticker data for all symbols."""
+    return _build_market_tickers_payload()
 
 
 @app.get("/api/market/health")
 async def market_health():
     """Market data feed health status."""
     if not _market_feed:
-        return {"connected": False, "mode": "testnet", "detail": "Feed not initialized"}
+        settings = get_settings()
+        return {
+            "connected": False,
+            "mode": "testnet",
+            "detail": "Feed not initialized",
+            "messages_total": 0,
+            "reconnect_count": 0,
+            "errors_total": 0,
+            "latency_ms": 0.0,
+            "uptime_seconds": 0.0,
+            "last_message_age_ms": None,
+            "stream_url": str(settings.binance.ws_combined_url),
+            "symbols": {},
+        }
     h = _market_feed.health
     now_ms = int(time.time() * 1000)
     last_age: int | None = None
