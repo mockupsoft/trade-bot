@@ -785,8 +785,8 @@
       <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
         <div>
           <h3 class="text-sm font-semibold text-white tracking-tight">Configuration</h3>
-          <p class="text-[11px] text-slate-500 mt-1 max-w-xl leading-relaxed" x-text="(configSnap && configSnap.meta && configSnap.meta.hint) || ''"></p>
-          <p class="text-[10px] text-slate-600 font-mono mt-2" x-show="configSnap && configSnap.meta && configSnap.meta.utc" x-text="'Snapshot · ' + configSnap.meta.utc"></p>
+          <p class="text-[11px] text-slate-500 mt-1 max-w-xl leading-relaxed" x-text="(configSnap.meta && configSnap.meta.hint) || ''"></p>
+          <p class="text-[10px] text-slate-600 font-mono mt-2" x-show="configSnap.meta && configSnap.meta.utc" x-text="'Snapshot · ' + configSnap.meta.utc"></p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <span x-show="configLoading" class="text-[11px] text-slate-500">Loading…</span>
@@ -794,25 +794,25 @@
           <button type="button" class="btn !py-2 !px-3 !text-xs border border-white/[0.12] bg-[#0c1016] text-slate-200 hover:bg-white/[0.06]" @click="copyConfigJson()">Copy JSON</button>
         </div>
       </div>
-      <div x-show="configSnap && configSnap.error" class="card border-red-500/30 mb-4">
+      <div x-show="configSnap.error" class="card border-red-500/30 mb-4">
         <p class="text-sm text-red-400 font-medium">Config snapshot failed</p>
         <p class="text-xs text-slate-500 font-mono mt-2 break-all" x-text="configSnap.error"></p>
       </div>
+      <div x-show="!configLoading && !configSnap.error && configSectionsForTemplate().length===0" class="card border border-white/[0.08] mb-4">
+        <p class="text-sm text-slate-400">No configuration sections in the response.</p>
+        <p class="text-[11px] text-slate-600 mt-2">Use <span class="font-mono text-slate-500">Refresh</span> or open <span class="font-mono text-slate-500">/api/config</span> in this origin — if you see JSON but not here, hard-refresh the page (cache).</p>
+      </div>
       <div class="space-y-4">
-        <template x-for="sec in (configSnap && configSnap.sections) ? configSnap.sections : []" :key="sec.id || sec.title">
-          <div class="card">
-            <h4 class="cfg-section-title" x-text="sec.title"></h4>
-            <template x-for="row in sec.rows || []" :key="row.key">
-              <div class="cfg-row">
-                <span class="cfg-k" x-text="row.label"></span>
-                <div class="cfg-v">
-                  <pre class="cfg-json" x-show="isCfgStructured(row.value)" x-text="prettyJson(row.value)"></pre>
-                  <span x-show="!isCfgStructured(row.value)" class="block pt-0.5" :class="cfgScalarClass(row)" x-text="formatCfgScalar(row.value)"></span>
-                </div>
-              </div>
-            </template>
+        <div class="card" x-for="sec in configSectionsForTemplate()" :key="sec.id || sec.title">
+          <h4 class="cfg-section-title" x-text="sec.title"></h4>
+          <div class="cfg-row" x-for="row in (sec.rows || [])" :key="(sec.id||sec.title)+'-'+row.key">
+            <span class="cfg-k" x-text="row.label"></span>
+            <div class="cfg-v">
+              <pre class="cfg-json" x-show="isCfgStructured(row.value)" x-text="prettyJson(row.value)"></pre>
+              <span x-show="!isCfgStructured(row.value)" class="block pt-0.5" :class="cfgScalarClass(row)" x-text="formatCfgScalar(row.value)"></span>
+            </div>
           </div>
-        </template>
+        </div>
       </div>
     </div>
 
@@ -875,7 +875,7 @@ function app(){return{
     {id:'config',label:'Config',svg:ICON.config},
     {id:'alerts',label:'Alerts',svg:ICON.alerts},
   ],
-  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:null,configLoading:false,alertsSnap:null,alertsLoading:false,researchTiers:{},tf:{tier:'',symbol:'',exit:'',source:''},
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:{meta:{hint:'',utc:''},sections:[]},configLoading:false,alertsSnap:null,alertsLoading:false,researchTiers:{},tf:{tier:'',symbol:'',exit:'',source:''},
   mkt:{},mktHealth:{},
   ddTier:false,ddSym:false,ddExit:false,ddSource:false,
   tierOpts:[
@@ -907,8 +907,10 @@ function app(){return{
     if(!this.pageIds.includes(p))return;
     const full='/'+p;
     const want='#'+full;
-    if(location.hash!==want)location.hash=want;
-    else{
+    if(location.hash!==want){
+      this.page=p;
+      location.hash=want;
+    }else{
       this.page=p;
       if(this.page==='overview')this.updateCharts();
       this.refresh();
@@ -1020,12 +1022,28 @@ function app(){return{
     if(row.key==='testnet_keys'&&row.value==='configured')return 'text-emerald-400 font-semibold';
     return '';
   },
+  configSectionsForTemplate(){
+    const s=this.configSnap;
+    if(!s||!Array.isArray(s.sections))return[];
+    return s.sections;
+  },
   async loadConfig(){
     this.configLoading=true;
     try{
-      this.configSnap=await(await fetch('/api/config')).json();
+      const r=await fetch('/api/config');
+      const j=await r.json();
+      const sections=Array.isArray(j.sections)?j.sections:[];
+      this.configSnap={
+        meta:j.meta&&typeof j.meta==='object'?j.meta:{hint:'',utc:''},
+        sections,
+        error:j.error,
+      };
     }catch(e){
-      this.configSnap={meta:{hint:'Could not reach /api/config',utc:''},error:String(e),sections:[]};
+      this.configSnap={
+        meta:{hint:'Could not reach /api/config',utc:''},
+        error:String(e),
+        sections:[],
+      };
     }
     this.configLoading=false;
   },
