@@ -15,4 +15,4 @@ def test_alerts_status_shape(dashboard_client) -> None:
     assert "reconciliation" in ids
     for rule in data["rules"]:
         assert rule["state"] in ("ok", "firing", "unknown")
-        assert rule["severity"] in ("warning", "critical", "info")
+        assert rule["severity"] in ("warning", "critical")
