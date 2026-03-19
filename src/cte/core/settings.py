@@ -186,6 +186,8 @@ class ExecutionSettings(BaseSettings):
     fill_delay_ms: int = 100
     max_retries: int = 3
     retry_delay_sec: float = 1.0
+    fill_model: str = "spread_crossing"   # spread_crossing | vwap_depth | worst_case
+    fee_bps: int = 4                      # taker fee in basis points
 
     model_config = SettingsConfigDict(env_prefix="CTE_EXECUTION_")
 

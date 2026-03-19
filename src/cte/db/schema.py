@@ -183,24 +183,67 @@ CREATE_POSITIONS_TABLE = """
 CREATE TABLE IF NOT EXISTS cte.positions (
     position_id     UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     symbol          TEXT NOT NULL,
-    side            TEXT NOT NULL,
-    entry_price     NUMERIC NOT NULL,
-    quantity        NUMERIC NOT NULL,
-    leverage        INTEGER NOT NULL DEFAULT 1,
+    direction       TEXT NOT NULL DEFAULT 'long',
+    status          TEXT NOT NULL DEFAULT 'open',
+
+    -- Signal provenance
     signal_id       UUID NOT NULL,
-    opened_at       TIMESTAMPTZ NOT NULL,
-    closed_at       TIMESTAMPTZ,
-    exit_reason     TEXT,
-    exit_price      NUMERIC,
-    realized_pnl    NUMERIC,
+    signal_tier     TEXT NOT NULL DEFAULT '',
+    entry_reason    TEXT NOT NULL DEFAULT '',
+    composite_score DOUBLE PRECISION DEFAULT 0,
+
+    -- Fill details
+    entry_price     NUMERIC NOT NULL,
+    fill_price      NUMERIC NOT NULL,
+    quantity        NUMERIC NOT NULL,
+    notional_usd    NUMERIC NOT NULL DEFAULT 0,
+    leverage        INTEGER NOT NULL DEFAULT 1,
+
+    -- Slippage and cost
+    signal_price        NUMERIC,
+    modeled_slippage_bps NUMERIC DEFAULT 0,
+    effective_spread_bps NUMERIC DEFAULT 0,
+    fill_model_used     TEXT DEFAULT '',
+    estimated_fees_usd  NUMERIC DEFAULT 0,
+
+    -- Timing
+    signal_time         TIMESTAMPTZ,
+    opened_at           TIMESTAMPTZ NOT NULL,
+    closed_at           TIMESTAMPTZ,
+    entry_latency_ms    INTEGER DEFAULT 0,
+    modeled_fill_latency_ms INTEGER DEFAULT 0,
+
+    -- Risk
+    stop_loss_pct       DOUBLE PRECISION DEFAULT 0,
+    take_profit_pct     DOUBLE PRECISION DEFAULT 0,
+    stop_distance_usd   NUMERIC DEFAULT 0,
+
+    -- Excursion analytics
     highest_price   NUMERIC NOT NULL,
     lowest_price    NUMERIC NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'open',
+    mfe_pct         DOUBLE PRECISION DEFAULT 0,
+    mae_pct         DOUBLE PRECISION DEFAULT 0,
+    mfe_usd         NUMERIC DEFAULT 0,
+    mae_usd         NUMERIC DEFAULT 0,
+
+    -- PnL
+    realized_pnl    NUMERIC,
+    unrealized_pnl  NUMERIC DEFAULT 0,
+
+    -- Exit
+    exit_price      NUMERIC,
+    exit_reason     TEXT,
+    exit_detail     TEXT DEFAULT '',
+    r_multiple      DOUBLE PRECISION,
+
+    -- State history
+    state_transitions JSONB NOT NULL DEFAULT '[]',
     metadata        JSONB NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS idx_positions_status ON cte.positions (status);
 CREATE INDEX IF NOT EXISTS idx_positions_symbol ON cte.positions (symbol, opened_at DESC);
+CREATE INDEX IF NOT EXISTS idx_positions_signal ON cte.positions (signal_id);
 """
 
 # ---------------------------------------------------------------------------
