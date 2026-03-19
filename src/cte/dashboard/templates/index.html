@@ -463,11 +463,13 @@
         <div class="p-5 sm:p-6 border-b border-white/[0.06] flex flex-wrap items-start justify-between gap-5">
           <div>
             <h3 class="text-base font-semibold text-white tracking-tight">Trade journal</h3>
-            <p class="text-[12px] text-slate-500 mt-1.5 max-w-lg leading-relaxed">Synced with the analytics API. Filters update the table immediately.</p>
+            <p class="text-[12px] text-slate-500 mt-1.5 max-w-xl leading-relaxed">
+              Closed trades for active epoch (<span class="font-mono text-slate-400" x-text="epoch"></span>). LONG-only v1 universe; exit reason is the mandatory explainability field. Data from <span class="font-mono text-slate-500">/api/analytics/trades</span>.
+            </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <div class="relative z-[60]">
-              <button type="button" class="dd-trigger min-w-[148px]" :class="ddTier ? 'dd-trigger-open' : ''" @click.stop="ddTier=!ddTier; ddSym=ddExit=false" :aria-expanded="ddTier">
+              <button type="button" class="dd-trigger min-w-[148px]" :class="ddTier ? 'dd-trigger-open' : ''" @click.stop="ddTier=!ddTier; ddSym=ddExit=ddSource=false" :aria-expanded="ddTier">
                 <span class="truncate text-slate-200" x-text="tierLbl()"></span>
                 <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
@@ -478,7 +480,7 @@
               </div>
             </div>
             <div class="relative z-[60]">
-              <button type="button" class="dd-trigger min-w-[156px]" :class="ddSym ? 'dd-trigger-open' : ''" @click.stop="ddSym=!ddSym; ddTier=ddExit=false" :aria-expanded="ddSym">
+              <button type="button" class="dd-trigger min-w-[156px]" :class="ddSym ? 'dd-trigger-open' : ''" @click.stop="ddSym=!ddSym; ddTier=ddExit=ddSource=false" :aria-expanded="ddSym">
                 <span class="truncate text-slate-200" x-text="symLbl()"></span>
                 <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
@@ -489,7 +491,7 @@
               </div>
             </div>
             <div class="relative z-[60]">
-              <button type="button" class="dd-trigger min-w-[168px]" :class="ddExit ? 'dd-trigger-open' : ''" @click.stop="ddExit=!ddExit; ddTier=ddSym=false" :aria-expanded="ddExit">
+              <button type="button" class="dd-trigger min-w-[168px]" :class="ddExit ? 'dd-trigger-open' : ''" @click.stop="ddExit=!ddExit; ddTier=ddSym=ddSource=false" :aria-expanded="ddExit">
                 <span class="truncate text-slate-200" x-text="exitLbl()"></span>
                 <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
@@ -499,32 +501,69 @@
                 </template>
               </div>
             </div>
+            <div class="relative z-[60]">
+              <button type="button" class="dd-trigger min-w-[168px]" :class="ddSource ? 'dd-trigger-open' : ''" @click.stop="ddSource=!ddSource; ddTier=ddSym=ddExit=false" :aria-expanded="ddSource">
+                <span class="truncate text-slate-200" x-text="sourceLbl()"></span>
+                <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <div x-show="ddSource" x-cloak x-transition @click.outside="ddSource=false" class="dd-panel left-0 max-h-56 overflow-y-auto">
+                <template x-for="o in sourceOpts" :key="o.v || 'all-src'">
+                  <button type="button" :class="tf.source===o.v ? 'dd-opt-active' : ''" @click="setSource(o.v)" x-text="o.l"></button>
+                </template>
+              </div>
+            </div>
           </div>
         </div>
         <div class="overflow-x-auto max-h-[min(70vh,720px)] overflow-y-auto tbl-scroll">
-          <table class="tbl min-w-[960px]">
+          <table class="tbl min-w-[1100px]">
             <thead>
               <tr>
-                <th>Symbol</th><th>Tier</th><th class="text-right">PnL</th><th class="text-right">R</th><th>Exit</th>
-                <th class="text-right">Hold</th><th class="text-right">MFE</th><th class="text-right">MAE</th><th class="text-right">Slip</th><th>Mode</th>
+                <th>Symbol</th>
+                <th>Venue</th>
+                <th>Tier</th>
+                <th class="text-right">PnL</th>
+                <th class="text-right">R</th>
+                <th>Exit</th>
+                <th class="text-right">Hold</th>
+                <th class="text-right">MFE</th>
+                <th class="text-right">MAE</th>
+                <th class="text-right">Slip</th>
+                <th>Mode</th>
+                <th>Source</th>
               </tr>
             </thead>
             <tbody>
-              <template x-for="(t,ti) in trades" :key="ti+'-'+(t.symbol||'')+'-'+(t.pnl||'')+'-'+(t.exit_reason||'')">
+              <template x-for="(t,ti) in trades" :key="'j-'+ti+'-'+(t.epoch||'')+'-'+(t.symbol||'')+'-'+(t.pnl||'')+'-'+(t.exit_reason||'')">
                 <tr>
                   <td class="tbl-txt"><span class="font-mono text-[12px] font-semibold text-white tracking-tight" x-text="t.symbol"></span></td>
+                  <td class="tbl-txt font-mono text-[11px] text-slate-500" x-text="t.venue||'—'"></td>
                   <td><span class="pill" :class="tc(t.tier)" x-text="t.tier"></span></td>
-                  <td class="text-right tbl-num" :class="parseFloat(t.pnl)>=0?'text-emerald-400':'text-red-400'" x-text="'$'+parseFloat(t.pnl).toFixed(2)"></td>
-                  <td class="text-right tbl-num text-slate-400" x-text="t.r_multiple?t.r_multiple.toFixed(2)+'R':'—'"></td>
-                  <td class="max-w-[140px]"><span class="pill text-[10px] leading-tight" :class="ec(t.exit_reason)" x-text="t.exit_reason"></span></td>
+                  <td class="text-right tbl-num" :class="parseFloat(t.pnl)>=0?'text-emerald-400':'text-red-400'" :title="t.was_profitable_at_exit!=null?('profitable@exit: '+t.was_profitable_at_exit):''">
+                    <span x-text="'$'+parseFloat(t.pnl).toFixed(2)"></span>
+                  </td>
+                  <td class="text-right tbl-num text-slate-400" x-text="t.r_multiple!=null?t.r_multiple.toFixed(2)+'R':'—'"></td>
+                  <td class="max-w-[160px]"><span class="pill text-[10px] leading-tight" :class="ec(t.exit_reason)" x-text="t.exit_reason"></span></td>
                   <td class="text-right tbl-txt text-slate-400" x-text="dur(t.hold_seconds)"></td>
                   <td class="text-right tbl-num text-emerald-400/90" x-text="(t.mfe_pct*100).toFixed(2)+'%'"></td>
                   <td class="text-right tbl-num text-red-400/90" x-text="(t.mae_pct*100).toFixed(2)+'%'"></td>
-                  <td class="text-right tbl-num text-slate-400" x-text="(t.slippage_bps??0).toFixed(1)"></td>
+                  <td class="text-right tbl-num text-slate-400" x-text="(t.slippage_bps!=null?t.slippage_bps:0).toFixed(1)"></td>
                   <td><span class="pill pill-b text-[10px]" x-text="t.position_mode"></span></td>
+                  <td><span class="pill text-[10px]" :class="srcPill(t.source)" x-text="t.source||'—'"></span></td>
                 </tr>
               </template>
-              <tr x-show="!trades.length"><td colspan="10" class="py-16 text-center text-slate-500 text-sm">No trades for this filter</td></tr>
+              <tr x-show="!trades.length">
+                <td colspan="12" class="py-14 px-4 text-center">
+                  <p class="text-slate-500 text-sm mb-4">No trades for this filter</p>
+                  <div class="text-left max-w-xl mx-auto text-[11px] text-slate-600 space-y-2 leading-relaxed">
+                    <p class="font-bold text-slate-500 uppercase tracking-wider text-[10px]">v1 journal (CTE rules)</p>
+                    <ul class="list-disc pl-5 space-y-1.5">
+                      <li>Only <span class="font-mono text-slate-400">BTCUSDT</span> and <span class="font-mono text-slate-400">ETHUSDT</span>, <strong>long</strong> exposure; rows appear when the execution/analytics path records a <strong>closed</strong> position.</li>
+                      <li><span class="font-mono text-slate-500">exit_reason</span> is the explainability payload attached to each close (risk may veto before entry).</li>
+                      <li><span class="font-mono text-slate-500">source</span>: <span class="font-mono">paper_simulated</span> / <span class="font-mono">demo_exchange</span>; <span class="font-mono">seed</span> is for dev-only fixtures.</li>
+                    </ul>
+                  </div>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -820,9 +859,9 @@ function app(){return{
     {id:'config',label:'Config',svg:ICON.config},
     {id:'alerts',label:'Alerts',svg:ICON.alerts},
   ],
-  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:null,configLoading:false,alertsSnap:null,alertsLoading:false,tf:{tier:'',symbol:'',exit:''},
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:null,configLoading:false,alertsSnap:null,alertsLoading:false,tf:{tier:'',symbol:'',exit:'',source:''},
   mkt:{},mktHealth:{},
-  ddTier:false,ddSym:false,ddExit:false,
+  ddTier:false,ddSym:false,ddExit:false,ddSource:false,
   tierOpts:[
     {v:'',l:'All tiers'},{v:'A',l:'Tier A'},{v:'B',l:'Tier B'},{v:'C',l:'Tier C'},
   ],
@@ -833,10 +872,17 @@ function app(){return{
     {v:'',l:'All exits'},{v:'hard_stop',l:'hard_stop'},{v:'thesis_failure',l:'thesis_failure'},
     {v:'no_progress',l:'no_progress'},{v:'winner_trailing',l:'winner_trailing'},{v:'runner_trailing',l:'runner_trailing'},
   ],
+  sourceOpts:[
+    {v:'',l:'All sources'},
+    {v:'paper_simulated',l:'Paper simulated'},
+    {v:'demo_exchange',l:'Demo exchange'},
+    {v:'seed',l:'Seed (dev only)'},
+  ],
   _charts:{},_lastPrice:{},_flash:{},lastSync:0,_tickTimer:null,_slowTimer:null,_clockTick:0,
   setTier(v){this.tf.tier=v;this.ddTier=false;this.loadTrades()},
   setSym(v){this.tf.symbol=v;this.ddSym=false;this.loadTrades()},
   setExit(v){this.tf.exit=v;this.ddExit=false;this.loadTrades()},
+  setSource(v){this.tf.source=v;this.ddSource=false;this.loadTrades()},
   pageFromHash(){
     const raw=(location.hash||'').replace(/^#/,'').replace(/^\//,'').split('/')[0]||'overview';
     return this.pageIds.includes(raw)?raw:'overview';
@@ -855,6 +901,7 @@ function app(){return{
   tierLbl(){const o=this.tierOpts.find(x=>x.v===this.tf.tier);return o?o.l:'All tiers'},
   symLbl(){const o=this.symOpts.find(x=>x.v===this.tf.symbol);return o?o.l:'All symbols'},
   exitLbl(){const o=this.exitOpts.find(x=>x.v===this.tf.exit);return o?o.l:'All exits'},
+  sourceLbl(){const o=this.sourceOpts.find(x=>x.v===this.tf.source);return o?o.l:'All sources'},
   get liveConnected(){return !!(this.mktHealth&&this.mktHealth.connected);},
   get streamPct(){
     const m=this.mktHealth.messages_total||0;
@@ -1022,7 +1069,7 @@ function app(){return{
     setInterval(()=>{this._clockTick++;},1000);
     document.addEventListener('keydown',(e)=>{
       if(e.key==='Escape'){
-        this.ddTier=this.ddSym=this.ddExit=false;
+        this.ddTier=this.ddSym=this.ddExit=this.ddSource=false;
       }
     });
   },
@@ -1093,6 +1140,7 @@ function app(){return{
     if(this.tf.tier)u+=`&tier=${encodeURIComponent(this.tf.tier)}`;
     if(this.tf.symbol)u+=`&symbol=${encodeURIComponent(this.tf.symbol)}`;
     if(this.tf.exit)u+=`&exit_reason=${encodeURIComponent(this.tf.exit)}`;
+    if(this.tf.source)u+=`&source=${encodeURIComponent(this.tf.source)}`;
     try{this.trades=await(await fetch(u)).json()}catch(e){this.trades=[]}
   },
   updateCharts(){
@@ -1161,6 +1209,12 @@ function app(){return{
   dur(s){if(!s)return'—';if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'},
   tc(t){return{A:'pill-g',B:'pill-b',C:'pill-y'}[t]||'pill-y'},
   ec(r){return{hard_stop:'pill-r',stale_data:'pill-r',spread_blowout:'pill-r',thesis_failure:'pill-y',no_progress:'pill-y',winner_trailing:'pill-g',runner_trailing:'pill-p'}[r]||'pill-b'},
+  srcPill(s){
+    if(!s)return'pill pill-b';
+    if(s==='seed')return'pill pill-y';
+    if(s==='demo_exchange')return'pill pill-p';
+    return'pill pill-b';
+  },
   opsPillCls(action){
     const m={emergency_stop:'pill-r',pause:'pill-y',resume:'pill-g',symbol_disable:'pill-r',symbol_enable:'pill-g'};
     return m[action]||'pill-b';

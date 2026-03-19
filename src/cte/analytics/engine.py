@@ -138,26 +138,31 @@ class AnalyticsEngine:
     ) -> list[dict]:
         """Get individual trade records for drilldown."""
         filtered = self._filter_trades(epoch, symbol, tier, exit_reason=exit_reason, source=source)
-        return [
-            {
-                "symbol": t.symbol,
-                "venue": t.venue,
-                "tier": t.tier,
-                "epoch": t.epoch,
-                "source": t.source,
-                "pnl": str(t.pnl),
-                "exit_reason": t.exit_reason,
-                "exit_layer": t.exit_layer,
-                "hold_seconds": t.hold_seconds,
-                "r_multiple": t.r_multiple,
-                "entry_latency_ms": t.entry_latency_ms,
-                "slippage_bps": t.modeled_slippage_bps,
-                "mfe_pct": t.mfe_pct,
-                "mae_pct": t.mae_pct,
-                "position_mode": t.position_mode,
-            }
-            for t in filtered[-limit:]
-        ]
+        tail = filtered[-limit:] if limit else filtered
+        # Newest first for operator journal (last recorded appears at top).
+        rows: list[dict] = []
+        for t in reversed(tail):
+            rows.append(
+                {
+                    "symbol": t.symbol,
+                    "venue": t.venue,
+                    "tier": t.tier,
+                    "epoch": t.epoch,
+                    "source": t.source,
+                    "pnl": str(t.pnl),
+                    "exit_reason": t.exit_reason,
+                    "exit_layer": t.exit_layer,
+                    "hold_seconds": t.hold_seconds,
+                    "r_multiple": t.r_multiple,
+                    "entry_latency_ms": t.entry_latency_ms,
+                    "slippage_bps": t.modeled_slippage_bps,
+                    "mfe_pct": t.mfe_pct,
+                    "mae_pct": t.mae_pct,
+                    "was_profitable_at_exit": t.was_profitable_at_exit,
+                    "position_mode": t.position_mode,
+                },
+            )
+        return rows
 
     def get_epoch_comparison(self, epoch_a: str, epoch_b: str) -> dict:
         """Compare metrics between two epochs (e.g., paper vs demo)."""

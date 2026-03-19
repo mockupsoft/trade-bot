@@ -140,13 +140,34 @@ class TestEpochSupport:
 
 
 class TestTradesDrilldown:
-    def test_get_trades_list(self, engine):
+    JOURNAL_KEYS = frozenset({
+        "symbol",
+        "venue",
+        "tier",
+        "epoch",
+        "source",
+        "pnl",
+        "exit_reason",
+        "exit_layer",
+        "hold_seconds",
+        "r_multiple",
+        "entry_latency_ms",
+        "slippage_bps",
+        "mfe_pct",
+        "mae_pct",
+        "was_profitable_at_exit",
+        "position_mode",
+    })
+
+    def test_get_trades_list_newest_first(self, engine):
         engine.record_trade(_closed_position())
         engine.record_trade(_closed_position(symbol="ETHUSDT"))
 
         trades = engine.get_trades()
         assert len(trades) == 2
-        assert trades[0]["symbol"] == "BTCUSDT"
+        assert trades[0]["symbol"] == "ETHUSDT"
+        assert trades[1]["symbol"] == "BTCUSDT"
+        assert set(trades[0].keys()) == self.JOURNAL_KEYS
         assert "pnl" in trades[0]
         assert "r_multiple" in trades[0]
 
@@ -158,8 +179,38 @@ class TestTradesDrilldown:
         assert len(trades) == 1
         assert trades[0]["symbol"] == "ETHUSDT"
 
+    def test_get_trades_filtered_by_exit_reason(self, engine):
+        engine.record_trade(_closed_position(exit_reason="winner_trailing"))
+        engine.record_trade(_closed_position(exit_reason="hard_stop", exit=Decimal("48000")))
+
+        rows = engine.get_trades(exit_reason="hard_stop")
+        assert len(rows) == 1
+        assert rows[0]["exit_reason"] == "hard_stop"
+
+    def test_get_trades_filtered_by_source(self, engine):
+        p1 = _closed_position()
+        p2 = _closed_position(exit=Decimal("49000"))
+        engine.record_trade(p1, source="paper_simulated")
+        engine.record_trade(p2, source="demo_exchange")
+
+        paper = engine.get_trades(source="paper_simulated")
+        assert len(paper) == 1
+        assert paper[0]["source"] == "paper_simulated"
+
     def test_get_trades_limit(self, engine):
         for _ in range(10):
             engine.record_trade(_closed_position())
         trades = engine.get_trades(limit=3)
         assert len(trades) == 3
+
+    def test_get_trades_respects_epoch(self, epoch_mgr):
+        epoch_mgr.create_epoch("other", EpochMode.DEMO)
+        eng = AnalyticsEngine(epoch_mgr)
+        epoch_mgr.activate("crypto_v1_paper")
+        eng.record_trade(_closed_position())
+        epoch_mgr.activate("other")
+        eng.record_trade(_closed_position(symbol="ETHUSDT"))
+
+        paper_rows = eng.get_trades(epoch="crypto_v1_paper")
+        assert len(paper_rows) == 1
+        assert paper_rows[0]["symbol"] == "BTCUSDT"

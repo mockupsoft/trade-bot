@@ -31,6 +31,11 @@ export CTE_BINANCE_TESTNET_API_SECRET="..."
 docker compose -f deploy/docker-compose.yml up -d analytics
 ```
 
+## Positions (trade journal)
+
+- UI calls `GET /api/analytics/trades` with `epoch`, optional `tier`, `symbol`, `exit_reason`, `source`, and `limit` (1–500). Rows are **newest first** and include `venue`, `was_profitable_at_exit`, and `exit_reason` (explainability field per PRD).
+- v1 copy on the page states LONG-only, BTCUSDT/ETHUSDT, and source semantics (`paper_simulated`, `demo_exchange`, `seed`).
+
 ## Alerts page
 
 - `GET /api/alerts/status` returns static rule text plus **live** `state`: `ok`, `firing`, or `unknown` (no data). Inputs: market WebSocket + book ages, analytics `max_drawdown_pct` / slippage, `_recon_status`, optional campaign snapshot for reject rate.
