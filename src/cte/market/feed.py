@@ -10,6 +10,7 @@ instead of seed/fake data.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -88,10 +89,11 @@ class MarketDataFeed:
 
     def __init__(
         self,
-        ws_url: str = BINANCE_COMBINED_STREAM,
+        ws_url: str | None = None,
         streams: list[str] | None = None,
     ) -> None:
-        self._ws_url = ws_url
+        env_ws = (os.environ.get("CTE_MARKET_WS_URL") or "").strip()
+        self._ws_url = ws_url or (env_ws if env_ws else BINANCE_COMBINED_STREAM)
         self._streams = streams or DEFAULT_STREAMS
         self._ws = None
         self._running = False

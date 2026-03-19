@@ -95,6 +95,10 @@ All notable changes to the Crypto Trading Engine.
 - Epoch-aware daily summary (35 columns)
 - Trade log with full analytics fields
 
+### Dashboard deploy
+- `analytics` service: `CTE_DASHBOARD_MODE` (default `paper`) for live Binance public WS; `seed` / `demo` documented in `docs/DASHBOARD_MODES.md`
+- Optional `CTE_MARKET_WS_URL` for `MarketDataFeed` WebSocket override
+
 ### Infrastructure
 - Dockerfile (Python 3.12-slim, health checks)
 - docker-compose.yml (10 services + Postgres + Redis + Prometheus + Grafana)

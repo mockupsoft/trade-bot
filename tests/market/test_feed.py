@@ -34,6 +34,16 @@ class TestMarketDataFeed:
         assert "BTCUSDT" in feed.tickers
         assert "ETHUSDT" in feed.tickers
 
+    def test_ws_url_explicit_arg(self):
+        feed = MarketDataFeed(ws_url="wss://example.test/stream")
+        assert feed._ws_url == "wss://example.test/stream"
+
+    def test_ws_url_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CTE_MARKET_WS_URL", "wss://custom.example/stream")
+        feed = MarketDataFeed()
+        assert feed._ws_url == "wss://custom.example/stream"
+        monkeypatch.delenv("CTE_MARKET_WS_URL", raising=False)
+
     def test_health_initial(self):
         feed = MarketDataFeed()
         h = feed.health

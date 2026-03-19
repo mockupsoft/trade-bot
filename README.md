@@ -112,6 +112,7 @@ All endpoints verified via HTTP (not just unit tests):
 | [DEMO_EXECUTION_ENGINE.md](docs/DEMO_EXECUTION_ENGINE.md) | Adapter interface, order FSM |
 | [ANALYTICS_MONITORING.md](docs/ANALYTICS_MONITORING.md) | Epoch system, alert rules |
 | [OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) | Emergency procedures, secrets |
+| [DASHBOARD_MODES.md](docs/DASHBOARD_MODES.md) | **seed / paper / demo** dashboard + Docker `CTE_DASHBOARD_MODE` |
 
 ## Quick Start
 
@@ -126,14 +127,33 @@ pytest tests/ -v
 
 ```bash
 pip install -e .
-CTE_ENGINE_MODE=seed cte-dashboard
-# → http://localhost:8080  (binds 0.0.0.0 — reachable from LAN / port-forward)
 
-# Equivalent:
-# CTE_ENGINE_MODE=seed uvicorn cte.dashboard.app:app --host 0.0.0.0 --port 8080
+# Live Binance public ticker (BTC/ETH) — FEED LIVE, analytics empty until trades exist
+CTE_ENGINE_MODE=paper cte-dashboard
+
+# Offline UI with fake trades (~50) — NO FEED
+# CTE_ENGINE_MODE=seed cte-dashboard
+
+# Testnet (requires CTE_BINANCE_TESTNET_API_KEY / _SECRET)
+# CTE_ENGINE_MODE=demo cte-dashboard
 ```
 
-**Docker:** `docker compose -f deploy/docker-compose.yml up -d analytics` — the `analytics` service runs `python -m cte.dashboard` on **8080** with `CTE_ENGINE_MODE=seed` so the UI has data without live WebSocket feeds.
+→ **http://localhost:8080** (binds `0.0.0.0`). Details: [docs/DASHBOARD_MODES.md](docs/DASHBOARD_MODES.md).
+
+**Docker (`analytics` on :8080):** `CTE_DASHBOARD_MODE` selects the dashboard process mode (default **`paper`**).
+
+```bash
+# Live ticker (default)
+docker compose -f deploy/docker-compose.yml up -d analytics
+
+# Seed UI only (no WebSocket)
+CTE_DASHBOARD_MODE=seed docker compose -f deploy/docker-compose.yml up -d analytics
+
+# Demo — must export testnet keys first or the container will exit on safety check
+CTE_DASHBOARD_MODE=demo docker compose -f deploy/docker-compose.yml up -d analytics
+```
+
+Verify paper feed: `curl -s http://localhost:8080/api/market/health | python -m json.tool`
 
 ### Start Infrastructure (Docker)
 

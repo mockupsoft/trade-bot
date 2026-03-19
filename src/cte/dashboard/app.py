@@ -1,12 +1,17 @@
 """CTE Dashboard — Mode-aware operations platform.
 
-Modes:
-  seed  = UI preview with fake data (default for development)
-  paper = live market data + simulated fills
-  demo  = live market data + testnet/demo exchange orders
+Modes (``CTE_ENGINE_MODE``):
+  seed  = UI preview with fake data (no WebSocket)
+  paper = Binance USDⓈ-M **public** WebSocket + empty analytics until trades exist
+  demo  = same feed + Binance **testnet** keys required (safety gate)
   live  = disabled in v1
 
-Run: CTE_ENGINE_MODE=seed cte-dashboard  OR  python -m cte.dashboard  (port from CTE_SERVICE_PORT, default 8080).
+Run locally::
+
+    CTE_ENGINE_MODE=paper cte-dashboard
+
+Docker: set ``CTE_DASHBOARD_MODE`` for the ``analytics`` service (defaults to ``paper``).
+See ``docs/DASHBOARD_MODES.md`` for seed / paper / demo setup and verification curls.
 """
 from __future__ import annotations
 
