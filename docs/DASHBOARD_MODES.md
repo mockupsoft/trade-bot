@@ -31,6 +31,11 @@ export CTE_BINANCE_TESTNET_API_SECRET="..."
 docker compose -f deploy/docker-compose.yml up -d analytics
 ```
 
+## Research
+
+- Tier cards load **`/api/analytics/summary?tier=A|B|C&epoch=…`** on each refresh while this tab is open (`loadResearch`). Invalid `tier` values return **422**.
+- Exit attribution and runner tiles read the same epoch-wide **`m`** object as Overview (`pnl_by_exit_reason`, `runner_outcomes`).
+
 ## Positions (trade journal)
 
 - UI calls `GET /api/analytics/trades` with `epoch`, optional `tier`, `symbol`, `exit_reason`, `source`, and `limit` (1–500). Rows are **newest first** and include `venue`, `was_profitable_at_exit`, and `exit_reason` (explainability field per PRD).

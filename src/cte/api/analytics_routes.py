@@ -5,7 +5,7 @@ or direct frontend consumption.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 
@@ -24,9 +24,12 @@ def set_engine(engine: Any) -> None:
 async def summary(
     epoch: str | None = None,
     symbol: str | None = None,
-    tier: str | None = None,
+    tier: Annotated[
+        Literal["A", "B", "C"] | None,
+        Query(description="Signal tier filter (v1 tiers A/B/C only)."),
+    ] = None,
 ) -> dict:
-    """Full metrics summary with optional filters."""
+    """Full metrics summary with optional filters (Research + Overview)."""
     if not _engine:
         return {"error": "Analytics engine not initialized"}
     return _engine.get_metrics(epoch=epoch, symbol=symbol, tier=tier)

@@ -733,14 +733,28 @@
     </div>
 
     <div x-show="page==='research'" x-cloak>
+      <p class="text-[11px] text-slate-500 mb-5 max-w-3xl leading-relaxed">Tier cards use <span class="font-mono text-slate-400">/api/analytics/summary?tier=A|B|C</span> for the active epoch. Exit attribution and runner stats use the same epoch-wide summary as Overview (<span class="font-mono text-slate-500">exit_reason</span> is the explainability axis per PRD).</p>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="card card-hover"><h3 class="card-head">Tier A</h3><div x-data="{d:null}" x-init="d=(await(await fetch('/api/analytics/summary?tier=A&epoch='+epoch)).json())"><div class="sv text-emerald-400" x-text="'$'+fmt(d?.total_pnl)"></div><div class="text-xs text-slate-500 mt-2">WR <span class="font-mono text-slate-400" x-text="pct(d?.win_rate)"></span> · PF <span class="font-mono text-slate-400" x-text="d?.profit_factor?.toFixed(2)||'—'"></span> · <span class="font-mono text-slate-400" x-text="d?.trade_count||0"></span> trades</div></div></div>
-        <div class="card card-hover"><h3 class="card-head">Tier B</h3><div x-data="{d:null}" x-init="d=(await(await fetch('/api/analytics/summary?tier=B&epoch='+epoch)).json())"><div class="sv text-sky-400" x-text="'$'+fmt(d?.total_pnl)"></div><div class="text-xs text-slate-500 mt-2">WR <span class="font-mono text-slate-400" x-text="pct(d?.win_rate)"></span> · PF <span class="font-mono text-slate-400" x-text="d?.profit_factor?.toFixed(2)||'—'"></span> · <span class="font-mono text-slate-400" x-text="d?.trade_count||0"></span> trades</div></div></div>
-        <div class="card card-hover"><h3 class="card-head">Tier C</h3><div x-data="{d:null}" x-init="d=(await(await fetch('/api/analytics/summary?tier=C&epoch='+epoch)).json())"><div class="sv text-amber-400" x-text="'$'+fmt(d?.total_pnl)"></div><div class="text-xs text-slate-500 mt-2">WR <span class="font-mono text-slate-400" x-text="pct(d?.win_rate)"></span> · PF <span class="font-mono text-slate-400" x-text="d?.profit_factor?.toFixed(2)||'—'"></span> · <span class="font-mono text-slate-400" x-text="d?.trade_count||0"></span> trades</div></div></div>
+        <div class="card card-hover">
+          <h3 class="card-head">Tier A</h3>
+          <div class="sv text-emerald-400" x-text="'$'+fmt(tierM('A').total_pnl)"></div>
+          <div class="text-xs text-slate-500 mt-2">WR <span class="font-mono text-slate-400" x-text="pct(tierM('A').win_rate)"></span> · PF <span class="font-mono text-slate-400" x-text="tierM('A').profit_factor!=null?tierM('A').profit_factor.toFixed(2):'—'"></span> · <span class="font-mono text-slate-400" x-text="tierM('A').trade_count||0"></span> trades</div>
+        </div>
+        <div class="card card-hover">
+          <h3 class="card-head">Tier B</h3>
+          <div class="sv text-sky-400" x-text="'$'+fmt(tierM('B').total_pnl)"></div>
+          <div class="text-xs text-slate-500 mt-2">WR <span class="font-mono text-slate-400" x-text="pct(tierM('B').win_rate)"></span> · PF <span class="font-mono text-slate-400" x-text="tierM('B').profit_factor!=null?tierM('B').profit_factor.toFixed(2):'—'"></span> · <span class="font-mono text-slate-400" x-text="tierM('B').trade_count||0"></span> trades</div>
+        </div>
+        <div class="card card-hover">
+          <h3 class="card-head">Tier C</h3>
+          <div class="sv text-amber-400" x-text="'$'+fmt(tierM('C').total_pnl)"></div>
+          <div class="text-xs text-slate-500 mt-2">WR <span class="font-mono text-slate-400" x-text="pct(tierM('C').win_rate)"></span> · PF <span class="font-mono text-slate-400" x-text="tierM('C').profit_factor!=null?tierM('C').profit_factor.toFixed(2):'—'"></span> · <span class="font-mono text-slate-400" x-text="tierM('C').trade_count||0"></span> trades</div>
+        </div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         <div class="card">
-          <h3 class="text-sm font-semibold text-white mb-4 tracking-tight">Exit reason attribution</h3>
+          <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Exit reason attribution</h3>
+          <p class="text-[10px] text-slate-600 mb-4">Realized PnL by <span class="font-mono">exit_reason</span> (full epoch, all tiers).</p>
           <div class="space-y-0 divide-y divide-white/[0.05]">
             <template x-for="(pnl,reason) in m.pnl_by_exit_reason||{}" :key="reason">
               <div class="flex items-center justify-between text-xs py-3">
@@ -751,15 +765,17 @@
                 </div>
               </div>
             </template>
+            <div x-show="!Object.keys(m.pnl_by_exit_reason||{}).length" class="py-12 text-center text-slate-600 text-xs">No exit attribution yet — close trades with documented <span class="font-mono text-slate-500">exit_reason</span> to populate this view.</div>
           </div>
         </div>
         <div class="card">
-          <h3 class="text-sm font-semibold text-white mb-4 tracking-tight">Runner mode</h3>
-          <div class="grid grid-cols-2 gap-4 text-sm" x-data="{r:null}" x-init="r=m.runner_outcomes||{}">
-            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Count</span><p class="font-mono text-lg text-violet-400 mt-1" x-text="r.count||0"></p></div>
-            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Avg R</span><p class="font-mono text-lg text-white mt-1" x-text="(r.avg_r||0).toFixed(2)+'R'"></p></div>
-            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Avg PnL</span><p class="font-mono text-lg text-white mt-1" x-text="'$'+(r.avg_pnl||0).toFixed(2)"></p></div>
-            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Win rate</span><p class="font-mono text-lg text-white mt-1" x-text="pct(r.win_rate)"></p></div>
+          <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Runner mode</h3>
+          <p class="text-[10px] text-slate-600 mb-4">Subset of epoch trades in runner / trailing posture (analytics aggregate).</p>
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Count</span><p class="font-mono text-lg text-violet-400 mt-1" x-text="(m.runner_outcomes||{}).count||0"></p></div>
+            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Avg R</span><p class="font-mono text-lg text-white mt-1" x-text="((m.runner_outcomes||{}).avg_r!=null?(m.runner_outcomes||{}).avg_r:0).toFixed(2)+'R'"></p></div>
+            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Avg PnL</span><p class="font-mono text-lg text-white mt-1" x-text="'$'+((m.runner_outcomes||{}).avg_pnl!=null?(m.runner_outcomes||{}).avg_pnl:0).toFixed(2)"></p></div>
+            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Win rate</span><p class="font-mono text-lg text-white mt-1" x-text="pct((m.runner_outcomes||{}).win_rate)"></p></div>
           </div>
         </div>
       </div>
@@ -859,7 +875,7 @@ function app(){return{
     {id:'config',label:'Config',svg:ICON.config},
     {id:'alerts',label:'Alerts',svg:ICON.alerts},
   ],
-  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:null,configLoading:false,alertsSnap:null,alertsLoading:false,tf:{tier:'',symbol:'',exit:'',source:''},
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:null,configLoading:false,alertsSnap:null,alertsLoading:false,researchTiers:{},tf:{tier:'',symbol:'',exit:'',source:''},
   mkt:{},mktHealth:{},
   ddTier:false,ddSym:false,ddExit:false,ddSource:false,
   tierOpts:[
@@ -1046,6 +1062,27 @@ function app(){return{
     const n=Number(m.firing_count)||0;
     return'Evaluated · '+m.utc+(n>0?' · '+n+' firing':' · all quiet');
   },
+  _blankTierMetrics(){
+    return{total_pnl:0,win_rate:0,profit_factor:null,trade_count:0};
+  },
+  tierM(t){
+    const x=this.researchTiers&&this.researchTiers[t];
+    if(x&&typeof x==='object'&&!x.error)return x;
+    return this._blankTierMetrics();
+  },
+  async loadResearch(){
+    const ep=encodeURIComponent(this.epoch);
+    const out={};
+    for(const tier of ['A','B','C']){
+      try{
+        const j=await(await fetch('/api/analytics/summary?tier='+tier+'&epoch='+ep)).json();
+        out[tier]=j&&j.error?this._blankTierMetrics():j;
+      }catch(e){
+        out[tier]=this._blankTierMetrics();
+      }
+    }
+    this.researchTiers=out;
+  },
   async init(){
     if(!location.hash||location.hash==='#'){
       history.replaceState(null,'','#/overview');
@@ -1079,6 +1116,7 @@ function app(){return{
     if(this.page==='readiness')await this.loadReadiness();
     if(this.page==='config')await this.loadConfig();
     if(this.page==='alerts')await this.loadAlerts();
+    if(this.page==='research')await this.loadResearch();
     await this.loadTrades();
     if(this.page==='overview')this.updateCharts();
     this.lastSync=Date.now();
