@@ -5,9 +5,12 @@ The risk manager composes these checks into a pipeline.
 """
 from __future__ import annotations
 
-from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from cte.core.events import RiskCheckResult
+
+if TYPE_CHECKING:
+    from decimal import Decimal
 
 
 def check_max_position_size(
@@ -88,14 +91,14 @@ def check_correlation(
 
     In v1 with only BTC/ETH, BTC-ETH correlation is assumed ~0.85.
     """
-    KNOWN_CORRELATIONS = {
+    known_correlations = {
         frozenset({"BTCUSDT", "ETHUSDT"}): 0.85,
     }
 
     max_corr_found = 0.0
     for open_sym in open_symbols:
         pair = frozenset({symbol, open_sym})
-        corr = KNOWN_CORRELATIONS.get(pair, 0.0)
+        corr = known_correlations.get(pair, 0.0)
         max_corr_found = max(max_corr_found, corr)
 
     passed = max_corr_found <= max_correlation

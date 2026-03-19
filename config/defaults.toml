@@ -49,17 +49,41 @@ max_pool_size = 20
 statement_cache_size = 100
 
 [features]
+# Legacy indicators (used by old FeatureEngine)
 rsi_period = 14
 ema_fast_period = 12
 ema_slow_period = 26
 vwap_window_minutes = 60
 volume_profile_bins = 50
 window_size_minutes = 240
+# Streaming feature engine
+streaming_windows = [10, 30, 60, 300]
+emit_interval_seconds = 1
+zscore_min_samples = 10
+warmup_seconds = 300
+persist_interval_seconds = 10
+whale_lookback_minutes = 60
+news_lookback_minutes = 30
 
 [signals]
 min_confidence = 0.6
 cooldown_seconds = 300
 max_signals_per_hour = 10
+# Scoring engine weights (must sum to 1.0)
+w_momentum = 0.35
+w_orderflow = 0.25
+w_liquidation = 0.10
+w_microstructure = 0.20
+w_cross_venue = 0.10
+# Tier thresholds
+tier_a_threshold = 0.72
+tier_b_threshold = 0.55
+tier_c_threshold = 0.40
+# Hard gate thresholds
+gate_min_freshness = 0.5
+gate_max_spread_bps = 15.0
+gate_max_divergence_bps = 50.0
+gate_min_feasibility = 0.3
 
 [risk]
 max_position_pct = 0.05           # 5% of portfolio per position

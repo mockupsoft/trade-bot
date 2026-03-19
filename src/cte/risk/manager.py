@@ -6,7 +6,7 @@ If any check fails, the signal is rejected with a detailed reason.
 from __future__ import annotations
 
 from decimal import Decimal
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 import structlog
 from prometheus_client import Counter, Gauge
@@ -17,10 +17,7 @@ from cte.core.events import (
     RiskCheckResult,
     RiskDecision,
     SignalEvent,
-    Symbol,
 )
-from cte.core.settings import RiskSettings
-from cte.core.streams import StreamPublisher
 from cte.risk.checks import (
     check_correlation,
     check_daily_drawdown,
@@ -28,6 +25,10 @@ from cte.risk.checks import (
     check_max_position_size,
     check_total_exposure,
 )
+
+if TYPE_CHECKING:
+    from cte.core.settings import RiskSettings
+    from cte.core.streams import StreamPublisher
 
 logger = structlog.get_logger(__name__)
 

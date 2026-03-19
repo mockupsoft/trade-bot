@@ -1,162 +1,231 @@
-"""Analytics engine for post-trade analysis.
+"""Epoch-aware analytics engine with full breakdowns.
 
-Consumes exit and order events to compute running performance metrics:
-PnL, win rate, Sharpe ratio, drawdown curves.
+Replaces the basic PnL tracker with a rich analytics system that:
+- Tags every trade with its epoch
+- Computes all metrics via pure functions (analytics/metrics.py)
+- Supports drill-down by symbol, venue, tier, exit reason
+- Maintains daily summary aggregates
+- Exposes Prometheus metrics for real-time monitoring
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from collections import defaultdict
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import structlog
-from prometheus_client import Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
-from cte.core.events import ExitEvent, OrderEvent
+from cte.analytics.metrics import CompletedTrade, compute_all_metrics
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from cte.analytics.epochs import EpochManager
+    from cte.execution.position import PaperPosition
 
 logger = structlog.get_logger(__name__)
 
-pnl_total_gauge = Gauge("cte_pnl_total_usd", "Total realized PnL in USD")
-pnl_daily_gauge = Gauge("cte_pnl_daily_usd", "Daily realized PnL in USD")
-win_rate_gauge = Gauge("cte_win_rate", "Win rate (0-1)")
-sharpe_gauge = Gauge("cte_sharpe_ratio", "Rolling Sharpe ratio")
-max_drawdown_gauge = Gauge("cte_max_drawdown_pct", "Maximum drawdown percentage")
-
-
-@dataclass
-class TradeRecord:
-    """Completed trade record for analytics."""
-
-    symbol: str
-    pnl: Decimal
-    exit_reason: str
-    hold_seconds: int
-    timestamp: datetime
-
-
-@dataclass
-class DailyMetrics:
-    """Per-day aggregated metrics."""
-
-    date: date
-    trades: int = 0
-    wins: int = 0
-    losses: int = 0
-    total_pnl: Decimal = Decimal("0")
-    max_drawdown: Decimal = Decimal("0")
-    pnl_series: list[float] = field(default_factory=list)
+# ── Prometheus metrics ────────────────────────────────────────
+trades_total = Counter(
+    "cte_analytics_trades_total", "Total trades recorded", ["epoch", "symbol", "tier"]
+)
+pnl_gauge = Gauge("cte_analytics_pnl_total", "Total realized PnL", ["epoch"])
+equity_gauge = Gauge("cte_analytics_equity", "Current equity", ["epoch"])
+win_rate_gauge = Gauge("cte_analytics_win_rate", "Win rate", ["epoch"])
+drawdown_gauge = Gauge("cte_analytics_max_drawdown_pct", "Max drawdown %", ["epoch"])
+expectancy_gauge = Gauge("cte_analytics_expectancy", "Expectancy per trade", ["epoch"])
+profit_factor_gauge = Gauge("cte_analytics_profit_factor", "Profit factor", ["epoch"])
+daily_pnl_gauge = Gauge("cte_analytics_daily_pnl", "Daily PnL", ["epoch", "date"])
+trade_pnl_hist = Histogram(
+    "cte_analytics_trade_pnl", "Trade PnL distribution", ["epoch"],
+    buckets=[-500, -200, -100, -50, -20, 0, 20, 50, 100, 200, 500, 1000],
+)
 
 
 class AnalyticsEngine:
-    """Computes and exposes trading performance metrics."""
+    """Epoch-aware analytics engine with full drilldown support."""
 
-    def __init__(self, initial_capital: Decimal = Decimal("10000")) -> None:
+    def __init__(
+        self,
+        epoch_manager: EpochManager,
+        initial_capital: Decimal = Decimal("10000"),
+    ) -> None:
+        self._epochs = epoch_manager
         self._initial_capital = initial_capital
-        self._equity = initial_capital
-        self._high_water_mark = initial_capital
-        self._total_pnl = Decimal("0")
-        self._trades: list[TradeRecord] = []
-        self._daily: dict[date, DailyMetrics] = {}
+        self._trades: list[CompletedTrade] = []
+        self._equity: dict[str, Decimal] = defaultdict(lambda: initial_capital)
 
-    async def record_exit(self, event: ExitEvent) -> None:
-        """Process an exit event into analytics."""
-        record = TradeRecord(
-            symbol=event.symbol.value,
-            pnl=event.pnl,
-            exit_reason=event.exit_reason.value,
-            hold_seconds=event.hold_duration_seconds,
-            timestamp=event.timestamp,
-        )
-        self._trades.append(record)
+    def record_trade(
+        self,
+        position: PaperPosition,
+        venue: str = "binance",
+        exit_layer: int = 0,
+        was_profitable_at_exit: bool = False,
+        position_mode: str = "normal",
+        source: str = "paper_simulated",
+    ) -> CompletedTrade:
+        """Record a completed trade from a closed position."""
+        epoch = self._epochs.active_name
 
-        self._equity += event.pnl
-        self._total_pnl += event.pnl
-
-        if self._equity > self._high_water_mark:
-            self._high_water_mark = self._equity
-
-        today = event.timestamp.date()
-        daily = self._get_daily(today)
-        daily.trades += 1
-        daily.total_pnl += event.pnl
-        daily.pnl_series.append(float(event.pnl))
-
-        if event.pnl > 0:
-            daily.wins += 1
-        else:
-            daily.losses += 1
-
-        self._update_prometheus()
-
-        await logger.ainfo(
-            "trade_recorded",
-            symbol=event.symbol.value,
-            pnl=str(event.pnl),
-            exit_reason=event.exit_reason.value,
-            total_pnl=str(self._total_pnl),
-            equity=str(self._equity),
+        trade = CompletedTrade(
+            symbol=position.symbol,
+            venue=venue,
+            tier=position.signal_tier,
+            epoch=epoch,
+            source=source,
+            pnl=position.realized_pnl,
+            exit_reason=position.exit_reason,
+            exit_layer=exit_layer,
+            hold_seconds=position.hold_duration_seconds,
+            r_multiple=position.r_multiple,
+            entry_latency_ms=position.entry_latency_ms,
+            modeled_slippage_bps=float(position.modeled_slippage_bps),
+            mfe_pct=position.mfe_pct,
+            mae_pct=position.mae_pct,
+            was_profitable_at_exit=was_profitable_at_exit,
+            position_mode=position_mode,
         )
 
-    def _get_daily(self, d: date) -> DailyMetrics:
-        if d not in self._daily:
-            self._daily[d] = DailyMetrics(date=d)
-        return self._daily[d]
+        self._trades.append(trade)
+        self._equity[epoch] += position.realized_pnl
 
-    def _update_prometheus(self) -> None:
-        pnl_total_gauge.set(float(self._total_pnl))
-        win_rate_gauge.set(self.win_rate)
-        max_drawdown_gauge.set(self.max_drawdown_pct)
+        # Prometheus
+        trades_total.labels(
+            epoch=epoch, symbol=position.symbol, tier=position.signal_tier
+        ).inc()
+        pnl_gauge.labels(epoch=epoch).set(float(self._total_pnl(epoch)))
+        equity_gauge.labels(epoch=epoch).set(float(self._equity[epoch]))
+        trade_pnl_hist.labels(epoch=epoch).observe(float(position.realized_pnl))
 
-        today = datetime.now(timezone.utc).date()
-        daily = self._daily.get(today)
-        if daily:
-            pnl_daily_gauge.set(float(daily.total_pnl))
+        return trade
 
-    @property
-    def win_rate(self) -> float:
-        if not self._trades:
-            return 0.0
-        wins = sum(1 for t in self._trades if t.pnl > 0)
-        return wins / len(self._trades)
+    def get_metrics(
+        self,
+        epoch: str | None = None,
+        symbol: str | None = None,
+        tier: str | None = None,
+        venue: str | None = None,
+        exit_reason: str | None = None,
+    ) -> dict:
+        """Compute metrics for a filtered set of trades."""
+        filtered = self._filter_trades(epoch, symbol, tier, venue, exit_reason)
+        return compute_all_metrics(filtered, float(self._initial_capital))
+
+    def get_daily_summary(
+        self, epoch: str | None = None, target_date: date | None = None
+    ) -> dict:
+        """Get daily aggregated metrics."""
+        filtered = self._filter_trades(epoch=epoch)
+        if not filtered:
+            return {}
+
+        by_date: dict[str, list[CompletedTrade]] = defaultdict(list)
+        for t in filtered:
+            # Use epoch as proxy for date grouping (trades don't carry date)
+            by_date[t.epoch].append(t)
+
+        return compute_all_metrics(filtered, float(self._initial_capital))
+
+    def get_trades(
+        self,
+        epoch: str | None = None,
+        symbol: str | None = None,
+        tier: str | None = None,
+        exit_reason: str | None = None,
+        source: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Get individual trade records for drilldown."""
+        filtered = self._filter_trades(epoch, symbol, tier, exit_reason=exit_reason, source=source)
+        return [
+            {
+                "symbol": t.symbol,
+                "venue": t.venue,
+                "tier": t.tier,
+                "epoch": t.epoch,
+                "source": t.source,
+                "pnl": str(t.pnl),
+                "exit_reason": t.exit_reason,
+                "exit_layer": t.exit_layer,
+                "hold_seconds": t.hold_seconds,
+                "r_multiple": t.r_multiple,
+                "entry_latency_ms": t.entry_latency_ms,
+                "slippage_bps": t.modeled_slippage_bps,
+                "mfe_pct": t.mfe_pct,
+                "mae_pct": t.mae_pct,
+                "position_mode": t.position_mode,
+            }
+            for t in filtered[-limit:]
+        ]
+
+    def get_epoch_comparison(self, epoch_a: str, epoch_b: str) -> dict:
+        """Compare metrics between two epochs (e.g., paper vs demo)."""
+        trades_a = self._filter_trades(epoch=epoch_a)
+        trades_b = self._filter_trades(epoch=epoch_b)
+
+        from cte.analytics.metrics import slippage_drift
+
+        return {
+            epoch_a: compute_all_metrics(trades_a, float(self._initial_capital)),
+            epoch_b: compute_all_metrics(trades_b, float(self._initial_capital)),
+            "slippage_drift": slippage_drift(trades_a, trades_b),
+        }
+
+    def update_prometheus(self, epoch: str | None = None) -> None:
+        """Update all Prometheus gauges for an epoch."""
+        ep = epoch or self._epochs.active_name
+        trades = self._filter_trades(epoch=ep)
+
+        from cte.analytics.metrics import (
+            expectancy as calc_expectancy,
+        )
+        from cte.analytics.metrics import (
+            max_drawdown_pct,
+        )
+        from cte.analytics.metrics import (
+            profit_factor as calc_pf,
+        )
+        from cte.analytics.metrics import (
+            win_rate as calc_wr,
+        )
+
+        win_rate_gauge.labels(epoch=ep).set(calc_wr(trades))
+        drawdown_gauge.labels(epoch=ep).set(max_drawdown_pct(trades, float(self._initial_capital)))
+        expectancy_gauge.labels(epoch=ep).set(calc_expectancy(trades))
+        pf = calc_pf(trades)
+        if pf is not None:
+            profit_factor_gauge.labels(epoch=ep).set(pf)
+
+    def _total_pnl(self, epoch: str) -> Decimal:
+        return sum(
+            (t.pnl for t in self._trades if t.epoch == epoch), Decimal("0")
+        )
+
+    def _filter_trades(
+        self,
+        epoch: str | None = None,
+        symbol: str | None = None,
+        tier: str | None = None,
+        venue: str | None = None,
+        exit_reason: str | None = None,
+        source: str | None = None,
+    ) -> list[CompletedTrade]:
+        result = self._trades
+        if epoch:
+            result = [t for t in result if t.epoch == epoch]
+        if symbol:
+            result = [t for t in result if t.symbol == symbol]
+        if source:
+            result = [t for t in result if t.source == source]
+        if tier:
+            result = [t for t in result if t.tier == tier]
+        if venue:
+            result = [t for t in result if t.venue == venue]
+        if exit_reason:
+            result = [t for t in result if t.exit_reason == exit_reason]
+        return result
 
     @property
     def total_trades(self) -> int:
         return len(self._trades)
-
-    @property
-    def max_drawdown_pct(self) -> float:
-        if self._high_water_mark <= 0:
-            return 0.0
-        return float((self._high_water_mark - self._equity) / self._high_water_mark)
-
-    @property
-    def sharpe_ratio(self) -> float | None:
-        """Annualized Sharpe ratio from trade PnLs."""
-        if len(self._trades) < 2:
-            return None
-
-        import numpy as np
-
-        returns = np.array([float(t.pnl) for t in self._trades])
-        mean_ret = np.mean(returns)
-        std_ret = np.std(returns)
-
-        if std_ret == 0:
-            return None
-
-        trades_per_day = max(1, len(self._trades) / max(1, len(self._daily)))
-        annualization = (365 * trades_per_day) ** 0.5
-
-        return float((mean_ret / std_ret) * annualization)
-
-    def summary(self) -> dict:
-        """Return a summary dictionary for API consumption."""
-        return {
-            "total_pnl": str(self._total_pnl),
-            "equity": str(self._equity),
-            "total_trades": self.total_trades,
-            "win_rate": round(self.win_rate, 4),
-            "max_drawdown_pct": round(self.max_drawdown_pct, 4),
-            "sharpe_ratio": round(self.sharpe_ratio, 4) if self.sharpe_ratio else None,
-            "high_water_mark": str(self._high_water_mark),
-        }

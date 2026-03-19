@@ -6,7 +6,7 @@ consumer groups, backpressure, and dead-letter handling.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import orjson
 import redis.asyncio as aioredis
@@ -14,7 +14,9 @@ import structlog
 
 from cte.core.events import BaseEvent
 from cte.core.exceptions import StreamError
-from cte.core.settings import RedisSettings
+
+if TYPE_CHECKING:
+    from cte.core.settings import RedisSettings
 
 logger = structlog.get_logger(__name__)
 

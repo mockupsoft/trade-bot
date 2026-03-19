@@ -6,6 +6,7 @@ risk budget, and portfolio state. Supports fixed-fraction and Kelly methods.
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -19,8 +20,10 @@ from cte.core.events import (
     SignalEvent,
     SizedOrderEvent,
 )
-from cte.core.settings import SizingSettings
-from cte.core.streams import StreamPublisher
+
+if TYPE_CHECKING:
+    from cte.core.settings import SizingSettings
+    from cte.core.streams import StreamPublisher
 
 logger = structlog.get_logger(__name__)
 

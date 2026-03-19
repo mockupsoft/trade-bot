@@ -183,24 +183,67 @@ CREATE_POSITIONS_TABLE = """
 CREATE TABLE IF NOT EXISTS cte.positions (
     position_id     UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     symbol          TEXT NOT NULL,
-    side            TEXT NOT NULL,
-    entry_price     NUMERIC NOT NULL,
-    quantity        NUMERIC NOT NULL,
-    leverage        INTEGER NOT NULL DEFAULT 1,
+    direction       TEXT NOT NULL DEFAULT 'long',
+    status          TEXT NOT NULL DEFAULT 'open',
+
+    -- Signal provenance
     signal_id       UUID NOT NULL,
-    opened_at       TIMESTAMPTZ NOT NULL,
-    closed_at       TIMESTAMPTZ,
-    exit_reason     TEXT,
-    exit_price      NUMERIC,
-    realized_pnl    NUMERIC,
+    signal_tier     TEXT NOT NULL DEFAULT '',
+    entry_reason    TEXT NOT NULL DEFAULT '',
+    composite_score DOUBLE PRECISION DEFAULT 0,
+
+    -- Fill details
+    entry_price     NUMERIC NOT NULL,
+    fill_price      NUMERIC NOT NULL,
+    quantity        NUMERIC NOT NULL,
+    notional_usd    NUMERIC NOT NULL DEFAULT 0,
+    leverage        INTEGER NOT NULL DEFAULT 1,
+
+    -- Slippage and cost
+    signal_price        NUMERIC,
+    modeled_slippage_bps NUMERIC DEFAULT 0,
+    effective_spread_bps NUMERIC DEFAULT 0,
+    fill_model_used     TEXT DEFAULT '',
+    estimated_fees_usd  NUMERIC DEFAULT 0,
+
+    -- Timing
+    signal_time         TIMESTAMPTZ,
+    opened_at           TIMESTAMPTZ NOT NULL,
+    closed_at           TIMESTAMPTZ,
+    entry_latency_ms    INTEGER DEFAULT 0,
+    modeled_fill_latency_ms INTEGER DEFAULT 0,
+
+    -- Risk
+    stop_loss_pct       DOUBLE PRECISION DEFAULT 0,
+    take_profit_pct     DOUBLE PRECISION DEFAULT 0,
+    stop_distance_usd   NUMERIC DEFAULT 0,
+
+    -- Excursion analytics
     highest_price   NUMERIC NOT NULL,
     lowest_price    NUMERIC NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'open',
+    mfe_pct         DOUBLE PRECISION DEFAULT 0,
+    mae_pct         DOUBLE PRECISION DEFAULT 0,
+    mfe_usd         NUMERIC DEFAULT 0,
+    mae_usd         NUMERIC DEFAULT 0,
+
+    -- PnL
+    realized_pnl    NUMERIC,
+    unrealized_pnl  NUMERIC DEFAULT 0,
+
+    -- Exit
+    exit_price      NUMERIC,
+    exit_reason     TEXT,
+    exit_detail     TEXT DEFAULT '',
+    r_multiple      DOUBLE PRECISION,
+
+    -- State history
+    state_transitions JSONB NOT NULL DEFAULT '[]',
     metadata        JSONB NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS idx_positions_status ON cte.positions (status);
 CREATE INDEX IF NOT EXISTS idx_positions_symbol ON cte.positions (symbol, opened_at DESC);
+CREATE INDEX IF NOT EXISTS idx_positions_signal ON cte.positions (signal_id);
 """
 
 # ---------------------------------------------------------------------------
@@ -241,11 +284,171 @@ CREATE TABLE IF NOT EXISTS cte.daily_pnl (
 );
 """
 
+CREATE_EPOCH_DAILY_SUMMARY_TABLE = """
+CREATE TABLE IF NOT EXISTS cte.epoch_daily_summary (
+    date                DATE NOT NULL,
+    epoch               TEXT NOT NULL,
+    symbol              TEXT NOT NULL DEFAULT '_all',
+    venue               TEXT NOT NULL DEFAULT '_all',
+    tier                TEXT NOT NULL DEFAULT '_all',
+
+    -- Counts
+    trade_count         INTEGER NOT NULL DEFAULT 0,
+    win_count           INTEGER NOT NULL DEFAULT 0,
+    loss_count          INTEGER NOT NULL DEFAULT 0,
+
+    -- PnL
+    gross_profit        NUMERIC NOT NULL DEFAULT 0,
+    gross_loss          NUMERIC NOT NULL DEFAULT 0,
+    net_pnl             NUMERIC NOT NULL DEFAULT 0,
+    avg_win             NUMERIC NOT NULL DEFAULT 0,
+    avg_loss            NUMERIC NOT NULL DEFAULT 0,
+
+    -- Ratios
+    win_rate            DOUBLE PRECISION DEFAULT 0,
+    expectancy          DOUBLE PRECISION DEFAULT 0,
+    profit_factor       DOUBLE PRECISION,
+    max_drawdown_pct    DOUBLE PRECISION DEFAULT 0,
+    sharpe_ratio        DOUBLE PRECISION,
+
+    -- Exit analysis
+    saved_losers        INTEGER NOT NULL DEFAULT 0,
+    killed_winners      INTEGER NOT NULL DEFAULT 0,
+    no_progress_count   INTEGER NOT NULL DEFAULT 0,
+    runner_count        INTEGER NOT NULL DEFAULT 0,
+
+    -- Execution quality
+    avg_hold_seconds    DOUBLE PRECISION DEFAULT 0,
+    avg_r_multiple      DOUBLE PRECISION,
+    avg_slippage_bps    DOUBLE PRECISION DEFAULT 0,
+    avg_latency_ms      DOUBLE PRECISION DEFAULT 0,
+
+    PRIMARY KEY (date, epoch, symbol, venue, tier)
+);
+"""
+
+CREATE_TRADE_LOG_TABLE = """
+CREATE TABLE IF NOT EXISTS cte.trade_log (
+    time                TIMESTAMPTZ NOT NULL,
+    trade_id            UUID NOT NULL DEFAULT uuid_generate_v4(),
+    epoch               TEXT NOT NULL,
+    symbol              TEXT NOT NULL,
+    venue               TEXT NOT NULL,
+    tier                TEXT NOT NULL,
+    pnl                 NUMERIC NOT NULL,
+    exit_reason         TEXT NOT NULL,
+    exit_layer          INTEGER NOT NULL,
+    hold_seconds        INTEGER NOT NULL,
+    r_multiple          DOUBLE PRECISION,
+    entry_latency_ms    INTEGER NOT NULL DEFAULT 0,
+    slippage_bps        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    mfe_pct             DOUBLE PRECISION NOT NULL DEFAULT 0,
+    mae_pct             DOUBLE PRECISION NOT NULL DEFAULT 0,
+    was_profitable      BOOLEAN NOT NULL DEFAULT false,
+    position_mode       TEXT NOT NULL DEFAULT 'normal',
+    position_id         UUID,
+    signal_id           UUID
+);
+
+SELECT create_hypertable('cte.trade_log', 'time', if_not_exists => TRUE);
+
+CREATE INDEX IF NOT EXISTS idx_trade_log_epoch ON cte.trade_log (epoch, time DESC);
+CREATE INDEX IF NOT EXISTS idx_trade_log_symbol ON cte.trade_log (symbol, time DESC);
+CREATE INDEX IF NOT EXISTS idx_trade_log_exit ON cte.trade_log (exit_reason, time DESC);
+"""
+
 CREATE_SCHEMA_VERSION_TABLE = """
 CREATE TABLE IF NOT EXISTS cte.schema_version (
     version         TEXT PRIMARY KEY,
     applied_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+"""
+
+# ---------------------------------------------------------------------------
+# Streaming Features (multi-timeframe)
+# ---------------------------------------------------------------------------
+
+CREATE_STREAMING_FEATURES_TABLE = """
+CREATE TABLE IF NOT EXISTS cte.streaming_features (
+    time                TIMESTAMPTZ NOT NULL,
+    event_id            UUID NOT NULL DEFAULT uuid_generate_v4(),
+    symbol              TEXT NOT NULL,
+    window_seconds      INTEGER NOT NULL,
+
+    -- Core features
+    returns             DOUBLE PRECISION,
+    returns_z           DOUBLE PRECISION,
+    momentum_z          DOUBLE PRECISION,
+    taker_flow_imbalance DOUBLE PRECISION,
+    spread_bps          DOUBLE PRECISION,
+    spread_widening     DOUBLE PRECISION,
+    ob_imbalance        DOUBLE PRECISION,
+    liquidation_imbalance DOUBLE PRECISION,
+    venue_divergence_bps DOUBLE PRECISION,
+    vwap                DOUBLE PRECISION,
+
+    -- Volume & activity
+    trade_count         INTEGER NOT NULL DEFAULT 0,
+    volume              DOUBLE PRECISION NOT NULL DEFAULT 0,
+    buy_volume          DOUBLE PRECISION NOT NULL DEFAULT 0,
+    sell_volume         DOUBLE PRECISION NOT NULL DEFAULT 0,
+    window_fill_pct     DOUBLE PRECISION NOT NULL DEFAULT 0,
+
+    -- Scalar / cross-timeframe (stored with window_seconds=0)
+    execution_feasibility DOUBLE PRECISION,
+    whale_risk_flag     BOOLEAN DEFAULT false,
+    urgent_news_flag    BOOLEAN DEFAULT false,
+
+    -- Freshness
+    freshness_composite DOUBLE PRECISION,
+    trade_age_ms        INTEGER,
+    orderbook_age_ms    INTEGER,
+
+    -- Raw reference values
+    last_price          NUMERIC,
+    best_bid            NUMERIC,
+    best_ask            NUMERIC,
+    mid_price           NUMERIC,
+    mark_price          NUMERIC
+);
+
+SELECT create_hypertable('cte.streaming_features', 'time', if_not_exists => TRUE);
+
+CREATE INDEX IF NOT EXISTS idx_sf_symbol_window_time
+    ON cte.streaming_features (symbol, window_seconds, time DESC);
+"""
+
+CREATE_LIQUIDATIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS cte.liquidations (
+    time            TIMESTAMPTZ NOT NULL,
+    event_id        UUID NOT NULL DEFAULT uuid_generate_v4(),
+    venue           TEXT NOT NULL,
+    symbol          TEXT NOT NULL,
+    side            TEXT NOT NULL,
+    price           NUMERIC NOT NULL,
+    quantity        NUMERIC NOT NULL,
+    is_long_liq     BOOLEAN NOT NULL,
+    received_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+SELECT create_hypertable('cte.liquidations', 'time', if_not_exists => TRUE);
+
+CREATE INDEX IF NOT EXISTS idx_liq_symbol_time ON cte.liquidations (symbol, time DESC);
+"""
+
+CREATE_MARK_PRICES_TABLE = """
+CREATE TABLE IF NOT EXISTS cte.mark_prices (
+    time            TIMESTAMPTZ NOT NULL,
+    venue           TEXT NOT NULL,
+    symbol          TEXT NOT NULL,
+    mark_price      NUMERIC NOT NULL,
+    index_price     NUMERIC,
+    funding_rate    NUMERIC
+);
+
+SELECT create_hypertable('cte.mark_prices', 'time', if_not_exists => TRUE);
+
+CREATE INDEX IF NOT EXISTS idx_mark_symbol_time ON cte.mark_prices (symbol, time DESC);
 """
 
 # ---------------------------------------------------------------------------
@@ -306,7 +509,12 @@ ALL_MIGRATIONS = [
     ("positions", CREATE_POSITIONS_TABLE),
     ("exits", CREATE_EXITS_TABLE),
     ("daily_pnl", CREATE_DAILY_PNL_TABLE),
+    ("epoch_daily_summary", CREATE_EPOCH_DAILY_SUMMARY_TABLE),
+    ("trade_log", CREATE_TRADE_LOG_TABLE),
     ("schema_version", CREATE_SCHEMA_VERSION_TABLE),
+    ("streaming_features", CREATE_STREAMING_FEATURES_TABLE),
+    ("liquidations", CREATE_LIQUIDATIONS_TABLE),
+    ("mark_prices", CREATE_MARK_PRICES_TABLE),
     ("ohlcv_1m", CREATE_OHLCV_1M_AGG),
     ("ohlcv_5m", CREATE_OHLCV_5M_AGG),
 ]

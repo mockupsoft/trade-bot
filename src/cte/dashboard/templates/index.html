@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-950">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CTE — Crypto Trading Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.0/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    .card{@apply bg-gray-900 rounded-xl border border-gray-800 p-5}
+    .sv{@apply text-2xl font-bold tabular-nums}
+    .sl{@apply text-xs text-gray-500 uppercase tracking-wider mt-1}
+    .pill{@apply text-xs px-2 py-0.5 rounded-full font-medium inline-block}
+    .pill-g{@apply bg-emerald-900/50 text-emerald-400}
+    .pill-r{@apply bg-red-900/50 text-red-400}
+    .pill-y{@apply bg-yellow-900/50 text-yellow-400}
+    .pill-b{@apply bg-blue-900/50 text-blue-400}
+    .pill-p{@apply bg-purple-900/50 text-purple-400}
+    .nav-item{@apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors}
+    .nav-active{@apply bg-gray-800 text-white}
+    .nav-inactive{@apply text-gray-500 hover:bg-gray-800/50 hover:text-gray-300}
+    .btn{@apply px-4 py-2 rounded-lg text-sm font-medium transition-colors}
+    .btn-danger{@apply bg-red-600 hover:bg-red-500 text-white}
+    .btn-warn{@apply bg-yellow-600 hover:bg-yellow-500 text-gray-950}
+    .btn-ok{@apply bg-emerald-600 hover:bg-emerald-500 text-white}
+    .tbl{@apply w-full text-xs}
+    .tbl th{@apply text-left py-2 px-2 text-gray-500 border-b border-gray-800}
+    .tbl td{@apply py-2 px-2 border-b border-gray-800/50}
+    .gate-pass{@apply text-emerald-400}
+    .gate-fail{@apply text-red-400}
+  </style>
+</head>
+<body class="h-full text-gray-200 antialiased flex" x-data="app()" x-init="init()">
+
+<!-- Sidebar -->
+<aside class="w-56 bg-gray-900 border-r border-gray-800 flex flex-col h-screen sticky top-0">
+  <div class="p-4 border-b border-gray-800 flex items-center gap-2">
+    <div class="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center font-black text-sm text-gray-950">CT</div>
+    <div><div class="font-semibold text-sm">CTE</div><div class="text-xs text-gray-500">v0.1.0</div></div>
+  </div>
+  <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+    <template x-for="p in pages" :key="p.id">
+      <div :class="page===p.id ? 'nav-item nav-active' : 'nav-item nav-inactive'" @click="page=p.id; refresh()">
+        <span x-text="p.icon" class="text-base w-5 text-center"></span>
+        <span x-text="p.label"></span>
+      </div>
+    </template>
+  </nav>
+  <div class="p-3 border-t border-gray-800 text-xs text-gray-600">
+    <div>Epoch: <span class="text-gray-400" x-text="epoch"></span></div>
+    <div :class="ops.mode==='active'?'text-emerald-400':ops.mode==='paused'?'text-yellow-400':'text-red-400'"
+         x-text="'Mode: '+ops.mode"></div>
+  </div>
+</aside>
+
+<!-- Main Content -->
+<main class="flex-1 overflow-y-auto h-screen">
+  <!-- Top bar -->
+  <header class="sticky top-0 z-10 bg-gray-950/90 backdrop-blur border-b border-gray-800 px-6 py-3 flex items-center justify-between">
+    <h2 class="font-semibold" x-text="pages.find(p=>p.id===page)?.label || 'Overview'"></h2>
+    <div class="flex items-center gap-3 text-sm">
+      <select x-model="epoch" @change="refresh()" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs">
+        <template x-for="e in epochs"><option :value="e.name" x-text="e.name"></option></template>
+      </select>
+      <span class="text-gray-600">|</span>
+      <div :class="(ops.system_mode||'seed')==='demo'?'pill pill-p':(ops.system_mode||'seed')==='paper'?'pill pill-b':'pill pill-y'"
+           x-text="(ops.system_mode||'seed').toUpperCase()+' MODE'"></div>
+      <div :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'FEED LIVE':'NO FEED'"></div>
+      <div :class="ops.mode==='halted'?'pill pill-r':ops.mode==='paused'?'pill pill-y':'pill pill-g'" x-text="ops.mode?.toUpperCase()"></div>
+    </div>
+  </header>
+
+  <div class="p-6 max-w-[1400px] mx-auto space-y-6">
+
+    <!-- ═══ OVERVIEW ═══ -->
+    <div x-show="page==='overview'">
+      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+        <div class="card"><div class="sv" :class="m.total_pnl>=0?'text-emerald-400':'text-red-400'" x-text="'$'+fmt(m.total_pnl)"></div><div class="sl">Total PnL</div></div>
+        <div class="card"><div class="sv text-white" x-text="m.trade_count||0"></div><div class="sl">Trades</div></div>
+        <div class="card"><div class="sv" :class="m.win_rate>=0.5?'text-emerald-400':'text-yellow-400'" x-text="pct(m.win_rate)"></div><div class="sl">Win Rate</div></div>
+        <div class="card"><div class="sv" :class="m.expectancy>=0?'text-emerald-400':'text-red-400'" x-text="'$'+fmt(m.expectancy)"></div><div class="sl">Expectancy</div></div>
+        <div class="card"><div class="sv" :class="(m.profit_factor||0)>=1?'text-emerald-400':'text-red-400'" x-text="m.profit_factor?m.profit_factor.toFixed(2):'—'"></div><div class="sl">Profit Factor</div></div>
+        <div class="card"><div class="sv text-red-400" x-text="pct(m.max_drawdown_pct)"></div><div class="sl">Max Drawdown</div></div>
+        <div class="card"><div class="sv text-gray-300" x-text="fmt(m.avg_slippage_bps)+' bps'"></div><div class="sl">Avg Slippage</div></div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+        <div class="card"><h3 class="text-sm font-semibold text-gray-400 mb-4">PnL by Tier</h3><canvas id="cTier" height="200"></canvas></div>
+        <div class="card"><h3 class="text-sm font-semibold text-gray-400 mb-4">PnL by Exit Reason</h3><canvas id="cExit" height="200"></canvas></div>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+        <div class="card"><div class="sv text-emerald-400" x-text="m.saved_losers||0"></div><div class="sl">Saved Losers</div></div>
+        <div class="card"><div class="sv text-yellow-400" x-text="m.killed_winners||0"></div><div class="sl">Killed Winners</div></div>
+        <div class="card"><div class="sv text-blue-400" x-text="(m.no_progress_regret||{}).count||0"></div><div class="sl">No-Progress Exits</div></div>
+        <div class="card"><div class="sv text-purple-400" x-text="(m.runner_outcomes||{}).count||0"></div><div class="sl">Runner Trades</div></div>
+      </div>
+    </div>
+
+    <!-- ═══ MARKET FEEDS ═══ -->
+    <div x-show="page==='market'">
+      <!-- Feed Health -->
+      <div class="card mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-semibold text-gray-400">Feed Status</h3>
+          <div class="flex gap-2">
+            <span :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'CONNECTED':'DISCONNECTED'"></span>
+            <span class="pill pill-b" x-text="'Source: '+(mkt.source||'none')"></span>
+            <span class="pill pill-y" x-text="(ops.system_mode||'seed').toUpperCase()+' MODE'"></span>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+          <div><span class="text-gray-500">Messages</span><p class="font-mono text-white" x-text="(mktHealth.messages_total||0).toLocaleString()"></p></div>
+          <div><span class="text-gray-500">Latency</span><p class="font-mono" :class="(mktHealth.latency_ms||0)<200?'text-emerald-400':'text-yellow-400'" x-text="(mktHealth.latency_ms||0).toFixed(0)+' ms'"></p></div>
+          <div><span class="text-gray-500">Reconnects</span><p class="font-mono" :class="(mktHealth.reconnect_count||0)>3?'text-red-400':'text-white'" x-text="mktHealth.reconnect_count||0"></p></div>
+          <div><span class="text-gray-500">Errors</span><p class="font-mono" :class="(mktHealth.errors_total||0)>0?'text-red-400':'text-white'" x-text="mktHealth.errors_total||0"></p></div>
+          <div><span class="text-gray-500">Uptime</span><p class="font-mono text-white" x-text="dur(Math.floor(mktHealth.uptime_seconds||0))"></p></div>
+        </div>
+      </div>
+      <!-- Per-Symbol Tickers -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <template x-for="(ticker, sym) in (mkt.tickers||{})" :key="sym">
+          <div class="card">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-mono font-bold text-white" x-text="sym"></h3>
+              <span :class="ticker.is_stale?'pill pill-r':'pill pill-g'" x-text="ticker.is_stale?'STALE':'LIVE'"></span>
+            </div>
+            <div class="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <span class="text-gray-500">Last Price</span>
+                <p class="text-xl font-mono font-bold text-white" x-text="'$'+parseFloat(ticker.last_price||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+              </div>
+              <div>
+                <span class="text-gray-500">Best Bid</span>
+                <p class="font-mono text-emerald-400" x-text="'$'+parseFloat(ticker.best_bid||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+              </div>
+              <div>
+                <span class="text-gray-500">Best Ask</span>
+                <p class="font-mono text-red-400" x-text="'$'+parseFloat(ticker.best_ask||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+              </div>
+              <div>
+                <span class="text-gray-500">Mark Price</span>
+                <p class="font-mono text-blue-400" x-text="'$'+parseFloat(ticker.mark_price||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})"></p>
+              </div>
+              <div>
+                <span class="text-gray-500">Spread</span>
+                <p class="font-mono" :class="(ticker.spread_bps||0)<3?'text-emerald-400':'text-yellow-400'" x-text="(ticker.spread_bps||0).toFixed(2)+' bps'"></p>
+              </div>
+              <div>
+                <span class="text-gray-500">Age</span>
+                <p class="font-mono" :class="(ticker.age_ms||0)<2000?'text-emerald-400':(ticker.age_ms||0)<5000?'text-yellow-400':'text-red-400'" x-text="(ticker.age_ms||0)+'ms'"></p>
+              </div>
+            </div>
+            <div class="mt-3 text-xs text-gray-600">
+              Trades/min: <span class="text-gray-400" x-text="ticker.trade_count_1m||0"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div x-show="!mkt.tickers || Object.keys(mkt.tickers).length===0" class="card mt-6 text-center text-gray-600 py-8">
+        <p>No market data feed active.</p>
+        <p class="text-xs mt-2">Start with <code class="text-gray-400">CTE_ENGINE_MODE=paper</code> or <code class="text-gray-400">CTE_ENGINE_MODE=demo</code> for live data.</p>
+      </div>
+    </div>
+
+    <!-- ═══ POSITIONS / TRADES ═══ -->
+    <div x-show="page==='positions'">
+      <div class="card">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-semibold text-gray-400">Trade Journal</h3>
+          <div class="flex gap-2 text-xs">
+            <select x-model="tf.tier" @change="loadTrades()" class="bg-gray-800 border border-gray-700 rounded px-2 py-1"><option value="">All Tiers</option><option>A</option><option>B</option><option>C</option></select>
+            <select x-model="tf.symbol" @change="loadTrades()" class="bg-gray-800 border border-gray-700 rounded px-2 py-1"><option value="">All Symbols</option><option>BTCUSDT</option><option>ETHUSDT</option></select>
+            <select x-model="tf.exit" @change="loadTrades()" class="bg-gray-800 border border-gray-700 rounded px-2 py-1"><option value="">All Exits</option><option>hard_stop</option><option>thesis_failure</option><option>no_progress</option><option>winner_trailing</option><option>runner_trailing</option></select>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="tbl"><thead><tr><th>Symbol</th><th>Tier</th><th class="text-right">PnL</th><th class="text-right">R</th><th>Exit</th><th class="text-right">Hold</th><th class="text-right">MFE</th><th class="text-right">MAE</th><th class="text-right">Slip</th><th>Mode</th></tr></thead>
+          <tbody>
+            <template x-for="t in trades" :key="JSON.stringify(t)">
+              <tr class="hover:bg-gray-800/30">
+                <td class="font-mono" x-text="t.symbol"></td>
+                <td><span class="pill" :class="tc(t.tier)" x-text="t.tier"></span></td>
+                <td class="text-right font-mono" :class="parseFloat(t.pnl)>=0?'text-emerald-400':'text-red-400'" x-text="'$'+parseFloat(t.pnl).toFixed(2)"></td>
+                <td class="text-right font-mono" x-text="t.r_multiple?t.r_multiple.toFixed(2)+'R':'—'"></td>
+                <td><span class="pill" :class="ec(t.exit_reason)" x-text="t.exit_reason"></span></td>
+                <td class="text-right" x-text="dur(t.hold_seconds)"></td>
+                <td class="text-right text-emerald-400/70" x-text="(t.mfe_pct*100).toFixed(2)+'%'"></td>
+                <td class="text-right text-red-400/70" x-text="(t.mae_pct*100).toFixed(2)+'%'"></td>
+                <td class="text-right" x-text="t.slippage_bps.toFixed(1)"></td>
+                <td><span class="pill pill-b" x-text="t.position_mode"></span></td>
+              </tr>
+            </template>
+            <tr x-show="!trades.length"><td colspan="10" class="py-8 text-center text-gray-600">No trades</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ OPS CONSOLE ═══ -->
+    <div x-show="page==='ops'">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Emergency Controls -->
+        <div class="card border-red-900/50">
+          <h3 class="text-sm font-semibold text-red-400 mb-4">Emergency Controls</h3>
+          <div class="space-y-3">
+            <button class="btn btn-danger w-full" @click="if(confirm('EMERGENCY STOP — Close all positions?')) doPost('/api/ops/emergency_stop')">EMERGENCY STOP</button>
+            <button class="btn btn-warn w-full" @click="doPost('/api/ops/pause')">Pause Trading</button>
+            <button class="btn btn-ok w-full" @click="doPost('/api/ops/resume')">Resume Trading</button>
+          </div>
+          <div class="mt-4 text-xs text-gray-500">
+            Current mode: <span class="font-mono" :class="ops.mode==='active'?'text-emerald-400':ops.mode==='paused'?'text-yellow-400':'text-red-400'" x-text="ops.mode"></span>
+          </div>
+        </div>
+        <!-- Symbol Toggles -->
+        <div class="card">
+          <h3 class="text-sm font-semibold text-gray-400 mb-4">Symbol Toggles</h3>
+          <template x-for="(info,sym) in ops.symbols||{}" :key="sym">
+            <div class="flex items-center justify-between py-2 border-b border-gray-800/50">
+              <span class="font-mono text-sm" x-text="sym"></span>
+              <div class="flex items-center gap-2">
+                <span :class="info.enabled?'pill pill-g':'pill pill-r'" x-text="info.enabled?'ENABLED':'DISABLED'"></span>
+                <button class="text-xs text-gray-500 hover:text-white" x-show="info.enabled" @click="doPost('/api/ops/symbol/'+sym+'/disable')">Disable</button>
+                <button class="text-xs text-gray-500 hover:text-white" x-show="!info.enabled" @click="doPost('/api/ops/symbol/'+sym+'/enable')">Enable</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+      <!-- Mode History -->
+      <div class="card mt-6">
+        <h3 class="text-sm font-semibold text-gray-400 mb-4">Recent Operations</h3>
+        <div class="space-y-2">
+          <template x-for="(ev,i) in (ops.recent_events||[]).slice().reverse()" :key="i">
+            <div class="text-xs flex gap-3 py-1 border-b border-gray-800/30">
+              <span class="text-gray-500 font-mono w-40 shrink-0" x-text="ev.timestamp?.substring(0,19)"></span>
+              <span class="pill pill-r" x-text="ev.action"></span>
+              <span class="text-gray-400" x-text="ev.reason"></span>
+            </div>
+          </template>
+          <div x-show="!(ops.recent_events||[]).length" class="text-gray-600 text-xs">No recent events</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ READINESS ═══ -->
+    <div x-show="page==='readiness'">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="card">
+          <h3 class="text-sm font-semibold text-gray-400 mb-4">Paper → Demo Gate</h3>
+          <div x-data="{g:null}" x-init="g=await(await fetch('/api/readiness/paper_to_demo')).json()">
+            <div class="mb-4">
+              <span class="sv" :class="g?.ready?'text-emerald-400':'text-red-400'" x-text="g?.ready?'GO':'NO-GO'"></span>
+              <span class="text-sm text-gray-500 ml-2" x-text="(g?.passed||0)+'/'+(g?.total||0)+' gates passed'"></span>
+            </div>
+            <template x-for="gate in g?.gates||[]" :key="gate.name">
+              <div class="flex items-center justify-between py-1.5 text-xs border-b border-gray-800/30">
+                <span class="text-gray-300" x-text="gate.description"></span>
+                <span :class="gate.status==='pass'?'gate-pass':'gate-fail'" x-text="gate.status.toUpperCase()"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="text-sm font-semibold text-gray-400 mb-4">Demo → Live Gate</h3>
+          <div x-data="{g:null}" x-init="g=await(await fetch('/api/readiness/demo_to_live')).json()">
+            <div class="mb-4">
+              <span class="sv" :class="g?.ready?'text-emerald-400':'text-red-400'" x-text="g?.ready?'GO':'NO-GO'"></span>
+              <span class="text-sm text-gray-500 ml-2" x-text="(g?.passed||0)+'/'+(g?.total||0)+' gates passed'"></span>
+            </div>
+            <template x-for="gate in g?.gates||[]" :key="gate.name">
+              <div class="flex items-center justify-between py-1.5 text-xs border-b border-gray-800/30">
+                <span class="text-gray-300" x-text="gate.description"></span>
+                <div class="flex items-center gap-2">
+                  <span class="text-gray-500 font-mono" x-text="gate.value" x-show="gate.value"></span>
+                  <span :class="gate.status==='pass'?'gate-pass':'gate-fail'" x-text="gate.status.toUpperCase()"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ RESEARCH ═══ -->
+    <div x-show="page==='research'">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="card"><h3 class="text-sm font-semibold text-gray-400 mb-2">Tier A</h3><div x-data="{d:null}" x-init="d=(await(await fetch('/api/analytics/summary?tier=A&epoch='+epoch)).json())"><div class="sv text-emerald-400" x-text="'$'+fmt(d?.total_pnl)"></div><div class="text-xs text-gray-500">WR <span x-text="pct(d?.win_rate)"></span> · PF <span x-text="d?.profit_factor?.toFixed(2)||'—'"></span> · <span x-text="d?.trade_count||0"></span> trades</div></div></div>
+        <div class="card"><h3 class="text-sm font-semibold text-gray-400 mb-2">Tier B</h3><div x-data="{d:null}" x-init="d=(await(await fetch('/api/analytics/summary?tier=B&epoch='+epoch)).json())"><div class="sv text-blue-400" x-text="'$'+fmt(d?.total_pnl)"></div><div class="text-xs text-gray-500">WR <span x-text="pct(d?.win_rate)"></span> · PF <span x-text="d?.profit_factor?.toFixed(2)||'—'"></span> · <span x-text="d?.trade_count||0"></span> trades</div></div></div>
+        <div class="card"><h3 class="text-sm font-semibold text-gray-400 mb-2">Tier C</h3><div x-data="{d:null}" x-init="d=(await(await fetch('/api/analytics/summary?tier=C&epoch='+epoch)).json())"><div class="sv text-yellow-400" x-text="'$'+fmt(d?.total_pnl)"></div><div class="text-xs text-gray-500">WR <span x-text="pct(d?.win_rate)"></span> · PF <span x-text="d?.profit_factor?.toFixed(2)||'—'"></span> · <span x-text="d?.trade_count||0"></span> trades</div></div></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+        <div class="card">
+          <h3 class="text-sm font-semibold text-gray-400 mb-4">Exit Reason Attribution</h3>
+          <div class="space-y-2">
+            <template x-for="(pnl,reason) in m.pnl_by_exit_reason||{}" :key="reason">
+              <div class="flex items-center justify-between text-xs py-1 border-b border-gray-800/30">
+                <span class="font-mono" x-text="reason"></span>
+                <div class="flex items-center gap-3">
+                  <span class="text-gray-500" x-text="(m.count_by_exit_reason||{})[reason]+' trades'"></span>
+                  <span :class="pnl>=0?'text-emerald-400':'text-red-400'" class="font-mono" x-text="'$'+pnl.toFixed(2)"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="text-sm font-semibold text-gray-400 mb-4">Runner Mode Analysis</h3>
+          <div class="grid grid-cols-2 gap-4 text-sm" x-data="{r:null}" x-init="r=m.runner_outcomes||{}">
+            <div><span class="text-gray-500">Count</span><p class="font-mono text-purple-400" x-text="r.count||0"></p></div>
+            <div><span class="text-gray-500">Avg R</span><p class="font-mono" x-text="(r.avg_r||0).toFixed(2)+'R'"></p></div>
+            <div><span class="text-gray-500">Avg PnL</span><p class="font-mono" x-text="'$'+(r.avg_pnl||0).toFixed(2)"></p></div>
+            <div><span class="text-gray-500">Win Rate</span><p class="font-mono" x-text="pct(r.win_rate)"></p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ CONFIG ═══ -->
+    <div x-show="page==='config'">
+      <div class="card" x-data="{cfg:null}" x-init="cfg=await(await fetch('/api/config')).json()">
+        <h3 class="text-sm font-semibold text-gray-400 mb-4">Active Configuration (Read-Only)</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-2 text-xs">
+          <template x-for="(v,k) in cfg||{}" :key="k">
+            <div class="flex justify-between py-1.5 border-b border-gray-800/30">
+              <span class="text-gray-500 font-mono" x-text="k"></span>
+              <span class="text-gray-200 font-mono" x-text="typeof v==='object'?JSON.stringify(v):v"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ ALERTS ═══ -->
+    <div x-show="page==='alerts'">
+      <div class="card">
+        <h3 class="text-sm font-semibold text-gray-400 mb-4">Alert Rules</h3>
+        <div class="space-y-2 text-xs">
+          <div class="flex items-center justify-between py-2 border-b border-gray-800/50">
+            <span>Stale Data (warning)</span><span class="pill pill-y">freshness &lt; 0.5 for 2m</span></div>
+          <div class="flex items-center justify-between py-2 border-b border-gray-800/50">
+            <span>Stale Data (critical)</span><span class="pill pill-r">freshness &lt; 0.3 for 5m</span></div>
+          <div class="flex items-center justify-between py-2 border-b border-gray-800/50">
+            <span>Reconnect Loop</span><span class="pill pill-y">&gt;5 reconnects in 5m</span></div>
+          <div class="flex items-center justify-between py-2 border-b border-gray-800/50">
+            <span>Drawdown Warning</span><span class="pill pill-y">&gt; 2%</span></div>
+          <div class="flex items-center justify-between py-2 border-b border-gray-800/50">
+            <span>Drawdown Halt</span><span class="pill pill-r">&gt; 3% → halt new positions</span></div>
+          <div class="flex items-center justify-between py-2 border-b border-gray-800/50">
+            <span>Drawdown Emergency</span><span class="pill pill-r">&gt; 5% → close ALL</span></div>
+          <div class="flex items-center justify-between py-2 border-b border-gray-800/50">
+            <span>Order Reject Spike</span><span class="pill pill-y">&gt;5 rejects in 1h</span></div>
+          <div class="flex items-center justify-between py-2 border-b border-gray-800/50">
+            <span>Reconciliation Failure</span><span class="pill pill-r">any discrepancy</span></div>
+          <div class="flex items-center justify-between py-2">
+            <span>Slippage Drift</span><span class="pill pill-y">&gt;3 bps vs paper</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+function app(){return{
+  page:'overview',epoch:'crypto_v1_paper',
+  pages:[
+    {id:'overview',label:'Overview',icon:'📊'},
+    {id:'market',label:'Market Feeds',icon:'📡'},
+    {id:'positions',label:'Positions',icon:'📋'},
+    {id:'ops',label:'Operations',icon:'🛡️'},
+    {id:'readiness',label:'Readiness',icon:'✅'},
+    {id:'research',label:'Research',icon:'🔬'},
+    {id:'config',label:'Config',icon:'⚙️'},
+    {id:'alerts',label:'Alerts',icon:'🔔'},
+  ],
+  epochs:[],m:{},trades:[],ops:{},tf:{tier:'',symbol:'',exit:''},
+  mkt:{},mktHealth:{},
+  _charts:{},
+  async init(){
+    await this.loadEpochs();await this.refresh();
+    setInterval(()=>this.refresh(),5000);
+  },
+  async loadEpochs(){try{this.epochs=await(await fetch('/api/analytics/epochs')).json();const a=this.epochs.find(e=>e.is_active);if(a)this.epoch=a.name}catch{this.epochs=[{name:'crypto_v1_paper'}]}},
+  async refresh(){
+    try{this.m=await(await fetch(`/api/analytics/summary?epoch=${this.epoch}`)).json()}catch{}
+    try{this.ops=await(await fetch('/api/ops/status')).json()}catch{}
+    try{this.mkt=await(await fetch('/api/market/tickers')).json()}catch{}
+    try{this.mktHealth=await(await fetch('/api/market/health')).json()}catch{}
+    await this.loadTrades();this.updateCharts();
+  },
+  async loadTrades(){
+    let u=`/api/analytics/trades?epoch=${this.epoch}&limit=50`;
+    if(this.tf.tier)u+=`&tier=${this.tf.tier}`;
+    if(this.tf.symbol)u+=`&symbol=${this.tf.symbol}`;
+    if(this.tf.exit)u+=`&exit_reason=${this.tf.exit}`;
+    try{this.trades=await(await fetch(u)).json()}catch{this.trades=[]}
+  },
+  updateCharts(){
+    this.bar('cTier',this.m.pnl_by_tier||{});
+    this.bar('cExit',this.m.pnl_by_exit_reason||{});
+  },
+  bar(id,data){
+    const c=document.getElementById(id);if(!c)return;
+    if(this._charts[id] instanceof Chart)this._charts[id].destroy();
+    const l=Object.keys(data),v=Object.values(data),
+      co=v.map(x=>x>=0?'rgba(52,211,153,0.7)':'rgba(248,113,113,0.7)');
+    this._charts[id]=new Chart(c,{type:'bar',data:{labels:l,datasets:[{data:v,backgroundColor:co,borderWidth:0,borderRadius:4}]},
+      options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#6b7280',font:{size:10}},grid:{display:false}},y:{ticks:{color:'#6b7280',callback:v=>'$'+v.toFixed(0)},grid:{color:'#1f2937'}}}}});
+  },
+  async doPost(url){try{await fetch(url,{method:'POST'});await this.refresh()}catch{}},
+  fmt(v){return(v||0).toFixed(2)},
+  pct(v){return((v||0)*100).toFixed(1)+'%'},
+  dur(s){if(!s)return'—';if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'},
+  tc(t){return{A:'pill-g',B:'pill-b',C:'pill-y'}[t]||'pill-y'},
+  ec(r){return{hard_stop:'pill-r',stale_data:'pill-r',spread_blowout:'pill-r',thesis_failure:'pill-y',no_progress:'pill-y',winner_trailing:'pill-g',runner_trailing:'pill-p'}[r]||'pill-b'},
+}}
+</script>
+</body>
+</html>
