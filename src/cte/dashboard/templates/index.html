@@ -45,19 +45,38 @@
     .card-head{@apply text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-1}
     .sv{@apply text-2xl font-semibold tabular-nums tracking-tight font-mono text-slate-100}
     .sl{@apply text-[11px] text-slate-500 font-medium mt-1.5 uppercase tracking-wider}
-    .pill{@apply text-[10px] px-2.5 py-1 rounded-md font-semibold tracking-wide inline-flex items-center gap-1}
+    .pill{@apply text-[10px] px-2.5 py-1 rounded-md font-semibold tracking-wide inline-flex items-center gap-1 transition-colors duration-150}
     .pill-g{@apply bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/25}
     .pill-r{@apply bg-red-500/15 text-red-400 ring-1 ring-red-500/25}
     .pill-y{@apply bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25}
     .pill-b{@apply bg-sky-500/15 text-sky-400 ring-1 ring-sky-500/25}
     .pill-p{@apply bg-violet-500/15 text-violet-400 ring-1 ring-violet-500/25}
-    .nav-item{@apply relative flex flex-row items-center gap-3 pl-3 pr-3 py-2.5 rounded-xl text-sm cursor-pointer transition-all duration-200 border border-transparent text-left w-full}
-    .nav-active{@apply bg-white/[0.07] text-white border-white/[0.1] shadow-panel-inset}
-    .nav-active .nav-ic{@apply bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-500/30}
-    .nav-inactive{@apply text-slate-500 hover:text-slate-100 hover:bg-white/[0.04]}
-    .nav-ic{@apply shrink-0 w-9 h-9 rounded-lg flex items-center justify-center bg-white/[0.04] text-slate-400 transition-colors}
-    .nav-inactive:hover .nav-ic{@apply bg-white/[0.07] text-slate-300}
-    .nav-active-bar{@apply absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-7 rounded-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.5)]}
+    .nav-item{
+      @apply relative flex flex-row flex-nowrap items-center gap-3 pl-3 pr-2 py-2 rounded-xl text-[13px] cursor-pointer border border-transparent text-left w-full;
+      transition: background .18s ease, border-color .18s ease, transform .15s ease, box-shadow .2s ease;
+    }
+    .nav-active{@apply bg-white/[0.08] text-white border-white/[0.12] shadow-panel-inset}
+    .nav-active .nav-ic{@apply bg-cyan-500/25 text-cyan-200 ring-1 ring-cyan-400/40 shadow-[0_0_16px_rgba(34,211,238,0.12)]}
+    .nav-inactive{@apply text-slate-500}
+    .nav-inactive:hover{@apply text-slate-100 bg-white/[0.05] border-white/[0.06]}
+    .nav-inactive:hover .nav-ic{@apply bg-white/[0.1] text-slate-200}
+    .nav-inactive:active{@apply scale-[0.98]}
+    .nav-ic{
+      @apply shrink-0 rounded-lg flex items-center justify-center bg-white/[0.04] text-slate-400 transition-all duration-200;
+      width: 34px !important;
+      height: 34px !important;
+      min-width: 34px !important;
+      min-height: 34px !important;
+    }
+    .nav-ic svg,.nav-svg{
+      display: block !important;
+      width: 17px !important;
+      height: 17px !important;
+      max-width: 17px !important;
+      max-height: 17px !important;
+    }
+    .nav-active-bar{@apply absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-8 rounded-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.55)]}
+    .nav-label{@apply font-medium truncate min-w-0 flex-1 whitespace-nowrap}
     .btn{@apply px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 active:scale-[0.98]}
     .btn-danger{@apply bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/30}
     .btn-warn{@apply bg-amber-500 hover:bg-amber-400 text-slate-900}
@@ -84,9 +103,27 @@
     .flash-up{animation:price-up 0.6s ease-out}
     .flash-down{animation:price-down 0.6s ease-out}
     .dd-trigger{
-      @apply inline-flex items-center justify-between gap-2 min-w-[160px] max-w-[260px] rounded-xl border border-white/[0.12] bg-[#0c1016] px-3 py-2 text-left text-[13px] font-medium text-slate-100 shadow-sm outline-none transition hover:border-white/[0.18] hover:bg-[#11161f] focus:ring-2 focus:ring-cyan-500/35;
+      @apply inline-flex flex-row flex-nowrap items-center justify-between gap-2 min-w-[160px] max-w-[260px] rounded-xl border border-white/[0.12] bg-[#0c1016] px-3 text-left text-[13px] font-medium text-slate-100 shadow-sm outline-none;
+      height: 2.25rem;
+      min-height: 2.25rem;
+      max-height: 2.25rem;
+      transition: background .15s ease, border-color .15s ease, box-shadow .2s ease;
     }
-    .dd-trigger svg{@apply shrink-0 w-4 h-4 text-slate-500}
+    .dd-trigger:hover{@apply border-white/[0.2] bg-[#121820]}
+    .dd-trigger:focus-visible{@apply ring-2 ring-cyan-500/40}
+    .dd-trigger-open{@apply border-cyan-500/35 bg-[#0f1620] shadow-[0_0_0_1px_rgba(34,211,238,0.15)]}
+    .icon-chevron{
+      width: 14px !important;
+      height: 14px !important;
+      min-width: 14px !important;
+      min-height: 14px !important;
+      flex-shrink: 0;
+      display: block;
+      color: rgb(148 163 184);
+      transition: transform .2s ease, color .15s ease;
+    }
+    .dd-trigger-open .icon-chevron{transform: rotate(180deg);color: rgb(34 211 238)}
+    .dd-trigger span.truncate{min-width:0}
     .dd-panel{
       @apply absolute z-[100] mt-1.5 min-w-full w-max max-w-[280px] rounded-xl border border-white/[0.12] bg-[#0f1419] py-1 shadow-2xl shadow-black/60 ring-1 ring-white/[0.04];
     }
@@ -99,6 +136,12 @@
     *::-webkit-scrollbar-thumb:hover{background:rgba(148,163,184,0.5)}
     .stream-bar{@apply h-1 rounded-full overflow-hidden bg-white/[0.06]}
     .stream-fill{@apply h-full rounded-full bg-gradient-to-r from-cyan-500 to-violet-500 transition-all duration-500}
+    .kpi-card{@apply !py-2.5 !px-3}
+    .kpi-row{display:flex;flex-wrap:nowrap;align-items:center;gap:0.2rem;min-width:0;overflow:hidden}
+    .kpi-lbl{flex-shrink:0;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;line-height:1.15;max-width:5.75rem}
+    .kpi-val{font-family:'JetBrains Mono',ui-monospace,monospace;font-weight:600;font-size:0.9375rem;tabular-nums;flex:1;min-width:0;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .kpi-dot{flex-shrink:0;color:#334155;font-size:10px;font-weight:700;padding:0 1px}
+    .kpi-hint{flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#475569;max-width:4.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   </style>
 </head>
 <body class="h-full text-slate-200 antialiased flex font-sans dark" x-data="app()" x-init="init()">
@@ -115,8 +158,8 @@
     <template x-for="p in pages" :key="p.id">
       <div :class="page===p.id ? 'nav-item nav-active' : 'nav-item nav-inactive'" @click="page=p.id; refresh()" role="button" tabindex="0">
         <span class="nav-active-bar" x-show="page===p.id" x-cloak></span>
-        <span class="nav-ic [&_svg]:w-[18px] [&_svg]:h-[18px] [&_svg]:shrink-0 [&_svg]:block" x-html="p.svg"></span>
-        <span x-text="p.label" class="font-medium truncate flex-1"></span>
+        <span class="nav-ic" x-html="p.svg"></span>
+        <span x-text="p.label" class="nav-label"></span>
       </div>
     </template>
   </nav>
@@ -141,9 +184,9 @@
         <span class="text-[11px] font-semibold tracking-wide text-slate-400" x-text="liveConnected ? 'Live stream' : 'Idle'"></span>
       </div>
       <div class="relative z-50">
-        <button type="button" class="dd-trigger max-w-[240px]" @click.stop="ddEpoch=!ddEpoch; ddTier=ddSym=ddExit=false" aria-haspopup="listbox" :aria-expanded="ddEpoch">
+        <button type="button" class="dd-trigger max-w-[240px]" :class="ddEpoch ? 'dd-trigger-open' : ''" @click.stop="ddEpoch=!ddEpoch; ddTier=ddSym=ddExit=false" aria-haspopup="listbox" :aria-expanded="ddEpoch">
           <span class="truncate font-mono text-[12px] text-slate-100" x-text="epoch"></span>
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
         </button>
         <div x-show="ddEpoch" x-cloak x-transition @click.outside="ddEpoch=false" class="dd-panel left-0">
           <template x-for="e in (epochs.length?epochs:[{name:epoch}])" :key="e.name">
@@ -161,41 +204,55 @@
   <div class="p-6 lg:p-8 max-w-[1600px] mx-auto space-y-8 pb-16">
 
     <div x-show="page==='overview'" x-cloak>
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 lg:gap-4">
-        <div class="card card-hover">
-          <div class="card-head">Total PnL</div>
-          <div class="sv" :class="m.total_pnl>=0?'text-emerald-400':'text-red-400'" x-text="'$'+fmt(m.total_pnl)"></div>
-          <div class="sl">Realized</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2.5 lg:gap-3">
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">PnL</span><span class="kpi-dot">·</span>
+            <span class="kpi-val" :class="m.total_pnl>=0?'text-emerald-400':'text-red-400'" x-text="'$'+fmt(m.total_pnl)"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Realized</span>
+          </div>
         </div>
-        <div class="card card-hover">
-          <div class="card-head">Trades</div>
-          <div class="sv text-white" x-text="m.trade_count||0"></div>
-          <div class="sl">Closed</div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">Trades</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-white" x-text="m.trade_count||0"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Closed</span>
+          </div>
         </div>
-        <div class="card card-hover">
-          <div class="card-head">Win rate</div>
-          <div class="sv" :class="m.win_rate>=0.5?'text-emerald-400':'text-amber-400'" x-text="pct(m.win_rate)"></div>
-          <div class="sl">Hit ratio</div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">Win</span><span class="kpi-dot">·</span>
+            <span class="kpi-val" :class="m.win_rate>=0.5?'text-emerald-400':'text-amber-400'" x-text="pct(m.win_rate)"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Hit</span>
+          </div>
         </div>
-        <div class="card card-hover">
-          <div class="card-head">Expectancy</div>
-          <div class="sv" :class="m.expectancy>=0?'text-emerald-400':'text-red-400'" x-text="'$'+fmt(m.expectancy)"></div>
-          <div class="sl">Per trade</div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">Exp</span><span class="kpi-dot">·</span>
+            <span class="kpi-val" :class="m.expectancy>=0?'text-emerald-400':'text-red-400'" x-text="'$'+fmt(m.expectancy)"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">/ trade</span>
+          </div>
         </div>
-        <div class="card card-hover">
-          <div class="card-head">Profit factor</div>
-          <div class="sv" :class="(m.profit_factor||0)>=1?'text-emerald-400':'text-red-400'" x-text="m.profit_factor?m.profit_factor.toFixed(2):'—'"></div>
-          <div class="sl">Gross win / loss</div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">PF</span><span class="kpi-dot">·</span>
+            <span class="kpi-val" :class="(m.profit_factor||0)>=1?'text-emerald-400':'text-red-400'" x-text="m.profit_factor?m.profit_factor.toFixed(2):'—'"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">G / L</span>
+          </div>
         </div>
-        <div class="card card-hover">
-          <div class="card-head">Max drawdown</div>
-          <div class="sv text-red-400" x-text="pct(m.max_drawdown_pct)"></div>
-          <div class="sl">Peak to trough</div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">DD</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-red-400" x-text="pct(m.max_drawdown_pct)"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Peak</span>
+          </div>
         </div>
-        <div class="card card-hover">
-          <div class="card-head">Avg slippage</div>
-          <div class="sv text-slate-200" x-text="fmt(m.avg_slippage_bps)+' bps'"></div>
-          <div class="sl">Modeled</div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">Slip</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-slate-200" x-text="fmt(m.avg_slippage_bps)+' bps'"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Model</span>
+          </div>
         </div>
       </div>
 
@@ -223,22 +280,34 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
-        <div class="card card-hover border-emerald-500/10">
-          <div class="card-head text-emerald-500/80">Saved losers</div>
-          <div class="sv text-emerald-400" x-text="m.saved_losers||0"></div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-8">
+        <div class="card card-hover kpi-card border-emerald-500/15">
+          <div class="kpi-row">
+            <span class="kpi-lbl text-emerald-500/90">Saved</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-emerald-400" x-text="m.saved_losers||0"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Losers</span>
+          </div>
         </div>
-        <div class="card card-hover border-amber-500/10">
-          <div class="card-head text-amber-500/80">Killed winners</div>
-          <div class="sv text-amber-400" x-text="m.killed_winners||0"></div>
+        <div class="card card-hover kpi-card border-amber-500/15">
+          <div class="kpi-row">
+            <span class="kpi-lbl text-amber-500/90">Killed</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-amber-400" x-text="m.killed_winners||0"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Winners</span>
+          </div>
         </div>
-        <div class="card card-hover border-sky-500/10">
-          <div class="card-head text-sky-500/80">No-progress</div>
-          <div class="sv text-sky-400" x-text="(m.no_progress_regret||{}).count||0"></div>
+        <div class="card card-hover kpi-card border-sky-500/15">
+          <div class="kpi-row">
+            <span class="kpi-lbl text-sky-500/90">NProg</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-sky-400" x-text="(m.no_progress_regret||{}).count||0"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Exits</span>
+          </div>
         </div>
-        <div class="card card-hover border-violet-500/10">
-          <div class="card-head text-violet-500/80">Runner trades</div>
-          <div class="sv text-violet-400" x-text="(m.runner_outcomes||{}).count||0"></div>
+        <div class="card card-hover kpi-card border-violet-500/15">
+          <div class="kpi-row">
+            <span class="kpi-lbl text-violet-500/90">Runner</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-violet-400" x-text="(m.runner_outcomes||{}).count||0"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Trades</span>
+          </div>
         </div>
       </div>
     </div>
@@ -338,9 +407,9 @@
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <div class="relative z-[60]">
-              <button type="button" class="dd-trigger min-w-[148px]" @click.stop="ddTier=!ddTier; ddSym=ddExit=ddEpoch=false" :aria-expanded="ddTier">
+              <button type="button" class="dd-trigger min-w-[148px]" :class="ddTier ? 'dd-trigger-open' : ''" @click.stop="ddTier=!ddTier; ddSym=ddExit=ddEpoch=false" :aria-expanded="ddTier">
                 <span class="truncate text-slate-200" x-text="tierLbl()"></span>
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
               <div x-show="ddTier" x-cloak x-transition @click.outside="ddTier=false" class="dd-panel left-0">
                 <template x-for="o in tierOpts" :key="o.v || 'all-tier'">
@@ -349,9 +418,9 @@
               </div>
             </div>
             <div class="relative z-[60]">
-              <button type="button" class="dd-trigger min-w-[156px]" @click.stop="ddSym=!ddSym; ddTier=ddExit=ddEpoch=false" :aria-expanded="ddSym">
+              <button type="button" class="dd-trigger min-w-[156px]" :class="ddSym ? 'dd-trigger-open' : ''" @click.stop="ddSym=!ddSym; ddTier=ddExit=ddEpoch=false" :aria-expanded="ddSym">
                 <span class="truncate text-slate-200" x-text="symLbl()"></span>
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
               <div x-show="ddSym" x-cloak x-transition @click.outside="ddSym=false" class="dd-panel left-0">
                 <template x-for="o in symOpts" :key="o.v || 'all-sym'">
@@ -360,9 +429,9 @@
               </div>
             </div>
             <div class="relative z-[60]">
-              <button type="button" class="dd-trigger min-w-[168px]" @click.stop="ddExit=!ddExit; ddTier=ddSym=ddEpoch=false" :aria-expanded="ddExit">
+              <button type="button" class="dd-trigger min-w-[168px]" :class="ddExit ? 'dd-trigger-open' : ''" @click.stop="ddExit=!ddExit; ddTier=ddSym=ddEpoch=false" :aria-expanded="ddExit">
                 <span class="truncate text-slate-200" x-text="exitLbl()"></span>
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
               <div x-show="ddExit" x-cloak x-transition @click.outside="ddExit=false" class="dd-panel left-0 max-h-64 overflow-y-auto">
                 <template x-for="o in exitOpts" :key="o.v || 'all-exit'">
@@ -550,14 +619,14 @@
 
 <script>
 const ICON = {
-  overview: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v2a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zM14 13a1 1 0 011-1h4a1 1 0 011 1v6a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6z"/></svg>',
-  market: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M8.25 3v2.25M17.75 3v2.25M3 8.25h18M5.25 8.25v10.5a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25V8.25"/></svg>',
-  positions: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>',
-  ops: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>',
-  readiness: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
-  research: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5"/></svg>',
-  config: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>',
-  alerts: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.102V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>',
+  overview: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v2a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zM14 13a1 1 0 011-1h4a1 1 0 011 1v6a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6z"/></svg>',
+  market: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M8.25 3v2.25M17.75 3v2.25M3 8.25h18M5.25 8.25v10.5a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25V8.25"/></svg>',
+  positions: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>',
+  ops: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>',
+  readiness: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+  research: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5"/></svg>',
+  config: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>',
+  alerts: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.102V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>',
 };
 function app(){return{
   page:'overview',epoch:'crypto_v1_paper',
