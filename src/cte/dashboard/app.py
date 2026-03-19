@@ -255,10 +255,34 @@ async def market_health():
 
 # ── Ops API ───────────────────────────────────────────────────
 
+def _v1_operations_policy() -> dict[str, object]:
+    """Static PRD alignment for the Operations UI (matches .cursorrules / phased plan)."""
+    return {
+        "direction": "long_only",
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "venues": {
+            "primary": "binance_usdm_futures_testnet",
+            "secondary_context": "bybit_v5_public_testnet",
+        },
+        "max_leverage": 3,
+        "live_wallet_v1": False,
+        "execution_surface": "paper_demo_testnet",
+        "risk_manager": "absolute_veto_over_signals",
+        "signal_reason_payload": "required_per_trade_decision",
+        "inter_service_bus": "redis_streams_cte_prefix",
+        "whale_news_role": "context_only_not_primary_trigger",
+        "dashboard_note": (
+            "This UI drives the in-process ops controller. Distributed services "
+            "must mirror state via Redis Streams (cte:{module}:{event_type})."
+        ),
+    }
+
+
 @app.get("/api/ops/status")
 async def ops_status():
     status = _ops_controller.status()
     status["system_mode"] = _system_mode.value
+    status["v1_policy"] = _v1_operations_policy()
     return status
 
 
@@ -275,8 +299,8 @@ async def pause_trading(reason: str = "Manual pause"):
 
 
 @app.post("/api/ops/resume")
-async def resume_trading():
-    _ops_controller.resume_trading()
+async def resume_trading(reason: str = "Operator resume via dashboard"):
+    _ops_controller.resume_trading(reason)
     return {"mode": _ops_controller.mode.value}
 
 
@@ -287,8 +311,8 @@ async def disable_symbol(symbol: str, reason: str = "Manual disable"):
 
 
 @app.post("/api/ops/symbol/{symbol}/enable")
-async def enable_symbol(symbol: str):
-    _ops_controller.enable_symbol(symbol.upper())
+async def enable_symbol(symbol: str, reason: str = "Operator enabled symbol"):
+    _ops_controller.enable_symbol(symbol.upper(), reason)
     return {"symbol": symbol.upper(), "enabled": True}
 
 

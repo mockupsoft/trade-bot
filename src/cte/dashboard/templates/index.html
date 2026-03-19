@@ -474,41 +474,121 @@
     </div>
 
     <div x-show="page==='ops'" x-cloak>
+      <div class="card mb-6 border border-cyan-500/15 bg-cyan-500/[0.03]">
+        <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
+          <div>
+            <h3 class="text-sm font-semibold text-cyan-200/95 tracking-tight">V1 operating constraints (PRD)</h3>
+            <p class="text-[11px] text-slate-500 mt-1 max-w-3xl leading-relaxed">Aligned with CTE phased rules: long-only, testnet data plane, risk veto, Redis Streams between services, no v1 live wallet.</p>
+          </div>
+          <span class="pill pill-p text-[10px] shrink-0" x-text="'SYS · '+(ops.system_mode||'—')"></span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.06]">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Execution &amp; capital</p>
+            <ul class="space-y-1.5 text-slate-300 leading-relaxed">
+              <li><span class="text-slate-500">Surface:</span> <span class="font-mono text-slate-200" x-text="ops.v1_policy?.execution_surface||'—'"></span></li>
+              <li><span class="text-slate-500">Live wallet v1:</span> <span class="text-amber-400/90 font-medium" x-text="ops.v1_policy?.live_wallet_v1===false?'No (paper/demo)':'—'"></span></li>
+              <li><span class="text-slate-500">Direction:</span> <span class="font-mono text-emerald-400/90" x-text="ops.v1_policy?.direction||'—'"></span></li>
+              <li><span class="text-slate-500">Max leverage:</span> <span class="font-mono text-white" x-text="String(ops.v1_policy?.max_leverage??'—')+'×'"></span></li>
+            </ul>
+          </div>
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.06]">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Symbols &amp; venues</p>
+            <ul class="space-y-1.5 text-slate-300 leading-relaxed">
+              <li><span class="text-slate-500">Universe:</span> <span class="font-mono text-slate-200" x-text="(ops.v1_policy?.symbols||[]).join(', ')||'—'"></span></li>
+              <li><span class="text-slate-500">Primary:</span> <span class="font-mono text-slate-200 break-all" x-text="ops.v1_policy?.venues?.primary||'—'"></span></li>
+              <li><span class="text-slate-500">Secondary:</span> <span class="font-mono text-slate-400 break-all" x-text="ops.v1_policy?.venues?.secondary_context||'—'"></span></li>
+            </ul>
+          </div>
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.06] sm:col-span-2 lg:col-span-1">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Governance &amp; data plane</p>
+            <ul class="space-y-1.5 text-slate-300 leading-relaxed">
+              <li><span class="text-slate-500">Risk manager:</span> <span class="text-sky-400/90" x-text="ops.v1_policy?.risk_manager||'—'"></span></li>
+              <li><span class="text-slate-500">Signal reasons:</span> <span class="text-slate-200" x-text="ops.v1_policy?.signal_reason_payload||'—'"></span></li>
+              <li><span class="text-slate-500">Event bus:</span> <span class="font-mono text-slate-400" x-text="ops.v1_policy?.inter_service_bus||'—'"></span></li>
+              <li><span class="text-slate-500">Context feeds:</span> <span class="text-slate-400" x-text="ops.v1_policy?.whale_news_role||'—'"></span></li>
+            </ul>
+          </div>
+        </div>
+        <p class="text-[10px] text-slate-600 mt-4 leading-relaxed border-t border-white/[0.06] pt-3" x-text="ops.v1_policy?.dashboard_note||''"></p>
+      </div>
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="card border-red-500/20 bg-gradient-to-br from-red-950/20 to-transparent">
-          <h3 class="text-sm font-semibold text-red-400 mb-4 tracking-tight">Emergency controls</h3>
+          <h3 class="text-sm font-semibold text-red-400 mb-2 tracking-tight">Emergency controls</h3>
+          <p class="text-[11px] text-slate-500 mb-4 leading-relaxed">Kill switch: halt entries and require explicit resume. Pause: block new signals; exit logic may still run. Every action logs a <span class="font-mono text-slate-400">reason</span> (PRD).</p>
           <div class="space-y-3">
-            <button type="button" class="btn btn-danger w-full" @click="if(confirm('EMERGENCY STOP — halt trading?')) doPost('/api/ops/emergency_stop')">Emergency stop</button>
-            <button type="button" class="btn btn-warn w-full" @click="doPost('/api/ops/pause')">Pause trading</button>
-            <button type="button" class="btn btn-ok w-full" @click="doPost('/api/ops/resume')">Resume trading</button>
+            <button type="button" class="btn btn-danger w-full" @click="if(!confirm('EMERGENCY STOP — halt trading?'))return; const r=prompt('Reason (audit log)','Emergency stop: operator'); if(r===null)return; doPost('/api/ops/emergency_stop', r||'Emergency stop: operator')">Emergency stop</button>
+            <button type="button" class="btn btn-warn w-full" @click="const r=prompt('Reason (audit log)','Pause: operator'); if(r===null)return; doPost('/api/ops/pause', r||'Pause: operator')">Pause trading</button>
+            <button type="button" class="btn btn-ok w-full" @click="const r=prompt('Reason (audit log)','Resume: operator'); if(r===null)return; doPost('/api/ops/resume', r||'Resume: operator')">Resume trading</button>
           </div>
-          <p class="mt-4 text-xs text-slate-500">Mode: <span class="font-mono font-medium" :class="ops.mode==='active'?'text-emerald-400':ops.mode==='paused'?'text-amber-400':'text-red-400'" x-text="ops.mode"></span></p>
+          <p class="mt-4 text-xs text-slate-500">Mode: <span class="font-mono font-medium" :class="ops.mode==='active'?'text-emerald-400':ops.mode==='paused'?'text-amber-400':'text-red-400'" x-text="ops.mode"></span>
+            <span class="text-slate-600"> · entries </span>
+            <span class="font-mono" :class="ops.is_entries_allowed?'text-emerald-400':'text-red-400'" x-text="ops.is_entries_allowed?'allowed':'blocked'"></span>
+          </p>
         </div>
         <div class="card">
-          <h3 class="text-sm font-semibold text-white mb-4 tracking-tight">Symbol toggles</h3>
+          <h3 class="text-sm font-semibold text-white mb-2 tracking-tight">Symbol toggles</h3>
+          <p class="text-[11px] text-slate-500 mb-4 leading-relaxed">v1 universe only. Disabling a symbol blocks new exposure on that leg; combine with pause/halt for full stop.</p>
           <template x-for="(info,sym) in ops.symbols||{}" :key="sym">
             <div class="flex items-center justify-between py-3 border-b border-white/[0.05] last:border-0">
-              <span class="font-mono text-sm text-slate-200" x-text="sym"></span>
-              <div class="flex items-center gap-2">
+              <div class="min-w-0">
+                <span class="font-mono text-sm text-slate-200" x-text="sym"></span>
+                <p class="text-[10px] text-slate-600 mt-0.5 truncate max-w-[200px]" x-show="info.disabled_reason" x-text="info.disabled_reason"></p>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
                 <span :class="info.enabled?'pill pill-g':'pill pill-r'" x-text="info.enabled?'ON':'OFF'"></span>
-                <button type="button" class="text-xs text-cyan-500/80 hover:text-cyan-400 font-medium" x-show="info.enabled" @click="doPost('/api/ops/symbol/'+sym+'/disable')">Disable</button>
-                <button type="button" class="text-xs text-cyan-500/80 hover:text-cyan-400 font-medium" x-show="!info.enabled" @click="doPost('/api/ops/symbol/'+sym+'/enable')">Enable</button>
+                <button type="button" class="text-xs text-cyan-500/80 hover:text-cyan-400 font-medium" x-show="info.enabled" @click="const r=prompt('Reason (audit log)','Disable '+sym+': operator'); if(r===null)return; doPost('/api/ops/symbol/'+sym+'/disable', r||'Manual disable')">Disable</button>
+                <button type="button" class="text-xs text-cyan-500/80 hover:text-cyan-400 font-medium" x-show="!info.enabled" @click="const r=prompt('Reason (audit log)','Enable '+sym+': operator'); if(r===null)return; doPost('/api/ops/symbol/'+sym+'/enable', r||'Operator enabled symbol')">Enable</button>
               </div>
             </div>
           </template>
         </div>
       </div>
+
       <div class="card mt-6">
-        <h3 class="text-sm font-semibold text-white mb-4 tracking-tight">Recent operations</h3>
+        <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Operations audit log</h3>
+        <p class="text-[11px] text-slate-500 mb-4">Last 30 events · includes operator identity stub and mandatory reason strings.</p>
+        <div class="overflow-x-auto">
+          <table class="tbl min-w-[640px]">
+            <thead>
+              <tr>
+                <th>Time (UTC)</th>
+                <th>Action</th>
+                <th>Symbol</th>
+                <th>Actor</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(ev,i) in (ops.recent_events||[]).slice().reverse()" :key="i">
+                <tr>
+                  <td class="font-mono text-xs text-slate-400 whitespace-nowrap" x-text="ev.timestamp?.replace('T',' ').substring(0,19)"></td>
+                  <td><span class="pill text-[9px]" :class="opsPillCls(ev.action)" x-text="ev.action"></span></td>
+                  <td class="font-mono text-xs text-slate-500" x-text="ev.symbol||'—'"></td>
+                  <td class="font-mono text-xs text-slate-500" x-text="ev.triggered_by"></td>
+                  <td class="text-xs text-slate-300 max-w-md" x-text="ev.reason"></td>
+                </tr>
+              </template>
+              <tr x-show="!(ops.recent_events||[]).length">
+                <td colspan="5" class="py-10 text-center text-slate-600 text-xs">No audit events yet — use controls above (each action records a reason).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card mt-6">
+        <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Trading mode transitions</h3>
+        <p class="text-[11px] text-slate-500 mb-4">State changes for <span class="font-mono">active · paused · halted</span> (event-driven stack should mirror via Redis).</p>
         <div class="space-y-0 divide-y divide-white/[0.05]">
-          <template x-for="(ev,i) in (ops.recent_events||[]).slice().reverse()" :key="i">
-            <div class="text-xs flex flex-wrap gap-3 py-3">
-              <span class="text-slate-500 font-mono w-44 shrink-0" x-text="ev.timestamp?.substring(0,19)"></span>
-              <span class="pill pill-r text-[9px]" x-text="ev.action"></span>
-              <span class="text-slate-400" x-text="ev.reason"></span>
+          <template x-for="(row,i) in (ops.mode_history||[]).slice().reverse()" :key="i">
+            <div class="text-xs flex flex-wrap items-center gap-3 py-2.5">
+              <span class="font-mono text-slate-500 w-52 shrink-0" x-text="row[2]?.replace('T',' ').substring(0,19)"></span>
+              <span class="font-mono text-slate-400" x-text="row[0]+' → '+row[1]"></span>
             </div>
           </template>
-          <div x-show="!(ops.recent_events||[]).length" class="text-slate-600 text-xs py-6">No recent events</div>
+          <div x-show="!(ops.mode_history||[]).length" class="text-slate-600 text-xs py-6">No mode changes yet.</div>
         </div>
       </div>
     </div>
@@ -872,12 +952,25 @@ function app(){return{
       },
     });
   },
-  async doPost(url){try{await fetch(url,{method:'POST'});await this.refresh()}catch(e){}},
   fmt(v){return(v??0).toFixed(2)},
   pct(v){return((v||0)*100).toFixed(1)+'%'},
   dur(s){if(!s)return'—';if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'},
   tc(t){return{A:'pill-g',B:'pill-b',C:'pill-y'}[t]||'pill-y'},
   ec(r){return{hard_stop:'pill-r',stale_data:'pill-r',spread_blowout:'pill-r',thesis_failure:'pill-y',no_progress:'pill-y',winner_trailing:'pill-g',runner_trailing:'pill-p'}[r]||'pill-b'},
+  opsPillCls(action){
+    const m={emergency_stop:'pill-r',pause:'pill-y',resume:'pill-g',symbol_disable:'pill-r',symbol_enable:'pill-g'};
+    return m[action]||'pill-b';
+  },
+  async doPost(url, reason){
+    try{
+      let u=url;
+      if(reason!=null&&String(reason).length){
+        u+=(url.includes('?')?'&':'?')+'reason='+encodeURIComponent(String(reason));
+      }
+      await fetch(u,{method:'POST'});
+      await this.refresh();
+    }catch(e){}
+  },
 }}
 </script>
 </body>

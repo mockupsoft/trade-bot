@@ -34,7 +34,7 @@ class TestKillSwitch:
         assert ctrl.mode == TradingMode.PAUSED
         assert not ctrl.is_entries_allowed
 
-        ctrl.resume_trading()
+        ctrl.resume_trading("test resume")
         assert ctrl.mode == TradingMode.ACTIVE
         assert ctrl.is_entries_allowed
 
@@ -45,7 +45,7 @@ class TestKillSwitch:
         ctrl.disable_symbol("BTCUSDT", "test")
         assert not ctrl.is_symbol_enabled("BTCUSDT")
 
-        ctrl.enable_symbol("BTCUSDT")
+        ctrl.enable_symbol("BTCUSDT", "test enable")
         assert ctrl.is_symbol_enabled("BTCUSDT")
 
     def test_status_output(self):
@@ -59,10 +59,20 @@ class TestKillSwitch:
     def test_mode_history_tracked(self):
         ctrl = OperationsController()
         ctrl.pause_trading("pause")
-        ctrl.resume_trading()
+        ctrl.resume_trading("resume")
         ctrl.emergency_stop("test", "stop")
         status = ctrl.status()
         assert len(status["mode_history"]) == 3
+
+    def test_audit_log_covers_pause_resume_and_symbol_toggles(self):
+        ctrl = OperationsController()
+        ctrl.pause_trading("p")
+        ctrl.resume_trading("r")
+        ctrl.disable_symbol("BTCUSDT", "maintenance")
+        ctrl.enable_symbol("BTCUSDT", "clear")
+        events = ctrl.status()["recent_events"]
+        actions = [e["action"] for e in events]
+        assert actions == ["pause", "resume", "symbol_disable", "symbol_enable"]
 
 
 class TestReadinessGate:
