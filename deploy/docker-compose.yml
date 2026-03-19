@@ -1,0 +1,239 @@
+version: "3.9"
+
+x-cte-service: &cte-service
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  restart: unless-stopped
+  depends_on:
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+  environment: &cte-env
+    CTE_REDIS_URL: "redis://redis:6379/0"
+    CTE_DB_HOST: "postgres"
+    CTE_DB_PORT: "5432"
+    CTE_DB_NAME: "cte"
+    CTE_DB_USER: "cte"
+    CTE_DB_PASSWORD: "${CTE_DB_PASSWORD:-cte_dev_password}"
+    CTE_ENGINE_MODE: "paper"
+    CTE_ENGINE_LOG_LEVEL: "INFO"
+  networks:
+    - cte-network
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────────
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_DB: cte
+      POSTGRES_USER: cte
+      POSTGRES_PASSWORD: "${CTE_DB_PASSWORD:-cte_dev_password}"
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cte -d cte"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    networks:
+      - cte-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - cte-network
+
+  # ── CTE Services ──────────────────────────────────────────────
+  binance-connector:
+    <<: *cte-service
+    command: ["cte.connectors.binance"]
+    ports:
+      - "8001:8001"
+    environment:
+      <<: *cte-env
+      CTE_SERVICE_PORT: "8001"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  bybit-connector:
+    <<: *cte-service
+    command: ["cte.connectors.bybit"]
+    ports:
+      - "8002:8002"
+    environment:
+      <<: *cte-env
+      CTE_SERVICE_PORT: "8002"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  normalizer:
+    <<: *cte-service
+    command: ["cte.normalizer.engine"]
+    ports:
+      - "8010:8010"
+    environment:
+      <<: *cte-env
+      CTE_SERVICE_PORT: "8010"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  feature-engine:
+    <<: *cte-service
+    command: ["cte.features.engine"]
+    ports:
+      - "8020:8020"
+    environment:
+      <<: *cte-env
+      CTE_SERVICE_PORT: "8020"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  signal-engine:
+    <<: *cte-service
+    command: ["cte.signals.engine"]
+    ports:
+      - "8030:8030"
+    environment:
+      <<: *cte-env
+      CTE_SERVICE_PORT: "8030"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  risk-manager:
+    <<: *cte-service
+    command: ["cte.risk.manager"]
+    ports:
+      - "8040:8040"
+    environment:
+      <<: *cte-env
+      CTE_SERVICE_PORT: "8040"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  sizing-engine:
+    <<: *cte-service
+    command: ["cte.sizing.engine"]
+    ports:
+      - "8050:8050"
+    environment:
+      <<: *cte-env
+      CTE_SERVICE_PORT: "8050"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  execution-engine:
+    <<: *cte-service
+    command: ["cte.execution.engine"]
+    ports:
+      - "8060:8060"
+    environment:
+      <<: *cte-env
+      CTE_SERVICE_PORT: "8060"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  exit-engine:
+    <<: *cte-service
+    command: ["cte.exits.engine"]
+    ports:
+      - "8070:8070"
+    environment:
+      <<: *cte-env
+      CTE_SERVICE_PORT: "8070"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  analytics:
+    <<: *cte-service
+    command: ["cte.analytics.engine"]
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *cte-env
+      CTE_SERVICE_PORT: "8080"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ── Monitoring ──────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - cte-network
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ../dashboards/grafana:/etc/grafana/provisioning/dashboards:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - cte-network
+
+volumes:
+  pgdata:
+  redisdata:
+  promdata:
+  grafanadata:
+
+networks:
+  cte-network:
+    driver: bridge

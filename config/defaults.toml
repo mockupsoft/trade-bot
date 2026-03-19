@@ -1,0 +1,104 @@
+# CTE Default Configuration
+# Override via environment variables: CTE_{SECTION}_{KEY} (uppercase)
+# e.g. CTE_ENGINE_MODE=paper
+
+[engine]
+mode = "paper"                    # paper | demo | live
+symbols = ["BTCUSDT", "ETHUSDT"]
+direction = "long_only"
+max_leverage = 3
+log_level = "INFO"
+
+[binance]
+ws_base_url = "wss://fstream.binance.com"
+ws_combined_url = "wss://fstream.binance.com/stream"
+rest_base_url = "https://fapi.binance.com"
+testnet_ws_url = "wss://stream.binancefuture.com"
+testnet_rest_url = "https://testnet.binancefuture.com"
+streams = ["btcusdt@trade", "btcusdt@depth20@100ms", "ethusdt@trade", "ethusdt@depth20@100ms"]
+ping_interval_sec = 180
+reconnect_base_sec = 1.0
+reconnect_max_sec = 60.0
+max_connections_per_ip = 5
+
+[bybit]
+ws_base_url = "wss://stream.bybit.com/v5/public/linear"
+testnet_ws_url = "wss://stream-testnet.bybit.com/v5/public/linear"
+rest_base_url = "https://api.bybit.com"
+topics = ["publicTrade.BTCUSDT", "publicTrade.ETHUSDT", "orderbook.50.BTCUSDT", "orderbook.50.ETHUSDT"]
+ping_interval_sec = 20
+reconnect_base_sec = 1.0
+reconnect_max_sec = 60.0
+max_subscriptions_per_connection = 10
+
+[redis]
+url = "redis://localhost:6379/0"
+max_connections = 20
+stream_max_len = 100000
+consumer_group = "cte-engine"
+consumer_name = "cte-worker-1"
+block_ms = 5000
+
+[database]
+host = "localhost"
+port = 5432
+name = "cte"
+user = "cte"
+min_pool_size = 5
+max_pool_size = 20
+statement_cache_size = 100
+
+[features]
+rsi_period = 14
+ema_fast_period = 12
+ema_slow_period = 26
+vwap_window_minutes = 60
+volume_profile_bins = 50
+window_size_minutes = 240
+
+[signals]
+min_confidence = 0.6
+cooldown_seconds = 300
+max_signals_per_hour = 10
+
+[risk]
+max_position_pct = 0.05           # 5% of portfolio per position
+max_total_exposure_pct = 0.15     # 15% total exposure
+max_daily_drawdown_pct = 0.03     # 3% max daily drawdown
+max_correlation = 0.85
+emergency_stop_drawdown_pct = 0.05
+
+[sizing]
+method = "fixed_fraction"          # fixed_fraction | kelly
+fixed_fraction_pct = 0.02          # 2% risk per trade
+kelly_half = true                  # use half-kelly
+min_order_usd = 10.0
+max_order_usd = 1000.0
+
+[execution]
+mode = "paper"                     # paper | testnet | live
+slippage_bps = 5                   # simulated slippage in paper mode
+fill_delay_ms = 100                # simulated fill delay in paper mode
+max_retries = 3
+retry_delay_sec = 1.0
+
+[exits]
+trailing_stop_pct = 0.015          # 1.5% trailing stop
+take_profit_pct = 0.03             # 3% take profit
+stop_loss_pct = 0.02               # 2% stop loss
+max_hold_minutes = 1440            # 24 hour max hold
+invalidation_check_interval_sec = 30
+
+[monitoring]
+prometheus_port = 9090
+health_check_interval_sec = 30
+metrics_export_interval_sec = 15
+
+[whale_alert]
+enabled = false
+min_usd_threshold = 5000000
+api_base_url = "https://api.whale-alert.io/v1"
+
+[etherscan]
+enabled = false
+api_base_url = "https://api.etherscan.io/v2"
