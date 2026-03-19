@@ -62,12 +62,25 @@ class SignalAction(str, Enum):
 
 
 class ExitReason(str, Enum):
+    # Layer 1: Hard risk
+    HARD_STOP = "hard_stop"
+    STALE_DATA = "stale_data"
+    SPREAD_BLOWOUT = "spread_blowout"
+    EMERGENCY = "emergency"
+    # Layer 2: Thesis failure
+    THESIS_FAILURE = "thesis_failure"
+    # Layer 3: No progress
+    NO_PROGRESS = "no_progress"
+    # Layer 4: Winner protection
+    WINNER_TRAILING = "winner_trailing"
+    # Layer 5: Runner mode
+    RUNNER_TRAILING = "runner_trailing"
+    # Legacy (kept for backward compatibility)
     STOP_LOSS = "stop_loss"
     TAKE_PROFIT = "take_profit"
     TRAILING_STOP = "trailing_stop"
     TIMEOUT = "timeout"
     INVALIDATION = "invalidation"
-    EMERGENCY = "emergency"
     MANUAL = "manual"
 
 
