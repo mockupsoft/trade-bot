@@ -51,19 +51,26 @@
     .pill-y{@apply bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25}
     .pill-b{@apply bg-sky-500/15 text-sky-400 ring-1 ring-sky-500/25}
     .pill-p{@apply bg-violet-500/15 text-violet-400 ring-1 ring-violet-500/25}
-    .nav-item{@apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm cursor-pointer transition-all duration-200 border border-transparent}
-    .nav-active{@apply bg-white/[0.06] text-white border-white/[0.08] shadow-panel-inset}
-    .nav-inactive{@apply text-slate-500 hover:text-slate-200 hover:bg-white/[0.03]}
+    .nav-item{@apply relative flex flex-row items-center gap-3 pl-3 pr-3 py-2.5 rounded-xl text-sm cursor-pointer transition-all duration-200 border border-transparent text-left w-full}
+    .nav-active{@apply bg-white/[0.07] text-white border-white/[0.1] shadow-panel-inset}
+    .nav-active .nav-ic{@apply bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-500/30}
+    .nav-inactive{@apply text-slate-500 hover:text-slate-100 hover:bg-white/[0.04]}
+    .nav-ic{@apply shrink-0 w-9 h-9 rounded-lg flex items-center justify-center bg-white/[0.04] text-slate-400 transition-colors}
+    .nav-inactive:hover .nav-ic{@apply bg-white/[0.07] text-slate-300}
+    .nav-active-bar{@apply absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-7 rounded-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.5)]}
     .btn{@apply px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 active:scale-[0.98]}
     .btn-danger{@apply bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/30}
     .btn-warn{@apply bg-amber-500 hover:bg-amber-400 text-slate-900}
     .btn-ok{@apply bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/25}
-    .tbl{@apply w-full text-xs border-collapse}
+    .tbl{@apply w-full border-collapse}
     .tbl-wrap{@apply rounded-xl border border-white/[0.08] overflow-hidden bg-[#080b10]/80}
     .tbl thead{@apply sticky top-0 z-[1]}
-    .tbl th{@apply text-left py-3 px-3 font-semibold text-slate-500 bg-[#0f141c] border-b border-white/[0.06] uppercase tracking-wider text-[10px]}
-    .tbl td{@apply py-3 px-3 border-b border-white/[0.04] text-slate-300}
-    .tbl tbody tr{@apply transition-colors hover:bg-cyan-500/[0.04]}
+    .tbl th{@apply text-left py-3.5 px-4 font-semibold text-slate-400 bg-[#0d1218] border-b border-white/[0.08] uppercase tracking-wider text-[10px]}
+    .tbl td{@apply py-3.5 px-4 border-b border-white/[0.05] text-slate-300 text-[13px] leading-snug}
+    .tbl tbody tr{@apply transition-colors hover:bg-cyan-500/[0.06]}
+    .tbl tbody tr:nth-child(even) td{@apply bg-white/[0.02]}
+    .tbl-num{@apply font-mono tabular-nums text-[13px] font-medium}
+    .tbl-txt{@apply text-slate-300 text-[13px]}
     .gate-pass{@apply text-emerald-400 font-medium}
     .gate-fail{@apply text-red-400 font-medium}
     @keyframes live-pulse{
@@ -76,16 +83,27 @@
     @keyframes price-down{0%{background-color:rgba(239,68,68,0.2)}100%{background-color:transparent}}
     .flash-up{animation:price-up 0.6s ease-out}
     .flash-down{animation:price-down 0.6s ease-out}
-    .select-cte{
-      @apply bg-[#0f141c] border border-white/[0.1] rounded-lg px-3 py-1.5 text-xs text-slate-200 font-medium outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/40;
+    .dd-trigger{
+      @apply inline-flex items-center justify-between gap-2 min-w-[160px] max-w-[260px] rounded-xl border border-white/[0.12] bg-[#0c1016] px-3 py-2 text-left text-[13px] font-medium text-slate-100 shadow-sm outline-none transition hover:border-white/[0.18] hover:bg-[#11161f] focus:ring-2 focus:ring-cyan-500/35;
     }
+    .dd-trigger svg{@apply shrink-0 w-4 h-4 text-slate-500}
+    .dd-panel{
+      @apply absolute z-[100] mt-1.5 min-w-full w-max max-w-[280px] rounded-xl border border-white/[0.12] bg-[#0f1419] py-1 shadow-2xl shadow-black/60 ring-1 ring-white/[0.04];
+    }
+    .dd-panel button{@apply w-full text-left px-3 py-2.5 text-[13px] text-slate-200 transition hover:bg-white/[0.08]}
+    .dd-panel button.dd-opt-active{@apply bg-cyan-500/15 text-cyan-200 font-medium}
+    *{scrollbar-width:thin;scrollbar-color:rgba(148,163,184,0.35) transparent}
+    *::-webkit-scrollbar{width:8px;height:8px}
+    *::-webkit-scrollbar-track{background:rgba(255,255,255,0.03);border-radius:4px}
+    *::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.35);border-radius:4px}
+    *::-webkit-scrollbar-thumb:hover{background:rgba(148,163,184,0.5)}
     .stream-bar{@apply h-1 rounded-full overflow-hidden bg-white/[0.06]}
     .stream-fill{@apply h-full rounded-full bg-gradient-to-r from-cyan-500 to-violet-500 transition-all duration-500}
   </style>
 </head>
 <body class="h-full text-slate-200 antialiased flex font-sans dark" x-data="app()" x-init="init()">
 
-<aside class="w-60 flex flex-col h-screen sticky top-0 border-r border-white/[0.06] bg-[#06080c]/95 backdrop-blur-md z-20">
+<aside class="w-[248px] flex flex-col h-screen sticky top-0 border-r border-white/[0.06] bg-[#06080c]/95 backdrop-blur-md z-20">
   <div class="p-5 border-b border-white/[0.06] flex items-center gap-3">
     <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-violet-600 flex items-center justify-center font-bold text-sm text-slate-950 shadow-glow">CT</div>
     <div>
@@ -93,11 +111,12 @@
       <div class="text-[10px] text-slate-500 font-mono tracking-wide">v0.1.0 · control</div>
     </div>
   </div>
-  <nav class="flex-1 p-3 space-y-0.5 overflow-y-auto" aria-label="Main">
+  <nav class="flex-1 p-2.5 space-y-1 overflow-y-auto scroll-smooth" aria-label="Main">
     <template x-for="p in pages" :key="p.id">
-      <div :class="page===p.id ? 'nav-item nav-active' : 'nav-item nav-inactive'" @click="page=p.id; refresh()">
-        <span class="text-slate-400 w-5 flex justify-center [&_svg]:w-[18px] [&_svg]:h-[18px]" x-html="p.svg"></span>
-        <span x-text="p.label" class="font-medium"></span>
+      <div :class="page===p.id ? 'nav-item nav-active' : 'nav-item nav-inactive'" @click="page=p.id; refresh()" role="button" tabindex="0">
+        <span class="nav-active-bar" x-show="page===p.id" x-cloak></span>
+        <span class="nav-ic [&_svg]:w-[18px] [&_svg]:h-[18px] [&_svg]:shrink-0 [&_svg]:block" x-html="p.svg"></span>
+        <span x-text="p.label" class="font-medium truncate flex-1"></span>
       </div>
     </template>
   </nav>
@@ -117,13 +136,21 @@
       <p class="text-[11px] text-slate-500 mt-0.5 font-mono" x-text="'Last sync · ' + relativeAgo"></p>
     </div>
     <div class="flex flex-wrap items-center gap-3 text-sm">
-      <div class="flex items-center gap-2 px-2 py-1 rounded-lg bg-[#0c1016] border border-white/[0.06]">
+      <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-[#0c1016] border border-white/[0.08]">
         <span class="live-dot" :class="liveConnected ? 'live-dot-on bg-cyan-400' : 'bg-slate-600'"></span>
-        <span class="text-[11px] font-medium text-slate-400" x-text="liveConnected ? 'Live stream' : 'Idle'"></span>
+        <span class="text-[11px] font-semibold tracking-wide text-slate-400" x-text="liveConnected ? 'Live stream' : 'Idle'"></span>
       </div>
-      <select x-model="epoch" @change="refresh()" class="select-cte max-w-[200px]">
-        <template x-for="e in epochs"><option :value="e.name" x-text="e.name"></option></template>
-      </select>
+      <div class="relative z-50">
+        <button type="button" class="dd-trigger max-w-[240px]" @click.stop="ddEpoch=!ddEpoch; ddTier=ddSym=ddExit=false" aria-haspopup="listbox" :aria-expanded="ddEpoch">
+          <span class="truncate font-mono text-[12px] text-slate-100" x-text="epoch"></span>
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div x-show="ddEpoch" x-cloak x-transition @click.outside="ddEpoch=false" class="dd-panel left-0">
+          <template x-for="e in (epochs.length?epochs:[{name:epoch}])" :key="e.name">
+            <button type="button" :class="epoch===e.name ? 'dd-opt-active' : ''" @click="setEpoch(e.name)" x-text="e.name"></button>
+          </template>
+        </div>
+      </div>
       <div :class="(ops.system_mode||'seed')==='demo'?'pill pill-p':(ops.system_mode||'seed')==='paper'?'pill pill-b':'pill pill-y'"
            x-text="(ops.system_mode||'seed').toUpperCase()+' MODE'"></div>
       <div :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'FEED LIVE':'NO FEED'"></div>
@@ -304,19 +331,49 @@
 
     <div x-show="page==='positions'" x-cloak>
       <div class="card p-0 overflow-hidden">
-        <div class="p-5 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-4">
+        <div class="p-5 sm:p-6 border-b border-white/[0.06] flex flex-wrap items-start justify-between gap-5">
           <div>
-            <h3 class="text-sm font-semibold text-white tracking-tight">Trade journal</h3>
-            <p class="text-[11px] text-slate-500 mt-1 font-mono">Synced with analytics API · filters apply instantly</p>
+            <h3 class="text-base font-semibold text-white tracking-tight">Trade journal</h3>
+            <p class="text-[12px] text-slate-500 mt-1.5 max-w-lg leading-relaxed">Synced with the analytics API. Filters update the table immediately.</p>
           </div>
-          <div class="flex flex-wrap gap-2 text-xs">
-            <select x-model="tf.tier" @change="loadTrades()" class="select-cte"><option value="">All tiers</option><option>A</option><option>B</option><option>C</option></select>
-            <select x-model="tf.symbol" @change="loadTrades()" class="select-cte"><option value="">All symbols</option><option>BTCUSDT</option><option>ETHUSDT</option></select>
-            <select x-model="tf.exit" @change="loadTrades()" class="select-cte"><option value="">All exits</option><option>hard_stop</option><option>thesis_failure</option><option>no_progress</option><option>winner_trailing</option><option>runner_trailing</option></select>
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="relative z-[60]">
+              <button type="button" class="dd-trigger min-w-[148px]" @click.stop="ddTier=!ddTier; ddSym=ddExit=ddEpoch=false" :aria-expanded="ddTier">
+                <span class="truncate text-slate-200" x-text="tierLbl()"></span>
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div x-show="ddTier" x-cloak x-transition @click.outside="ddTier=false" class="dd-panel left-0">
+                <template x-for="o in tierOpts" :key="o.v || 'all-tier'">
+                  <button type="button" :class="tf.tier===o.v ? 'dd-opt-active' : ''" @click="setTier(o.v)" x-text="o.l"></button>
+                </template>
+              </div>
+            </div>
+            <div class="relative z-[60]">
+              <button type="button" class="dd-trigger min-w-[156px]" @click.stop="ddSym=!ddSym; ddTier=ddExit=ddEpoch=false" :aria-expanded="ddSym">
+                <span class="truncate text-slate-200" x-text="symLbl()"></span>
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div x-show="ddSym" x-cloak x-transition @click.outside="ddSym=false" class="dd-panel left-0">
+                <template x-for="o in symOpts" :key="o.v || 'all-sym'">
+                  <button type="button" :class="tf.symbol===o.v ? 'dd-opt-active' : ''" @click="setSym(o.v)" x-text="o.l"></button>
+                </template>
+              </div>
+            </div>
+            <div class="relative z-[60]">
+              <button type="button" class="dd-trigger min-w-[168px]" @click.stop="ddExit=!ddExit; ddTier=ddSym=ddEpoch=false" :aria-expanded="ddExit">
+                <span class="truncate text-slate-200" x-text="exitLbl()"></span>
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div x-show="ddExit" x-cloak x-transition @click.outside="ddExit=false" class="dd-panel left-0 max-h-64 overflow-y-auto">
+                <template x-for="o in exitOpts" :key="o.v || 'all-exit'">
+                  <button type="button" :class="tf.exit===o.v ? 'dd-opt-active' : ''" @click="setExit(o.v)" x-text="o.l"></button>
+                </template>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="overflow-x-auto max-h-[min(70vh,720px)] overflow-y-auto">
-          <table class="tbl min-w-[920px]">
+        <div class="overflow-x-auto max-h-[min(70vh,720px)] overflow-y-auto tbl-scroll">
+          <table class="tbl min-w-[960px]">
             <thead>
               <tr>
                 <th>Symbol</th><th>Tier</th><th class="text-right">PnL</th><th class="text-right">R</th><th>Exit</th>
@@ -326,19 +383,19 @@
             <tbody>
               <template x-for="(t,ti) in trades" :key="ti+'-'+(t.symbol||'')+'-'+(t.pnl||'')+'-'+(t.exit_reason||'')">
                 <tr>
-                  <td class="font-mono text-slate-200 font-medium" x-text="t.symbol"></td>
+                  <td class="tbl-txt"><span class="font-mono text-[12px] font-semibold text-white tracking-tight" x-text="t.symbol"></span></td>
                   <td><span class="pill" :class="tc(t.tier)" x-text="t.tier"></span></td>
-                  <td class="text-right font-mono font-medium" :class="parseFloat(t.pnl)>=0?'text-emerald-400':'text-red-400'" x-text="'$'+parseFloat(t.pnl).toFixed(2)"></td>
-                  <td class="text-right font-mono text-slate-400" x-text="t.r_multiple?t.r_multiple.toFixed(2)+'R':'—'"></td>
-                  <td><span class="pill text-[9px]" :class="ec(t.exit_reason)" x-text="t.exit_reason"></span></td>
-                  <td class="text-right text-slate-400" x-text="dur(t.hold_seconds)"></td>
-                  <td class="text-right font-mono text-emerald-400/80" x-text="(t.mfe_pct*100).toFixed(2)+'%'"></td>
-                  <td class="text-right font-mono text-red-400/80" x-text="(t.mae_pct*100).toFixed(2)+'%'"></td>
-                  <td class="text-right font-mono text-slate-400" x-text="(t.slippage_bps??0).toFixed(1)"></td>
-                  <td><span class="pill pill-b text-[9px]" x-text="t.position_mode"></span></td>
+                  <td class="text-right tbl-num" :class="parseFloat(t.pnl)>=0?'text-emerald-400':'text-red-400'" x-text="'$'+parseFloat(t.pnl).toFixed(2)"></td>
+                  <td class="text-right tbl-num text-slate-400" x-text="t.r_multiple?t.r_multiple.toFixed(2)+'R':'—'"></td>
+                  <td class="max-w-[140px]"><span class="pill text-[10px] leading-tight" :class="ec(t.exit_reason)" x-text="t.exit_reason"></span></td>
+                  <td class="text-right tbl-txt text-slate-400" x-text="dur(t.hold_seconds)"></td>
+                  <td class="text-right tbl-num text-emerald-400/90" x-text="(t.mfe_pct*100).toFixed(2)+'%'"></td>
+                  <td class="text-right tbl-num text-red-400/90" x-text="(t.mae_pct*100).toFixed(2)+'%'"></td>
+                  <td class="text-right tbl-num text-slate-400" x-text="(t.slippage_bps??0).toFixed(1)"></td>
+                  <td><span class="pill pill-b text-[10px]" x-text="t.position_mode"></span></td>
                 </tr>
               </template>
-              <tr x-show="!trades.length"><td colspan="10" class="py-16 text-center text-slate-600">No trades for this filter</td></tr>
+              <tr x-show="!trades.length"><td colspan="10" class="py-16 text-center text-slate-500 text-sm">No trades for this filter</td></tr>
             </tbody>
           </table>
         </div>
@@ -516,7 +573,25 @@ function app(){return{
   ],
   epochs:[],m:{},trades:[],ops:{},tf:{tier:'',symbol:'',exit:''},
   mkt:{},mktHealth:{},
+  ddEpoch:false,ddTier:false,ddSym:false,ddExit:false,
+  tierOpts:[
+    {v:'',l:'All tiers'},{v:'A',l:'Tier A'},{v:'B',l:'Tier B'},{v:'C',l:'Tier C'},
+  ],
+  symOpts:[
+    {v:'',l:'All symbols'},{v:'BTCUSDT',l:'BTCUSDT'},{v:'ETHUSDT',l:'ETHUSDT'},
+  ],
+  exitOpts:[
+    {v:'',l:'All exits'},{v:'hard_stop',l:'hard_stop'},{v:'thesis_failure',l:'thesis_failure'},
+    {v:'no_progress',l:'no_progress'},{v:'winner_trailing',l:'winner_trailing'},{v:'runner_trailing',l:'runner_trailing'},
+  ],
   _charts:{},_lastPrice:{},_flash:{},lastSync:0,_tickTimer:null,_slowTimer:null,_clockTick:0,
+  setEpoch(n){this.epoch=n;this.ddEpoch=false;this.refresh()},
+  setTier(v){this.tf.tier=v;this.ddTier=false;this.loadTrades()},
+  setSym(v){this.tf.symbol=v;this.ddSym=false;this.loadTrades()},
+  setExit(v){this.tf.exit=v;this.ddExit=false;this.loadTrades()},
+  tierLbl(){const o=this.tierOpts.find(x=>x.v===this.tf.tier);return o?o.l:'All tiers'},
+  symLbl(){const o=this.symOpts.find(x=>x.v===this.tf.symbol);return o?o.l:'All symbols'},
+  exitLbl(){const o=this.exitOpts.find(x=>x.v===this.tf.exit);return o?o.l:'All exits'},
   get liveConnected(){return !!(this.mktHealth&&this.mktHealth.connected);},
   get streamPct(){
     const m=this.mktHealth.messages_total||0;
@@ -543,6 +618,11 @@ function app(){return{
     this._slowTimer=setInterval(()=>this.refresh(),7000);
     this._tickTimer=setInterval(()=>this.tickFast(),2200);
     setInterval(()=>{this._clockTick++;},1000);
+    document.addEventListener('keydown',(e)=>{
+      if(e.key==='Escape'){
+        this.ddEpoch=this.ddTier=this.ddSym=this.ddExit=false;
+      }
+    });
   },
   async loadEpochs(){try{this.epochs=await(await fetch('/api/analytics/epochs')).json();const a=this.epochs.find(e=>e.is_active);if(a)this.epoch=a.name}catch{this.epochs=[{name:'crypto_v1_paper'}]}},
   async refresh(){
