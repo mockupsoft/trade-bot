@@ -58,6 +58,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     _analytics_engine = AnalyticsEngine(_epoch_manager, initial_capital=Decimal("10000"))
     set_engine(_analytics_engine)
+
+    from cte.dashboard.seed import inject_seed_data
+    count = inject_seed_data(_analytics_engine)
+
+    import structlog
+    log = structlog.get_logger("dashboard")
+    await log.ainfo("seed_data_injected", trades=count)
+
     yield
 
 
