@@ -5,10 +5,20 @@ Used by Docker (`python -m cte.dashboard`) and the `cte-dashboard` console scrip
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+
+def _load_repo_dotenv() -> None:
+    """Populate ``os.environ`` from repo-root ``.env`` (local dev; Compose injects env)."""
+    from dotenv import load_dotenv
+
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    load_dotenv(repo_root / ".env")
 
 
 def main() -> None:
     """Start FastAPI dashboard on ``CTE_SERVICE_PORT`` (default 8080)."""
+    _load_repo_dotenv()
     import uvicorn
 
     host = os.environ.get("CTE_DASHBOARD_HOST", "0.0.0.0")
