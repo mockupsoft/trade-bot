@@ -183,6 +183,16 @@
     .kpi-val{font-family:'JetBrains Mono',ui-monospace,monospace;font-weight:600;font-size:0.9375rem;tabular-nums;flex:1;min-width:0;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .kpi-dot{flex-shrink:0;color:#334155;font-size:10px;font-weight:700;padding:0 1px}
     .kpi-hint{flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#475569;max-width:4.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .cfg-section-title{font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:rgb(100 116 139);margin-bottom:0.75rem}
+    .cfg-row{display:flex;flex-direction:column;gap:0.35rem;padding:0.75rem 0;border-bottom:1px solid rgba(255,255,255,0.06)}
+    .cfg-row:last-child{border-bottom:none}
+    @media (min-width:640px){
+      .cfg-row{flex-direction:row;align-items:flex-start;gap:1rem}
+    }
+    .cfg-k{font-size:11px;font-weight:600;color:rgb(100 116 139);flex-shrink:0;padding-top:2px}
+    @media (min-width:640px){.cfg-k{width:200px}}
+    .cfg-v{flex:1;min-width:0;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:13px;color:rgb(226 232 240)}
+    .cfg-json{display:block;width:100%;max-height:12rem;overflow:auto;border-radius:0.5rem;background:#05070a;border:1px solid rgba(255,255,255,0.08);padding:0.75rem;font-size:11px;line-height:1.5;color:rgb(203 213 225);white-space:pre-wrap;word-break:break-word}
   </style>
 </head>
 <body class="h-full text-slate-200 antialiased flex font-sans dark" x-data="app()" x-init="init()">
@@ -717,17 +727,37 @@
     </div>
 
     <div x-show="page==='config'" x-cloak>
-      <div class="card" x-data="{cfg:null}" x-init="cfg=await(await fetch('/api/config')).json()">
-        <h3 class="text-sm font-semibold text-white mb-4 tracking-tight">Active configuration</h3>
-        <p class="text-xs text-slate-500 mb-6 font-mono">Read-only snapshot</p>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-0 text-xs">
-          <template x-for="(v,k) in cfg||{}" :key="k">
-            <div class="flex justify-between gap-4 py-2.5 border-b border-white/[0.05]">
-              <span class="text-slate-500 font-mono shrink-0" x-text="k"></span>
-              <span class="text-slate-200 font-mono text-right break-all" x-text="typeof v==='object'?JSON.stringify(v):v"></span>
-            </div>
-          </template>
+      <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
+        <div>
+          <h3 class="text-sm font-semibold text-white tracking-tight">Configuration</h3>
+          <p class="text-[11px] text-slate-500 mt-1 max-w-xl leading-relaxed" x-text="(configSnap && configSnap.meta && configSnap.meta.hint) || ''"></p>
+          <p class="text-[10px] text-slate-600 font-mono mt-2" x-show="configSnap && configSnap.meta && configSnap.meta.utc" x-text="'Snapshot · ' + configSnap.meta.utc"></p>
         </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span x-show="configLoading" class="text-[11px] text-slate-500">Loading…</span>
+          <button type="button" class="btn btn-ok !py-2 !px-3 !text-xs" @click="loadConfig()">Refresh</button>
+          <button type="button" class="btn !py-2 !px-3 !text-xs border border-white/[0.12] bg-[#0c1016] text-slate-200 hover:bg-white/[0.06]" @click="copyConfigJson()">Copy JSON</button>
+        </div>
+      </div>
+      <div x-show="configSnap && configSnap.error" class="card border-red-500/30 mb-4">
+        <p class="text-sm text-red-400 font-medium">Config snapshot failed</p>
+        <p class="text-xs text-slate-500 font-mono mt-2 break-all" x-text="configSnap.error"></p>
+      </div>
+      <div class="space-y-4">
+        <template x-for="sec in (configSnap && configSnap.sections) ? configSnap.sections : []" :key="sec.id || sec.title">
+          <div class="card">
+            <h4 class="cfg-section-title" x-text="sec.title"></h4>
+            <template x-for="row in sec.rows || []" :key="row.key">
+              <div class="cfg-row">
+                <span class="cfg-k" x-text="row.label"></span>
+                <div class="cfg-v">
+                  <pre class="cfg-json" x-show="isCfgStructured(row.value)" x-text="prettyJson(row.value)"></pre>
+                  <span x-show="!isCfgStructured(row.value)" class="block pt-0.5" :class="cfgScalarClass(row)" x-text="formatCfgScalar(row.value)"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -776,7 +806,7 @@ function app(){return{
     {id:'config',label:'Config',svg:ICON.config},
     {id:'alerts',label:'Alerts',svg:ICON.alerts},
   ],
-  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,tf:{tier:'',symbol:'',exit:''},
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:null,configLoading:false,tf:{tier:'',symbol:'',exit:''},
   mkt:{},mktHealth:{},
   ddTier:false,ddSym:false,ddExit:false,
   tierOpts:[
@@ -897,6 +927,36 @@ function app(){return{
     try{this.readinessPaper=await(await fetch('/api/readiness/paper_to_demo')).json()}catch(e){this.readinessPaper={gates:[],passed:0,failed:0,total:0,applicable:0,ready:false,scope_note:''}}
     try{this.readinessLive=await(await fetch('/api/readiness/demo_to_live')).json()}catch(e){this.readinessLive={gates:[],passed:0,failed:0,total:0,applicable:0,ready:false,not_applicable:true,scope_note:''}}
   },
+  isCfgStructured(v){
+    return v!==null&&typeof v==='object';
+  },
+  prettyJson(v){
+    try{return JSON.stringify(v,null,2)}catch(e){return String(v)}
+  },
+  formatCfgScalar(v){
+    if(v===null||v===undefined)return '—';
+    return String(v);
+  },
+  cfgScalarClass(row){
+    if(!row)return'';
+    if(row.key==='testnet_keys'&&row.value==='missing')return 'text-amber-400 font-semibold';
+    if(row.key==='testnet_keys'&&row.value==='configured')return 'text-emerald-400 font-semibold';
+    return '';
+  },
+  async loadConfig(){
+    this.configLoading=true;
+    try{
+      this.configSnap=await(await fetch('/api/config')).json();
+    }catch(e){
+      this.configSnap={meta:{hint:'Could not reach /api/config',utc:''},error:String(e),sections:[]};
+    }
+    this.configLoading=false;
+  },
+  async copyConfigJson(){
+    try{
+      await navigator.clipboard.writeText(JSON.stringify(this.configSnap,null,2));
+    }catch(e){}
+  },
   async init(){
     if(!location.hash||location.hash==='#'){
       history.replaceState(null,'','#/overview');
@@ -928,6 +988,7 @@ function app(){return{
     try{this.m=await(await fetch(`/api/analytics/summary?epoch=${encodeURIComponent(this.epoch)}`)).json()}catch(e){this.m={}}
     try{this.ops=await(await fetch('/api/ops/status')).json()}catch(e){this.ops={}}
     if(this.page==='readiness')await this.loadReadiness();
+    if(this.page==='config')await this.loadConfig();
     await this.loadTrades();
     if(this.page==='overview')this.updateCharts();
     this.lastSync=Date.now();

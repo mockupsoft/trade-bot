@@ -12,9 +12,11 @@ import contextlib
 import os
 import time
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse, urlunparse
 
 import structlog
 from fastapi import FastAPI
@@ -487,37 +489,134 @@ async def go_no_go_report():
 
 # ── Config API ────────────────────────────────────────────────
 
+
+def _redacted_redis_url(url: str) -> str:
+    """Hide password in redis:// URLs for read-only UI."""
+    try:
+        p = urlparse(url)
+        if not p.password:
+            return url
+        host = p.hostname or ""
+        port = f":{p.port}" if p.port else ""
+        user = f"{p.username}:" if p.username else ""
+        netloc = f"{user}***@{host}{port}"
+        return urlunparse((p.scheme or "redis", netloc, p.path or "", "", "", ""))
+    except Exception:
+        return "redis://*** (unparseable)"
+
+
+def _build_config_snapshot() -> dict[str, object]:
+    """Structured, non-secret settings for the dashboard Config page."""
+    s = get_settings()
+    weights = {
+        "momentum": s.signals.w_momentum,
+        "orderflow": s.signals.w_orderflow,
+        "liquidation": s.signals.w_liquidation,
+        "microstructure": s.signals.w_microstructure,
+        "cross_venue": s.signals.w_cross_venue,
+    }
+    tiers = {
+        "A": s.signals.tier_a_threshold,
+        "B": s.signals.tier_b_threshold,
+        "C": s.signals.tier_c_threshold,
+    }
+    sections: list[dict[str, object]] = [
+        {
+            "id": "runtime",
+            "title": "Runtime & modes",
+            "rows": [
+                {"key": "system_mode", "label": "System mode (dashboard)", "value": _system_mode.value},
+                {"key": "engine_mode", "label": "Engine mode", "value": s.engine.mode.value},
+                {"key": "execution_mode", "label": "Execution mode", "value": s.execution.mode.value},
+                {"key": "testnet_keys", "label": "Testnet API credentials", "value": "configured" if _testnet_keys_configured() else "missing"},
+            ],
+        },
+        {
+            "id": "universe",
+            "title": "Universe & direction",
+            "rows": [
+                {"key": "symbols", "label": "Symbols", "value": list(s.engine.symbols)},
+                {"key": "direction", "label": "Direction", "value": s.engine.direction.value},
+                {"key": "max_leverage", "label": "Max leverage (cap)", "value": s.engine.max_leverage},
+            ],
+        },
+        {
+            "id": "binance",
+            "title": "Binance (resolved URLs)",
+            "rows": [
+                {"key": "ws_combined", "label": "Combined WebSocket", "value": s.binance.ws_combined_url},
+                {"key": "rest_base", "label": "REST base", "value": s.binance.rest_base_url},
+                {"key": "stream_count", "label": "Default stream templates", "value": len(s.binance.streams)},
+            ],
+        },
+        {
+            "id": "execution",
+            "title": "Execution (paper / simulated)",
+            "rows": [
+                {"key": "slippage_bps", "label": "Slippage model (bps)", "value": s.execution.slippage_bps},
+                {"key": "fee_bps", "label": "Taker fee (bps)", "value": s.execution.fee_bps},
+                {"key": "fill_model", "label": "Fill model", "value": s.execution.fill_model},
+            ],
+        },
+        {
+            "id": "exits",
+            "title": "Exit defaults",
+            "rows": [
+                {"key": "stop_loss_pct", "label": "Stop loss", "value": s.exits.stop_loss_pct},
+                {"key": "take_profit_pct", "label": "Take profit", "value": s.exits.take_profit_pct},
+                {"key": "trailing_stop_pct", "label": "Trailing stop", "value": s.exits.trailing_stop_pct},
+            ],
+        },
+        {
+            "id": "risk",
+            "title": "Risk caps",
+            "rows": [
+                {"key": "max_position_pct", "label": "Max position %", "value": s.risk.max_position_pct},
+                {"key": "max_exposure_pct", "label": "Max total exposure %", "value": s.risk.max_total_exposure_pct},
+                {"key": "max_daily_drawdown_pct", "label": "Max daily drawdown %", "value": s.risk.max_daily_drawdown_pct},
+            ],
+        },
+        {
+            "id": "signals",
+            "title": "Signal engine",
+            "rows": [
+                {"key": "signal_weights", "label": "Weights (must sum to 1)", "value": weights},
+                {"key": "tier_thresholds", "label": "Tier thresholds", "value": tiers},
+            ],
+        },
+        {
+            "id": "infra",
+            "title": "Infrastructure (redacted)",
+            "rows": [
+                {"key": "redis_url", "label": "Redis URL", "value": _redacted_redis_url(s.redis.url)},
+                {"key": "redis_group", "label": "Consumer group", "value": s.redis.consumer_group},
+                {"key": "db_host", "label": "Postgres", "value": f"{s.database.user}@{s.database.host}:{s.database.port}/{s.database.name}"},
+            ],
+        },
+    ]
+    return {
+        "meta": {
+            "read_only": True,
+            "hint": "Values come from environment + defaults.toml. Secrets are never returned. Restart process after changing .env.",
+            "utc": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        },
+        "sections": sections,
+    }
+
+
 @app.get("/api/config")
 async def get_config():
-    from cte.core.settings import get_settings
+    """Read-only settings snapshot grouped for the Config UI."""
     try:
-        s = get_settings()
+        return _build_config_snapshot()
+    except Exception as exc:
+        await log.awarning("config_snapshot_failed", error=str(exc))
         return {
-            "system_mode": _system_mode.value,
-            "engine_mode": s.engine.mode.value,
-            "symbols": s.engine.symbols,
-            "max_leverage": s.engine.max_leverage,
-            "execution_mode": s.execution.mode.value,
-            "slippage_bps": s.execution.slippage_bps,
-            "fill_model": s.execution.fill_model,
-            "stop_loss_pct": s.exits.stop_loss_pct,
-            "take_profit_pct": s.exits.take_profit_pct,
-            "trailing_stop_pct": s.exits.trailing_stop_pct,
-            "risk_max_position_pct": s.risk.max_position_pct,
-            "risk_max_exposure_pct": s.risk.max_total_exposure_pct,
-            "risk_max_drawdown_pct": s.risk.max_daily_drawdown_pct,
-            "signal_weights": {
-                "momentum": s.signals.w_momentum,
-                "orderflow": s.signals.w_orderflow,
-                "liquidation": s.signals.w_liquidation,
-                "microstructure": s.signals.w_microstructure,
-                "cross_venue": s.signals.w_cross_venue,
+            "meta": {
+                "read_only": True,
+                "hint": "Settings could not be loaded.",
+                "utc": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
             },
-            "tier_thresholds": {
-                "A": s.signals.tier_a_threshold,
-                "B": s.signals.tier_b_threshold,
-                "C": s.signals.tier_c_threshold,
-            },
+            "error": str(exc),
+            "sections": [],
         }
-    except Exception:
-        return {"error": "Settings not available", "system_mode": _system_mode.value}

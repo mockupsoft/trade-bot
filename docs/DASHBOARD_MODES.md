@@ -31,6 +31,11 @@ export CTE_BINANCE_TESTNET_API_SECRET="..."
 docker compose -f deploy/docker-compose.yml up -d analytics
 ```
 
+## Config page
+
+- `GET /api/config` returns grouped **sections** (runtime, universe, Binance URLs, execution, exits, risk, signals, infrastructure). **No secrets**: Redis URL passwords are redacted; testnet keys are only `configured` / `missing`.
+- UI: **Refresh** re-fetches; **Copy JSON** copies the snapshot for tickets/CI. Changing values requires `.env` / `defaults.toml` and a process restart.
+
 ## Readiness page
 
 - **Paper / validation → Testnet (v1)** (`GET /api/readiness/paper_to_demo`): scores **8 gates**. Keys + WebSocket + “not LIVE” are measured from this process; paper days, crash-free streak, pytest attestation, and FSM violation count use env vars (`CTE_READINESS_*` in `.env.example`).
