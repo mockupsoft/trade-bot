@@ -284,6 +284,79 @@ CREATE TABLE IF NOT EXISTS cte.daily_pnl (
 );
 """
 
+CREATE_EPOCH_DAILY_SUMMARY_TABLE = """
+CREATE TABLE IF NOT EXISTS cte.epoch_daily_summary (
+    date                DATE NOT NULL,
+    epoch               TEXT NOT NULL,
+    symbol              TEXT NOT NULL DEFAULT '_all',
+    venue               TEXT NOT NULL DEFAULT '_all',
+    tier                TEXT NOT NULL DEFAULT '_all',
+
+    -- Counts
+    trade_count         INTEGER NOT NULL DEFAULT 0,
+    win_count           INTEGER NOT NULL DEFAULT 0,
+    loss_count          INTEGER NOT NULL DEFAULT 0,
+
+    -- PnL
+    gross_profit        NUMERIC NOT NULL DEFAULT 0,
+    gross_loss          NUMERIC NOT NULL DEFAULT 0,
+    net_pnl             NUMERIC NOT NULL DEFAULT 0,
+    avg_win             NUMERIC NOT NULL DEFAULT 0,
+    avg_loss            NUMERIC NOT NULL DEFAULT 0,
+
+    -- Ratios
+    win_rate            DOUBLE PRECISION DEFAULT 0,
+    expectancy          DOUBLE PRECISION DEFAULT 0,
+    profit_factor       DOUBLE PRECISION,
+    max_drawdown_pct    DOUBLE PRECISION DEFAULT 0,
+    sharpe_ratio        DOUBLE PRECISION,
+
+    -- Exit analysis
+    saved_losers        INTEGER NOT NULL DEFAULT 0,
+    killed_winners      INTEGER NOT NULL DEFAULT 0,
+    no_progress_count   INTEGER NOT NULL DEFAULT 0,
+    runner_count        INTEGER NOT NULL DEFAULT 0,
+
+    -- Execution quality
+    avg_hold_seconds    DOUBLE PRECISION DEFAULT 0,
+    avg_r_multiple      DOUBLE PRECISION,
+    avg_slippage_bps    DOUBLE PRECISION DEFAULT 0,
+    avg_latency_ms      DOUBLE PRECISION DEFAULT 0,
+
+    PRIMARY KEY (date, epoch, symbol, venue, tier)
+);
+"""
+
+CREATE_TRADE_LOG_TABLE = """
+CREATE TABLE IF NOT EXISTS cte.trade_log (
+    time                TIMESTAMPTZ NOT NULL,
+    trade_id            UUID NOT NULL DEFAULT uuid_generate_v4(),
+    epoch               TEXT NOT NULL,
+    symbol              TEXT NOT NULL,
+    venue               TEXT NOT NULL,
+    tier                TEXT NOT NULL,
+    pnl                 NUMERIC NOT NULL,
+    exit_reason         TEXT NOT NULL,
+    exit_layer          INTEGER NOT NULL,
+    hold_seconds        INTEGER NOT NULL,
+    r_multiple          DOUBLE PRECISION,
+    entry_latency_ms    INTEGER NOT NULL DEFAULT 0,
+    slippage_bps        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    mfe_pct             DOUBLE PRECISION NOT NULL DEFAULT 0,
+    mae_pct             DOUBLE PRECISION NOT NULL DEFAULT 0,
+    was_profitable      BOOLEAN NOT NULL DEFAULT false,
+    position_mode       TEXT NOT NULL DEFAULT 'normal',
+    position_id         UUID,
+    signal_id           UUID
+);
+
+SELECT create_hypertable('cte.trade_log', 'time', if_not_exists => TRUE);
+
+CREATE INDEX IF NOT EXISTS idx_trade_log_epoch ON cte.trade_log (epoch, time DESC);
+CREATE INDEX IF NOT EXISTS idx_trade_log_symbol ON cte.trade_log (symbol, time DESC);
+CREATE INDEX IF NOT EXISTS idx_trade_log_exit ON cte.trade_log (exit_reason, time DESC);
+"""
+
 CREATE_SCHEMA_VERSION_TABLE = """
 CREATE TABLE IF NOT EXISTS cte.schema_version (
     version         TEXT PRIMARY KEY,
@@ -436,6 +509,8 @@ ALL_MIGRATIONS = [
     ("positions", CREATE_POSITIONS_TABLE),
     ("exits", CREATE_EXITS_TABLE),
     ("daily_pnl", CREATE_DAILY_PNL_TABLE),
+    ("epoch_daily_summary", CREATE_EPOCH_DAILY_SUMMARY_TABLE),
+    ("trade_log", CREATE_TRADE_LOG_TABLE),
     ("schema_version", CREATE_SCHEMA_VERSION_TABLE),
     ("streaming_features", CREATE_STREAMING_FEATURES_TABLE),
     ("liquidations", CREATE_LIQUIDATIONS_TABLE),
