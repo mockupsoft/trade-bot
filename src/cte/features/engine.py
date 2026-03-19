@@ -235,30 +235,32 @@ class StreamingFeatureEngine:
         return result
 
     async def handle_mark_price(self, event: MarkPriceEvent) -> None:
-        """Ingest a mark price update."""
+        """Ingest a mark price update.
+
+        Mark price events update state but do NOT drive the tick clock.
+        The tick clock is driven exclusively by trade/orderbook events
+        which have reliable, high-frequency venue timestamps.
+        """
         state = self._get_state(event.symbol.value)
         state.last_mark_price = float(event.mark_price)
 
         sf_events_total.labels(symbol=event.symbol.value, event_type="mark_price").inc()
 
-        ts_ms = int(event.timestamp.timestamp() * 1000)
-        ts_sec = ts_ms // 1000
-        self._advance_to_second(state, ts_sec)
-
-        if state.current_bucket:
+        if state.current_bucket is not None:
             state.current_bucket.add_mark_price(float(event.mark_price))
 
     async def handle_liquidation(self, event: LiquidationEvent) -> None:
-        """Ingest a liquidation event."""
+        """Ingest a liquidation event.
+
+        Like mark price, liquidation events update state on the current
+        bucket but do not advance the tick clock. Liquidations are sparse
+        and their timestamps may lag behind trade timestamps.
+        """
         state = self._get_state(event.symbol.value)
 
         sf_events_total.labels(symbol=event.symbol.value, event_type="liquidation").inc()
 
-        ts_ms = int(event.timestamp.timestamp() * 1000)
-        ts_sec = ts_ms // 1000
-        self._advance_to_second(state, ts_sec)
-
-        if state.current_bucket:
+        if state.current_bucket is not None:
             state.current_bucket.add_liquidation(
                 float(event.quantity), event.is_long_liquidation
             )
