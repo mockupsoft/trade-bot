@@ -31,6 +31,11 @@ export CTE_BINANCE_TESTNET_API_SECRET="..."
 docker compose -f deploy/docker-compose.yml up -d analytics
 ```
 
+## Readiness page
+
+- **Paper / validation → Testnet (v1)** (`GET /api/readiness/paper_to_demo`): scores **8 gates**. Keys + WebSocket + “not LIVE” are measured from this process; paper days, crash-free streak, pytest attestation, and FSM violation count use env vars (`CTE_READINESS_*` in `.env.example`).
+- **Phase 5 → Live** (`GET /api/readiness/demo_to_live`): all gates **SKIP** — live mainnet is out of v1 scope (`enforce_safety`). The UI lists them as a future checklist only.
+
 ## Verify
 
 ```bash

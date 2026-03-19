@@ -6,9 +6,11 @@ from datetime import date
 from cte.ops.go_no_go import build_go_no_go_report
 from cte.ops.kill_switch import OperationsController, TradingMode
 from cte.ops.readiness import (
+    build_dashboard_paper_to_testnet_gates,
     build_demo_to_live_checklist,
     build_edge_proof_checklist,
     build_paper_to_demo_checklist,
+    build_phase5_live_gates_skipped,
     evaluate_readiness,
 )
 from cte.ops.validation import CampaignStatus, DailySnapshot, ValidationCampaign
@@ -73,6 +75,34 @@ class TestKillSwitch:
         events = ctrl.status()["recent_events"]
         actions = [e["action"] for e in events]
         assert actions == ["pause", "resume", "symbol_disable", "symbol_enable"]
+
+
+class TestDashboardReadinessGates:
+    def test_phase5_all_skipped(self) -> None:
+        gates = build_phase5_live_gates_skipped()
+        r = evaluate_readiness(gates)
+        assert r["applicable"] == 0
+        assert r["skipped"] == 10
+        assert r["not_applicable"] is True
+        assert not r["ready"]
+        assert r["passed"] == 0
+        assert r["failed"] == 0
+
+    def test_dashboard_paper_to_testnet_all_pass(self) -> None:
+        gates = build_dashboard_paper_to_testnet_gates(
+            testnet_keys=True,
+            market_connected=True,
+            v1_safe_not_live=True,
+            paper_trades=100,
+            paper_days=10,
+            crash_free_days=10,
+            all_tests_pass=True,
+            fsm_violations=0,
+        )
+        r = evaluate_readiness(gates)
+        assert r["ready"]
+        assert r["applicable"] == 8
+        assert r["skipped"] == 0
 
 
 class TestReadinessGate:

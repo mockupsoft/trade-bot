@@ -110,9 +110,11 @@ def build_demo_to_live_checklist(
         ),
         ReadinessGate(
             name="fill_latency", category="performance",
-            description="Fill latency p99 < 5 seconds",
-            status=GateStatus.PASS if 0 < fill_latency_p99_ms < 5000 else GateStatus.FAIL,
-            value=f"{fill_latency_p99_ms:.0f}ms", threshold="5000ms",
+            description="Fill latency p99 < 5 seconds (measured)",
+            status=GateStatus.PASS
+            if fill_latency_p99_ms > 0 and fill_latency_p99_ms < 5000
+            else GateStatus.FAIL,
+            value=f"{fill_latency_p99_ms:.0f}ms", threshold="<5000ms",
         ),
         ReadinessGate(
             name="pnl_parity", category="validation",
@@ -252,17 +254,24 @@ def build_edge_proof_checklist(
 
 
 def evaluate_readiness(gates: list[ReadinessGate]) -> dict:
-    """Evaluate a readiness checklist. All gates must pass for go."""
-    passed = sum(1 for g in gates if g.status == GateStatus.PASS)
-    failed = sum(1 for g in gates if g.status == GateStatus.FAIL)
+    """Evaluate a readiness checklist. SKIP gates are informational only (not scored)."""
+    active = [g for g in gates if g.status != GateStatus.SKIP]
+    skipped = len(gates) - len(active)
+    passed = sum(1 for g in active if g.status == GateStatus.PASS)
+    failed = sum(1 for g in active if g.status == GateStatus.FAIL)
     total = len(gates)
+    applicable = len(active)
+    ready = applicable > 0 and failed == 0 and passed == applicable
 
     return {
-        "ready": failed == 0,
+        "ready": ready,
         "passed": passed,
         "failed": failed,
         "total": total,
-        "completion_pct": round(passed / total * 100, 1) if total > 0 else 0,
+        "skipped": skipped,
+        "applicable": applicable,
+        "completion_pct": round(passed / applicable * 100, 1) if applicable > 0 else 0.0,
+        "not_applicable": applicable == 0,
         "blockers": [
             {
                 "name": g.name, "category": g.category,
@@ -281,6 +290,187 @@ def evaluate_readiness(gates: list[ReadinessGate]) -> dict:
             for g in gates
         ],
     }
+
+
+def build_dashboard_paper_to_testnet_gates(
+    *,
+    testnet_keys: bool,
+    market_connected: bool,
+    v1_safe_not_live: bool,
+    paper_trades: int,
+    paper_days: int,
+    crash_free_days: int,
+    all_tests_pass: bool,
+    fsm_violations: int = 0,
+) -> list[ReadinessGate]:
+    """Gates for the v1 dashboard: infrastructure truth + declared validation metrics (env)."""
+    return [
+        ReadinessGate(
+            name="testnet_api_keys",
+            category="infrastructure",
+            description="Binance USDⓈ-M futures testnet API key + secret configured",
+            status=GateStatus.PASS if testnet_keys else GateStatus.FAIL,
+            value="configured" if testnet_keys else "missing",
+            threshold="non-empty",
+        ),
+        ReadinessGate(
+            name="market_feed_ws",
+            category="infrastructure",
+            description="Combined testnet WebSocket feed connected (this dashboard process)",
+            status=GateStatus.PASS if market_connected else GateStatus.FAIL,
+            value="connected" if market_connected else "offline",
+            threshold="WS healthy",
+        ),
+        ReadinessGate(
+            name="v1_safety_profile",
+            category="compliance",
+            description="v1 safety: process not in LIVE mainnet mode (paper/demo/testnet only)",
+            status=GateStatus.PASS if v1_safe_not_live else GateStatus.FAIL,
+            value="ok" if v1_safe_not_live else "LIVE",
+            threshold="not LIVE",
+        ),
+        ReadinessGate(
+            name="paper_duration",
+            category="validation",
+            description="Paper validation window ≥7 days (set CTE_READINESS_PAPER_DAYS after ops sign-off)",
+            status=GateStatus.PASS if paper_days >= 7 else GateStatus.FAIL,
+            value=str(paper_days),
+            threshold="7",
+        ),
+        ReadinessGate(
+            name="paper_trade_count",
+            category="validation",
+            description="≥50 paper / simulated trades in active epoch (analytics journal)",
+            status=GateStatus.PASS if paper_trades >= 50 else GateStatus.FAIL,
+            value=str(paper_trades),
+            threshold="50",
+        ),
+        ReadinessGate(
+            name="crash_free",
+            category="stability",
+            description="No unhandled exceptions ≥7 days (set CTE_READINESS_CRASH_FREE_DAYS)",
+            status=GateStatus.PASS if crash_free_days >= 7 else GateStatus.FAIL,
+            value=str(crash_free_days),
+            threshold="7",
+        ),
+        ReadinessGate(
+            name="tests_pass",
+            category="quality",
+            description="Automated test suite green (set CTE_READINESS_TESTS_PASS=1 after pytest in CI/local)",
+            status=GateStatus.PASS if all_tests_pass else GateStatus.FAIL,
+            value="pass" if all_tests_pass else "not attested",
+            threshold="true",
+        ),
+        ReadinessGate(
+            name="fsm_violations",
+            category="quality",
+            description="Zero order state machine violations (set CTE_READINESS_FSM_VIOLATIONS)",
+            status=GateStatus.PASS if fsm_violations == 0 else GateStatus.FAIL,
+            value=str(fsm_violations),
+            threshold="0",
+        ),
+    ]
+
+
+_PHASE5_SKIP_DETAIL = (
+    "Phase 5 only — v1 scope is paper/demo/testnet; live mainnet is blocked by enforce_safety."
+)
+
+
+def build_phase5_live_gates_skipped() -> list[ReadinessGate]:
+    """Same headings as demo→live checklist, all SKIP (not scored in v1)."""
+    return [
+        ReadinessGate(
+            name="demo_duration",
+            category="validation",
+            description="Demo trading ran for ≥7 consecutive days",
+            status=GateStatus.SKIP,
+            value="—",
+            threshold="7",
+            detail=_PHASE5_SKIP_DETAIL,
+        ),
+        ReadinessGate(
+            name="demo_trade_count",
+            category="validation",
+            description="50-trade acceptance test passed on testnet",
+            status=GateStatus.SKIP,
+            value="—",
+            threshold="50",
+            detail=_PHASE5_SKIP_DETAIL,
+        ),
+        ReadinessGate(
+            name="reconciliation",
+            category="validation",
+            description="100% clean reconciliation for 7 days",
+            status=GateStatus.SKIP,
+            value="—",
+            threshold="100%",
+            detail=_PHASE5_SKIP_DETAIL,
+        ),
+        ReadinessGate(
+            name="fill_latency",
+            category="performance",
+            description="Fill latency p99 < 5 seconds",
+            status=GateStatus.SKIP,
+            value="—",
+            threshold="5000ms",
+            detail=_PHASE5_SKIP_DETAIL,
+        ),
+        ReadinessGate(
+            name="pnl_parity",
+            category="validation",
+            description="Paper-demo PnL within 5% for same signals",
+            status=GateStatus.SKIP,
+            value="—",
+            threshold="±5%",
+            detail=_PHASE5_SKIP_DETAIL,
+        ),
+        ReadinessGate(
+            name="slippage_drift",
+            category="validation",
+            description="Slippage drift < 3 bps vs paper model",
+            status=GateStatus.SKIP,
+            value="—",
+            threshold="3.0bps",
+            detail=_PHASE5_SKIP_DETAIL,
+        ),
+        ReadinessGate(
+            name="emergency_stop",
+            category="ops",
+            description="Emergency stop tested and functional",
+            status=GateStatus.SKIP,
+            value="—",
+            threshold="true",
+            detail=_PHASE5_SKIP_DETAIL,
+        ),
+        ReadinessGate(
+            name="manual_review",
+            category="ops",
+            description="Team review and sign-off complete",
+            status=GateStatus.SKIP,
+            value="—",
+            threshold="true",
+            detail=_PHASE5_SKIP_DETAIL,
+        ),
+        ReadinessGate(
+            name="capital_limits",
+            category="risk",
+            description="Max capital ($100) and position ($50) configured",
+            status=GateStatus.SKIP,
+            value="—",
+            threshold="true",
+            detail=_PHASE5_SKIP_DETAIL,
+        ),
+        ReadinessGate(
+            name="monitoring",
+            category="ops",
+            description="24/7 monitoring alerts configured",
+            status=GateStatus.SKIP,
+            value="—",
+            threshold="true",
+            detail=_PHASE5_SKIP_DETAIL,
+        ),
+    ]
 
 
 def build_campaign_validation_checklist(

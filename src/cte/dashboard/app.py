@@ -31,8 +31,8 @@ from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
 from cte.ops.readiness import (
-    build_demo_to_live_checklist,
-    build_paper_to_demo_checklist,
+    build_dashboard_paper_to_testnet_gates,
+    build_phase5_live_gates_skipped,
     evaluate_readiness,
 )
 from cte.ops.safety import SystemMode, enforce_safety, print_startup_banner
@@ -318,19 +318,63 @@ async def enable_symbol(symbol: str, reason: str = "Operator enabled symbol"):
 
 # ── Readiness API ─────────────────────────────────────────────
 
+
+def _env_truthy(key: str, default: bool = False) -> bool:
+    v = (os.environ.get(key) or "").strip().lower()
+    if v in ("1", "true", "yes", "on"):
+        return True
+    if v in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
+def _readiness_int(key: str, default: int = 0) -> int:
+    try:
+        return int((os.environ.get(key) or str(default)).strip())
+    except ValueError:
+        return default
+
+
+def _testnet_keys_configured() -> bool:
+    k = (os.environ.get("CTE_BINANCE_TESTNET_API_KEY") or "").strip()
+    s = (os.environ.get("CTE_BINANCE_TESTNET_API_SECRET") or "").strip()
+    return len(k) >= 8 and len(s) >= 8
+
+
 @app.get("/api/readiness/paper_to_demo")
 async def paper_to_demo_checklist():
-    gates = build_paper_to_demo_checklist(
-        paper_days=_analytics_engine.total_trades // 10 if _analytics_engine else 0,
-        paper_trades=_analytics_engine.total_trades if _analytics_engine else 0,
+    """v1 path: validation + testnet infra (keys, WS, safety) with declared metrics via env."""
+    trades = _analytics_engine.total_trades if _analytics_engine else 0
+    feed_ok = bool(_market_feed and _market_feed.health.connected)
+    gates = build_dashboard_paper_to_testnet_gates(
+        testnet_keys=_testnet_keys_configured(),
+        market_connected=feed_ok,
+        v1_safe_not_live=_system_mode != SystemMode.LIVE,
+        paper_trades=trades,
+        paper_days=_readiness_int("CTE_READINESS_PAPER_DAYS", 0),
+        crash_free_days=_readiness_int("CTE_READINESS_CRASH_FREE_DAYS", 0),
+        all_tests_pass=_env_truthy("CTE_READINESS_TESTS_PASS", False),
+        fsm_violations=_readiness_int("CTE_READINESS_FSM_VIOLATIONS", 0),
     )
-    return evaluate_readiness(gates)
+    out = evaluate_readiness(gates)
+    out["scope_note"] = (
+        "Paper / validation → testnet (demo). Keys and WebSocket are live checks; "
+        "paper days, crash-free streak, tests, and FSM counts are attested via env "
+        "(see .env.example)."
+    )
+    return out
 
 
 @app.get("/api/readiness/demo_to_live")
 async def demo_to_live_checklist():
-    gates = build_demo_to_live_checklist()
-    return evaluate_readiness(gates)
+    """Phase 5 live gates — all SKIP in v1 (not scored; informational)."""
+    gates = build_phase5_live_gates_skipped()
+    out = evaluate_readiness(gates)
+    out["scope_note"] = (
+        "Phase 5 — live mainnet is out of v1 scope (enforce_safety). "
+        "Gates remain as a future checklist; none apply until Phase 5."
+    )
+    return out
 
 
 @app.get("/api/readiness/edge_proof")

@@ -92,6 +92,7 @@
     .tbl-txt{@apply text-slate-300 text-[13px]}
     .gate-pass{@apply text-emerald-400 font-medium}
     .gate-fail{@apply text-red-400 font-medium}
+    .gate-skip{@apply text-slate-500 font-medium}
     @keyframes live-pulse{
       0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(34,211,238,0.4)}
       50%{opacity:0.85;box-shadow:0 0 0 6px rgba(34,211,238,0)}
@@ -594,39 +595,43 @@
     </div>
 
     <div x-show="page==='readiness'" x-cloak>
+      <p class="text-[11px] text-slate-500 mb-5 max-w-4xl leading-relaxed">Readiness reflects <span class="font-mono text-slate-400">.cursorrules</span> phased plan: v1 is paper/demo/testnet; Phase 5 live is out of scope until explicitly enabled.</p>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="card">
-          <h3 class="text-sm font-semibold text-white mb-4 tracking-tight">Paper → Demo</h3>
-          <div x-data="{g:null}" x-init="g=await(await fetch('/api/readiness/paper_to_demo')).json()">
-            <div class="mb-4 flex items-baseline gap-3">
-              <span class="sv" :class="g?.ready?'text-emerald-400':'text-red-400'" x-text="g?.ready?'GO':'NO-GO'"></span>
-              <span class="text-sm text-slate-500" x-text="(g?.passed||0)+' / '+(g?.total||0)+' gates'"></span>
+          <h3 class="text-sm font-semibold text-white mb-2 tracking-tight">Paper / validation → Testnet (v1)</h3>
+          <p class="text-[10px] text-slate-600 mb-4 leading-relaxed" x-text="readinessPaper && readinessPaper.scope_note"></p>
+          <div>
+            <div class="mb-4 flex flex-wrap items-baseline gap-3">
+              <span class="sv" :class="readinessPaper && readinessPaper.ready?'text-emerald-400':'text-red-400'" x-text="readinessPaper && readinessPaper.ready?'GO':'NO-GO'"></span>
+              <span class="text-sm text-slate-500" x-text="readinessPaperScore()"></span>
             </div>
-            <template x-for="gate in g?.gates||[]" :key="gate.name">
-              <div class="flex items-center justify-between py-2.5 text-xs border-b border-white/[0.05]">
-                <span class="text-slate-300 pr-4" x-text="gate.description"></span>
-                <span :class="gate.status==='pass'?'gate-pass':'gate-fail'" x-text="gate.status.toUpperCase()"></span>
-              </div>
-            </template>
-          </div>
-        </div>
-        <div class="card">
-          <h3 class="text-sm font-semibold text-white mb-4 tracking-tight">Demo → Live</h3>
-          <div x-data="{g:null}" x-init="g=await(await fetch('/api/readiness/demo_to_live')).json()">
-            <div class="mb-4 flex items-baseline gap-3">
-              <span class="sv" :class="g?.ready?'text-emerald-400':'text-red-400'" x-text="g?.ready?'GO':'NO-GO'"></span>
-              <span class="text-sm text-slate-500" x-text="(g?.passed||0)+' / '+(g?.total||0)+' gates'"></span>
-            </div>
-            <template x-for="gate in g?.gates||[]" :key="gate.name">
-              <div class="flex items-center justify-between py-2.5 text-xs border-b border-white/[0.05]">
-                <span class="text-slate-300 pr-4" x-text="gate.description"></span>
+            <template x-for="gate in (readinessPaper && readinessPaper.gates) ? readinessPaper.gates : []" :key="gate.name">
+              <div class="flex items-center justify-between gap-3 py-2.5 text-xs border-b border-white/[0.05]">
+                <span class="text-slate-300 pr-2 min-w-0" x-text="gate.description"></span>
                 <div class="flex items-center gap-2 shrink-0">
-                  <span class="text-slate-500 font-mono text-[10px]" x-text="gate.value" x-show="gate.value"></span>
-                  <span :class="gate.status==='pass'?'gate-pass':'gate-fail'" x-text="gate.status.toUpperCase()"></span>
+                  <span class="text-slate-500 font-mono text-[10px] max-w-[140px] truncate" x-text="gate.value" x-show="gate.value && gate.value!=='—'"></span>
+                  <span :class="gateClass(gate)" x-text="gate.status==='skip'?'SKIP':gate.status.toUpperCase()"></span>
                 </div>
               </div>
             </template>
           </div>
+        </div>
+        <div class="card border border-amber-500/15 bg-amber-500/[0.04]">
+          <h3 class="text-sm font-semibold text-amber-200/95 mb-2 tracking-tight">Phase 5 → Live (reference only)</h3>
+          <p class="text-[10px] text-slate-600 mb-4 leading-relaxed" x-text="readinessLive && readinessLive.scope_note"></p>
+          <div class="mb-4 flex flex-wrap items-baseline gap-3">
+            <span class="sv text-slate-500">N/A</span>
+            <span class="text-sm text-slate-500" x-text="readinessLiveSummary()"></span>
+          </div>
+          <template x-for="gate in (readinessLive && readinessLive.gates) ? readinessLive.gates : []" :key="gate.name">
+            <div class="flex items-start justify-between gap-3 py-2.5 text-xs border-b border-white/[0.05]">
+              <div class="min-w-0">
+                <span class="text-slate-300" x-text="gate.description"></span>
+                <p class="text-[10px] text-slate-600 mt-1" x-show="gate.detail" x-text="gate.detail"></p>
+              </div>
+              <span class="gate-skip text-[10px] shrink-0">SKIP</span>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -724,7 +729,7 @@ function app(){return{
     {id:'config',label:'Config',svg:ICON.config},
     {id:'alerts',label:'Alerts',svg:ICON.alerts},
   ],
-  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},tf:{tier:'',symbol:'',exit:''},
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,tf:{tier:'',symbol:'',exit:''},
   mkt:{},mktHealth:{},
   ddTier:false,ddSym:false,ddExit:false,
   tierOpts:[
@@ -823,6 +828,28 @@ function app(){return{
     const p=o.v1_policy;
     return{...d,...p,venues:{...d.venues,...(p.venues||{})}};
   },
+  readinessPaperScore(){
+    const P=this.readinessPaper;
+    if(!P)return '0 / 0 applicable gates';
+    const app=P.applicable!=null?P.applicable:P.total||0;
+    return (P.passed||0)+' / '+app+' applicable gates';
+  },
+  readinessLiveSummary(){
+    const L=this.readinessLive;
+    if(!L)return '—';
+    if(L.not_applicable)return '10 headings · all SKIP (not scored in v1)';
+    return (L.passed||0)+' / '+(L.applicable||L.total||0);
+  },
+  gateClass(g){
+    if(!g)return 'gate-fail';
+    if(g.status==='pass')return 'gate-pass';
+    if(g.status==='skip')return 'gate-skip';
+    return 'gate-fail';
+  },
+  async loadReadiness(){
+    try{this.readinessPaper=await(await fetch('/api/readiness/paper_to_demo')).json()}catch(e){this.readinessPaper={gates:[],passed:0,failed:0,total:0,applicable:0,ready:false,scope_note:''}}
+    try{this.readinessLive=await(await fetch('/api/readiness/demo_to_live')).json()}catch(e){this.readinessLive={gates:[],passed:0,failed:0,total:0,applicable:0,ready:false,not_applicable:true,scope_note:''}}
+  },
   async init(){
     if(!location.hash||location.hash==='#'){
       history.replaceState(null,'','#/overview');
@@ -853,6 +880,7 @@ function app(){return{
   async refresh(){
     try{this.m=await(await fetch(`/api/analytics/summary?epoch=${encodeURIComponent(this.epoch)}`)).json()}catch(e){this.m={}}
     try{this.ops=await(await fetch('/api/ops/status')).json()}catch(e){this.ops={}}
+    if(this.page==='readiness')await this.loadReadiness();
     await this.loadTrades();
     if(this.page==='overview')this.updateCharts();
     this.lastSync=Date.now();
