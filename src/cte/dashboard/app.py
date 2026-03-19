@@ -2,7 +2,9 @@
 
 - WebSocket: testnet combined stream (see ``BinanceSettings.ws_combined_url`` / ``CTE_BINANCE_WS_COMBINED_URL``).
 - REST safety gate: ``CTE_BINANCE_TESTNET_API_KEY`` and ``CTE_BINANCE_TESTNET_API_SECRET`` required.
-- No seed / synthetic trade injection; analytics fill from real recorded trades only.
+- Optional in-process **paper loop** (``CTE_DASHBOARD_PAPER_LOOP``, default on): live tickers → scoring →
+  risk → sizing → paper fills → journal on close. Disable with ``0`` for tests.
+- No seed trade injection; closed rows come from recorded executions (paper simulated / future demo fills).
 - ``CTE_ENGINE_MODE=live`` is still blocked by ``enforce_safety``; any other value runs the testnet profile.
 """
 from __future__ import annotations
@@ -29,6 +31,7 @@ from cte.api.analytics_routes import set_engine
 from cte.api.health import router as health_router
 from cte.core.logging import setup_logging
 from cte.core.settings import get_settings
+from cte.dashboard.paper_runner import DashboardPaperRunner, paper_loop_enabled
 from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
@@ -60,6 +63,8 @@ _feed_task: asyncio.Task | None = None
 _validation_campaigns: dict[str, ValidationCampaign] = {}
 _campaign_collector = CampaignCollector()
 _recon_status: dict = {"status": "not_run", "mismatches": 0, "last_run": None, "details": []}
+_paper_runner: DashboardPaperRunner | None = None
+_paper_task: asyncio.Task | None = None
 
 
 def _resolve_mode() -> SystemMode:
@@ -72,7 +77,7 @@ def _resolve_mode() -> SystemMode:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _analytics_engine, _market_feed, _feed_task, _system_mode
+    global _analytics_engine, _market_feed, _feed_task, _system_mode, _paper_runner, _paper_task
     setup_logging(level="INFO", service_name="dashboard")
 
     _system_mode = _resolve_mode()
@@ -111,11 +116,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         ws_url=settings.binance.ws_combined_url,
     )
 
+    if paper_loop_enabled():
+        _paper_runner = DashboardPaperRunner(
+            settings=settings,
+            market_feed=lambda: _market_feed,
+            analytics_engine=lambda: _analytics_engine,
+            ops_controller=lambda: _ops_controller,
+            symbols=DASHBOARD_MARKET_SYMBOLS,
+        )
+        _paper_task = asyncio.create_task(_paper_runner.run_forever(interval_sec=2.0))
+        await log.ainfo("paper_runner_scheduled", interval_sec=2.0)
+    else:
+        await log.ainfo("paper_runner_disabled", reason="CTE_DASHBOARD_PAPER_LOOP")
+
     await log.ainfo("dashboard_ready", mode="testnet")
 
     yield
 
     # Shutdown
+    if _paper_runner:
+        _paper_runner.stop()
+    if _paper_task:
+        _paper_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _paper_task
+    _paper_task = None
+    _paper_runner = None
     if _market_feed:
         _market_feed.stop()
     if _feed_task:
@@ -144,6 +170,36 @@ async def dashboard_meta() -> dict[str, str]:
         "service": "cte.dashboard",
         "market_profile": "binance_usdm_testnet",
     }
+
+
+@app.get("/api/paper/status")
+async def paper_loop_status() -> dict[str, Any]:
+    """Paper trading loop counters (dashboard in-process pipeline)."""
+    if not paper_loop_enabled():
+        return {
+            "enabled": False,
+            "runner_active": False,
+            "hint": "Set CTE_DASHBOARD_PAPER_LOOP=1 (default) to run tick→signal→risk→paper.",
+        }
+    if _paper_runner is None:
+        return {
+            "enabled": paper_loop_enabled(),
+            "runner_active": False,
+            "hint": "Runner not initialized (startup pending or failed).",
+        }
+    out: dict[str, Any] = _paper_runner.status_dict()
+    out["enabled"] = True
+    out["runner_active"] = True
+    out["paper_loop_env"] = os.environ.get("CTE_DASHBOARD_PAPER_LOOP", "1")
+    return out
+
+
+@app.get("/api/paper/positions")
+async def paper_open_positions() -> dict[str, Any]:
+    """Open LONG paper positions (bid/ask fills, not venue margin)."""
+    if _paper_runner is None:
+        return {"positions": [], "meta": {"note": "paper runner off or disabled"}}
+    return {"positions": _paper_runner.open_positions_payload()}
 
 
 # ── Market Data API ───────────────────────────────────────────
@@ -714,6 +770,11 @@ def _build_config_snapshot() -> dict[str, object]:
                 {"key": "engine_mode", "label": "Engine mode", "value": s.engine.mode.value},
                 {"key": "execution_mode", "label": "Execution mode", "value": s.execution.mode.value},
                 {"key": "testnet_keys", "label": "Testnet API credentials", "value": "configured" if _testnet_keys_configured() else "missing"},
+                {
+                    "key": "dashboard_paper_loop",
+                    "label": "In-process paper loop (tick→signal→risk→journal)",
+                    "value": "on" if paper_loop_enabled() else "off (CTE_DASHBOARD_PAPER_LOOP)",
+                },
             ],
         },
         {

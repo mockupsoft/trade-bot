@@ -12,6 +12,7 @@ pytest.importorskip("fastapi")
 def dashboard_client():
     os.environ.setdefault("CTE_BINANCE_TESTNET_API_KEY", "x" * 12)
     os.environ.setdefault("CTE_BINANCE_TESTNET_API_SECRET", "y" * 12)
+    os.environ["CTE_DASHBOARD_PAPER_LOOP"] = "0"
     from fastapi.testclient import TestClient
 
     from cte.dashboard.app import app

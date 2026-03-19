@@ -248,6 +248,10 @@
       <div class="pill pill-p">TESTNET</div>
       <div :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'FEED LIVE':'NO FEED'"></div>
       <div :class="ops.mode==='halted'?'pill pill-r':ops.mode==='paused'?'pill pill-y':'pill pill-g'" x-text="(ops.mode||'').toUpperCase()"></div>
+      <div x-show="paperStatus && paperStatus.runner_active" class="pill pill-b text-[10px] font-mono tracking-tight" :title="'Paper pipeline ticks: '+((paperStatus.ticks_ok)||0)+' · entries '+((paperStatus.entries_total)||0)">
+        PAPER <span x-text="(paperStatus.open_positions!=null?paperStatus.open_positions:0)+' open'"></span>
+      </div>
+      <div x-show="paperStatus && paperStatus.enabled===false" class="pill text-[10px] text-slate-500 border border-white/[0.12]" title="Set CTE_DASHBOARD_PAPER_LOOP=1 (default) to enable">Paper loop off</div>
     </div>
   </header>
 
@@ -459,6 +463,46 @@
     </div>
 
     <div x-show="page==='positions'" x-cloak>
+      <div class="card mb-6">
+        <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
+          <div>
+            <h3 class="text-sm font-semibold text-white tracking-tight">Open paper positions</h3>
+            <p class="text-[11px] text-slate-500 mt-1 max-w-2xl leading-relaxed">
+              LONG-only simulated fills from the in-dashboard pipeline: live testnet book → <span class="font-mono text-slate-500">ScoringSignalEngine</span> → risk veto → sizing → paper execution. Rows disappear when the position hits TP/SL/trailing/timeout and move to the journal below. Pause or disable symbols on Operations to stop new entries.
+            </p>
+          </div>
+          <span class="text-[10px] text-slate-600 font-mono" x-show="paperStatus && paperStatus.last_error" x-text="paperStatus.last_error"></span>
+        </div>
+        <div class="overflow-x-auto tbl-scroll">
+          <table class="tbl min-w-[900px]">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Tier</th>
+                <th class="text-right">Entry</th>
+                <th class="text-right">Qty</th>
+                <th class="text-right">uPnL</th>
+                <th>Entry reason (trimmed)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(op, oi) in paperOpen" :key="op.position_id || oi">
+                <tr class="border-b border-white/[0.06]">
+                  <td class="tbl-txt font-mono text-xs font-semibold text-white" x-text="op.symbol"></td>
+                  <td><span class="pill" :class="tc(op.signal_tier)" x-text="op.signal_tier"></span></td>
+                  <td class="text-right tbl-num text-slate-300" x-text="fmtUsd(op.entry_price)"></td>
+                  <td class="text-right tbl-num text-slate-400 font-mono text-[11px]" x-text="op.quantity"></td>
+                  <td class="text-right tbl-num" :class="parseFloat(op.unrealized_pnl)>=0?'text-emerald-400':'text-red-400'" x-text="'$'+parseFloat(op.unrealized_pnl||0).toFixed(2)"></td>
+                  <td class="text-[10px] text-slate-500 font-mono max-w-md truncate" :title="op.entry_reason" x-text="op.entry_reason||'—'"></td>
+                </tr>
+              </template>
+              <tr x-show="!paperOpen.length">
+                <td colspan="6" class="py-8 text-center text-xs text-slate-600">No open paper positions — wait for a scored signal (feed must be live, ops ACTIVE, symbol enabled), or check <span class="font-mono text-slate-500">/api/paper/status</span>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
       <div class="card p-0 overflow-hidden">
         <div class="p-5 sm:p-6 border-b border-white/[0.06] flex flex-wrap items-start justify-between gap-5">
           <div>
@@ -557,7 +601,7 @@
                   <div class="text-left max-w-xl mx-auto text-[11px] text-slate-600 space-y-2 leading-relaxed">
                     <p class="font-bold text-slate-500 uppercase tracking-wider text-[10px]">v1 journal (CTE rules)</p>
                     <ul class="list-disc pl-5 space-y-1.5">
-                      <li>Only <span class="font-mono text-slate-400">BTCUSDT</span> and <span class="font-mono text-slate-400">ETHUSDT</span>, <strong>long</strong> exposure; rows appear when the execution/analytics path records a <strong>closed</strong> position.</li>
+                      <li>Only <span class="font-mono text-slate-400">BTCUSDT</span> and <span class="font-mono text-slate-400">ETHUSDT</span>, <strong>long</strong> exposure; closed rows appear after the paper loop (or future venue adapter) records a <strong>closed</strong> position. Open legs are listed above.</li>
                       <li><span class="font-mono text-slate-500">exit_reason</span> is the explainability payload attached to each close (risk may veto before entry).</li>
                       <li><span class="font-mono text-slate-500">source</span>: <span class="font-mono">paper_simulated</span> / <span class="font-mono">demo_exchange</span>; <span class="font-mono">seed</span> is for dev-only fixtures.</li>
                     </ul>
@@ -880,7 +924,7 @@ function app(){return{
     {id:'config',label:'Config',svg:ICON.config},
     {id:'alerts',label:'Alerts',svg:ICON.alerts},
   ],
-  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:{meta:{hint:'',utc:''},sections:[]},configLoading:false,alertsSnap:{meta:{legend:'',utc:'',firing_count:0},rules:[]},alertsLoading:false,researchTiers:{},tf:{tier:'',symbol:'',exit:'',source:''},
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:{meta:{hint:'',utc:''},sections:[]},configLoading:false,alertsSnap:{meta:{legend:'',utc:'',firing_count:0},rules:[]},alertsLoading:false,researchTiers:{},paperStatus:{},paperOpen:[],tf:{tier:'',symbol:'',exit:'',source:''},
   mkt:{},mktHealth:{},
   ddTier:false,ddSym:false,ddExit:false,ddSource:false,
   tierOpts:[
@@ -1075,6 +1119,12 @@ function app(){return{
     if(!s||!Array.isArray(s.rules))return[];
     return s.rules;
   },
+  async loadPaperOpen(){
+    try{
+      const p=await(await fetch('/api/paper/positions')).json();
+      this.paperOpen=Array.isArray(p.positions)?p.positions:[];
+    }catch(e){this.paperOpen=[]}
+  },
   async loadAlerts(){
     this.alertsLoading=true;
     try{
@@ -1162,6 +1212,8 @@ function app(){return{
   async refresh(){
     try{this.m=await(await fetch(`/api/analytics/summary?epoch=${encodeURIComponent(this.epoch)}`)).json()}catch(e){this.m={}}
     try{this.ops=await(await fetch('/api/ops/status')).json()}catch(e){this.ops={}}
+    try{this.paperStatus=await(await fetch('/api/paper/status')).json()}catch(e){this.paperStatus={enabled:false,runner_active:false}}
+    if(this.page==='positions')await this.loadPaperOpen();
     if(this.page==='readiness')await this.loadReadiness();
     if(this.page==='config')await this.loadConfig();
     if(this.page==='alerts')await this.loadAlerts();
