@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock
 import structlog
 
 from cte.core.events import RiskDecision, SignalAction, SignalEvent
+from cte.core.exceptions import ExecutionError, OrderRejectedError
 from cte.core.settings import CTESettings, ExecutionMode, ExecutionSettings
 from cte.dashboard.paper_runner import _SYMBOL_MAP as _SYMBOL_MAP
 from cte.dashboard.paper_runner import (
@@ -191,6 +192,12 @@ class DashboardTestnetRunner:
         self._last_nonzero_sizing_at: datetime | None = None
         self._last_execution_attempt_at: datetime | None = None
         self._recon_tick = 0
+        self._venue_entry_orders_sent = 0
+        self._venue_entry_orders_filled = 0
+        self._venue_exit_orders_sent = 0
+        self._venue_exit_orders_filled = 0
+        self._first_venue_order_id: str | None = None
+        self._last_venue_error: str | None = None
 
     def stop(self) -> None:
         self._running = False
@@ -275,6 +282,8 @@ class DashboardTestnetRunner:
 
         pipe = self._pipeline_stall_analysis()
         return {
+            "runner_class": "DashboardTestnetRunner",
+            "in_process_execution": "demo_exchange",
             "execution_channel": "binance_usdm_testnet",
             "ticks_ok": self._ticks_ok,
             "entries_total": self._entries_total,
@@ -316,6 +325,14 @@ class DashboardTestnetRunner:
                 "mismatches_total": self._recon_mismatches,
                 "last": self._recon_last,
             },
+            "venue_order_metrics": {
+                "entry_orders_sent": self._venue_entry_orders_sent,
+                "entry_orders_filled": self._venue_entry_orders_filled,
+                "exit_orders_sent": self._venue_exit_orders_sent,
+                "exit_orders_filled": self._venue_exit_orders_filled,
+                "first_venue_order_id": self._first_venue_order_id,
+            },
+            "venue_last_error": self._last_venue_error,
         }
 
     def warmup_snapshot(self) -> dict[str, Any]:
@@ -566,10 +583,31 @@ class DashboardTestnetRunner:
                 if pos is None or not pos.is_open:
                     continue
                 self._last_execution_attempt_at = event_now
-                orez = await self._adapter.close_position(
-                    sym,
-                    pos.quantity,
-                    OrderSide.BUY,
+                self._venue_exit_orders_sent += 1
+                try:
+                    orez = await self._adapter.close_position(
+                        sym,
+                        pos.quantity,
+                        OrderSide.BUY,
+                    )
+                except (ExecutionError, OrderRejectedError) as e:
+                    self._last_venue_error = str(e)[:500]
+                    self._diag.record(sym, "rejected_venue_rest", f"exit: {e!s}"[:240])
+                    await logger.aerror(
+                        "testnet_close_order_failed",
+                        symbol=sym,
+                        error=str(e),
+                    )
+                    continue
+                await logger.ainfo(
+                    "testnet_close_order_result",
+                    symbol=sym,
+                    quantity=str(pos.quantity),
+                    client_order_id=orez.client_order_id,
+                    venue_order_id=orez.venue_order_id,
+                    status=orez.status.value,
+                    avg_price=str(orez.average_price),
+                    filled_qty=str(orez.filled_quantity),
                 )
                 exit_px = orez.average_price
                 if exit_px <= 0:
@@ -586,6 +624,8 @@ class DashboardTestnetRunner:
                         msg=orez.error_message,
                     )
                     continue
+                self._venue_exit_orders_filled += 1
+                self._last_venue_error = None
                 closed = mirror.close_position_external_fill(
                     pid,
                     exit_px,
@@ -675,7 +715,31 @@ class DashboardTestnetRunner:
                 side=OrderSide.BUY,
                 quantity=qty,
             )
-            orez = await self._adapter.place_order(req)
+            self._venue_entry_orders_sent += 1
+            try:
+                orez = await self._adapter.place_order(req)
+            except (ExecutionError, OrderRejectedError) as e:
+                self._last_venue_error = str(e)[:500]
+                self._diag.record(sym, "rejected_venue_rest", str(e)[:240])
+                await logger.aerror(
+                    "testnet_place_order_failed",
+                    symbol=sym,
+                    error=str(e),
+                )
+                continue
+            await logger.ainfo(
+                "testnet_place_order_result",
+                symbol=sym,
+                side=req.side.value,
+                quantity=str(qty),
+                client_order_id=orez.client_order_id,
+                venue_order_id=orez.venue_order_id,
+                status=orez.status.value,
+                avg_price=str(orez.average_price),
+                filled_qty=str(orez.filled_quantity),
+                error_code=orez.error_code,
+                error_message=(orez.error_message or "")[:200],
+            )
             if orez.status not in (VenueOrderStatus.FILLED, VenueOrderStatus.PARTIAL):
                 self._diag.record(
                     sym,
@@ -684,6 +748,10 @@ class DashboardTestnetRunner:
                 )
                 continue
 
+            self._venue_entry_orders_filled += 1
+            self._last_venue_error = None
+            if self._first_venue_order_id is None and orez.venue_order_id:
+                self._first_venue_order_id = orez.venue_order_id
             fill_px = orez.average_price
             if fill_px <= 0:
                 fill_px = mark

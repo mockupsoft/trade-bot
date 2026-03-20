@@ -75,6 +75,7 @@ REJECTION_KEYS: tuple[str, ...] = (
     "rejected_entries_paused",
     "rejected_existing_position",
     "rejected_no_quote",
+    "rejected_venue_rest",
     "rejected_sizing_failed",
     "rejected_unknown_gate",
 )
@@ -547,6 +548,8 @@ class DashboardPaperRunner:
 
         pipe = self._pipeline_stall_analysis()
         return {
+            "runner_class": "DashboardPaperRunner",
+            "in_process_execution": "paper_simulated",
             "ticks_ok": self._ticks_ok,
             "entries_total": self._entries_total,
             "exits_recorded": self._exits_recorded,
