@@ -34,6 +34,14 @@ class Venue(StrEnum):
 class Symbol(StrEnum):
     BTCUSDT = "BTCUSDT"
     ETHUSDT = "ETHUSDT"
+    BNBUSDT = "BNBUSDT"
+    SOLUSDT = "SOLUSDT"
+    XRPUSDT = "XRPUSDT"
+    DOGEUSDT = "DOGEUSDT"
+    ADAUSDT = "ADAUSDT"
+    AVAXUSDT = "AVAXUSDT"
+    LINKUSDT = "LINKUSDT"
+    DOTUSDT = "DOTUSDT"
 
 
 class Side(StrEnum):

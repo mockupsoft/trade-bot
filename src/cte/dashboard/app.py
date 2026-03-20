@@ -31,6 +31,7 @@ from cte.api.analytics_routes import set_engine
 from cte.api.health import router as health_router
 from cte.core.logging import setup_logging
 from cte.core.settings import get_settings
+from cte.core.universe import DEFAULT_TRADING_SYMBOLS
 from cte.dashboard.paper_runner import DashboardPaperRunner, paper_loop_enabled
 from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
@@ -52,7 +53,7 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 # ── Global State ──────────────────────────────────────────────
 ACTIVE_TESTNET_EPOCH = "crypto_v1_demo"
-DASHBOARD_MARKET_SYMBOLS: tuple[str, ...] = ("BTCUSDT", "ETHUSDT")
+DASHBOARD_MARKET_SYMBOLS: tuple[str, ...] = DEFAULT_TRADING_SYMBOLS
 
 _system_mode: SystemMode = SystemMode.DEMO
 _epoch_manager = EpochManager()
@@ -108,7 +109,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     set_engine(_analytics_engine)
 
     settings = get_settings()
-    _market_feed = MarketDataFeed(ws_url=settings.binance.ws_combined_url)
+    _market_feed = MarketDataFeed(
+        ws_url=settings.binance.ws_combined_url,
+        streams=list(settings.binance.streams),
+        symbols=tuple(settings.engine.symbols),
+    )
     _feed_task = asyncio.create_task(_market_feed.start())
     await log.ainfo(
         "market_feed_started",
@@ -315,9 +320,10 @@ async def market_health():
 
 def _v1_operations_policy() -> dict[str, object]:
     """Static PRD alignment for the Operations UI (matches .cursorrules / phased plan)."""
+    s = get_settings()
     return {
         "direction": "long_only",
-        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "symbols": list(s.engine.symbols),
         "venues": {
             "primary": "binance_usdm_futures_testnet",
             "secondary_context": "bybit_v5_public_testnet",

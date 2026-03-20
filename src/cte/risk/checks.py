@@ -82,6 +82,18 @@ def check_daily_drawdown(
     )
 
 
+def _pair_correlation(sym_a: str, sym_b: str) -> float:
+    """Heuristic pairwise correlation for USDⓈ-M majors (audit-friendly constants)."""
+    if sym_a == sym_b:
+        return 1.0
+    pair = frozenset({sym_a, sym_b})
+    if pair == frozenset({"BTCUSDT", "ETHUSDT"}):
+        return 0.85
+    if "BTCUSDT" in pair:
+        return 0.72
+    return 0.62
+
+
 def check_correlation(
     symbol: str,
     open_symbols: list[str],
@@ -89,16 +101,11 @@ def check_correlation(
 ) -> RiskCheckResult:
     """Check correlation between new position and existing positions.
 
-    In v1 with only BTC/ETH, BTC-ETH correlation is assumed ~0.85.
+    Uses tiered heuristics: BTC-ETH highest, other BTC pairs lower, alt-alt cluster.
     """
-    known_correlations = {
-        frozenset({"BTCUSDT", "ETHUSDT"}): 0.85,
-    }
-
     max_corr_found = 0.0
     for open_sym in open_symbols:
-        pair = frozenset({symbol, open_sym})
-        corr = known_correlations.get(pair, 0.0)
+        corr = _pair_correlation(symbol, open_sym)
         max_corr_found = max(max_corr_found, corr)
 
     passed = max_corr_found <= max_correlation

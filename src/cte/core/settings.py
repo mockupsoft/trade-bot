@@ -35,14 +35,26 @@ class ExecutionMode(StrEnum):
     LIVE = "live"
 
 
+def _default_engine_symbols() -> list[str]:
+    from cte.core.universe import DEFAULT_TRADING_SYMBOLS
+
+    return list(DEFAULT_TRADING_SYMBOLS)
+
+
 class EngineSettings(BaseSettings):
     mode: EngineMode = EngineMode.PAPER
-    symbols: list[str] = Field(default=["BTCUSDT", "ETHUSDT"])
+    symbols: list[str] = Field(default_factory=_default_engine_symbols)
     direction: Direction = Direction.LONG_ONLY
     max_leverage: int = Field(default=3, ge=1, le=5)
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_prefix="CTE_ENGINE_")
+
+
+def _default_binance_streams() -> list[str]:
+    from cte.core.universe import DEFAULT_TRADING_SYMBOLS, binance_futures_default_streams
+
+    return binance_futures_default_streams(DEFAULT_TRADING_SYMBOLS)
 
 
 class BinanceSettings(BaseSettings):
@@ -51,12 +63,7 @@ class BinanceSettings(BaseSettings):
     rest_base_url: str = "https://testnet.binancefuture.com"
     testnet_ws_url: str = "wss://stream.binancefuture.com"
     testnet_rest_url: str = "https://testnet.binancefuture.com"
-    streams: list[str] = Field(default=[
-        "btcusdt@trade",
-        "btcusdt@depth20@100ms",
-        "ethusdt@trade",
-        "ethusdt@depth20@100ms",
-    ])
+    streams: list[str] = Field(default_factory=_default_binance_streams)
     ping_interval_sec: int = 180
     reconnect_base_sec: float = 1.0
     reconnect_max_sec: float = 60.0
@@ -65,16 +72,21 @@ class BinanceSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CTE_BINANCE_")
 
 
+def _default_bybit_topics() -> list[str]:
+    from cte.core.universe import DEFAULT_TRADING_SYMBOLS
+
+    out: list[str] = []
+    for s in DEFAULT_TRADING_SYMBOLS:
+        out.append(f"publicTrade.{s}")
+        out.append(f"orderbook.50.{s}")
+    return out
+
+
 class BybitSettings(BaseSettings):
     ws_base_url: str = "wss://stream-testnet.bybit.com/v5/public/linear"
     testnet_ws_url: str = "wss://stream-testnet.bybit.com/v5/public/linear"
     rest_base_url: str = "https://api-testnet.bybit.com"
-    topics: list[str] = Field(default=[
-        "publicTrade.BTCUSDT",
-        "publicTrade.ETHUSDT",
-        "orderbook.50.BTCUSDT",
-        "orderbook.50.ETHUSDT",
-    ])
+    topics: list[str] = Field(default_factory=_default_bybit_topics)
     ping_interval_sec: int = 20
     reconnect_base_sec: float = 1.0
     reconnect_max_sec: float = 60.0

@@ -529,7 +529,7 @@
                 <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
               <div x-show="ddSym" x-cloak x-transition @click.outside="ddSym=false" class="dd-panel left-0">
-                <template x-for="o in symOpts" :key="o.v || 'all-sym'">
+                <template x-for="o in symOptsList()" :key="o.v || 'all-sym'">
                   <button type="button" :class="tf.symbol===o.v ? 'dd-opt-active' : ''" @click="setSym(o.v)" x-text="o.l"></button>
                 </template>
               </div>
@@ -601,7 +601,7 @@
                   <div class="text-left max-w-xl mx-auto text-[11px] text-slate-600 space-y-2 leading-relaxed">
                     <p class="font-bold text-slate-500 uppercase tracking-wider text-[10px]">v1 journal (CTE rules)</p>
                     <ul class="list-disc pl-5 space-y-1.5">
-                      <li>Only <span class="font-mono text-slate-400">BTCUSDT</span> and <span class="font-mono text-slate-400">ETHUSDT</span>, <strong>long</strong> exposure; closed rows appear after the paper loop (or future venue adapter) records a <strong>closed</strong> position. Open legs are listed above.</li>
+                      <li>Configured universe (default: top Binance USDT linear majors, see Ops / Config), <strong>long</strong> only; closed rows appear after the paper loop records a <strong>closed</strong> position. Open legs are listed above.</li>
                       <li><span class="font-mono text-slate-500">exit_reason</span> is the explainability payload attached to each close (risk may veto before entry).</li>
                       <li><span class="font-mono text-slate-500">source</span>: <span class="font-mono">paper_simulated</span> / <span class="font-mono">demo_exchange</span>; <span class="font-mono">seed</span> is for dev-only fixtures.</li>
                     </ul>
@@ -930,9 +930,15 @@ function app(){return{
   tierOpts:[
     {v:'',l:'All tiers'},{v:'A',l:'Tier A'},{v:'B',l:'Tier B'},{v:'C',l:'Tier C'},
   ],
-  symOpts:[
-    {v:'',l:'All symbols'},{v:'BTCUSDT',l:'BTCUSDT'},{v:'ETHUSDT',l:'ETHUSDT'},
-  ],
+  _universeFallback:['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','DOTUSDT'],
+  universeSymbols(){
+    const p=this.v1Policy;
+    return (p&&p.symbols&&p.symbols.length)?p.symbols:this._universeFallback;
+  },
+  symOptsList(){
+    const base=this.universeSymbols();
+    return [{v:'',l:'All symbols'},...base.map(s=>({v:s,l:s}))];
+  },
   exitOpts:[
     {v:'',l:'All exits'},{v:'hard_stop',l:'hard_stop'},{v:'thesis_failure',l:'thesis_failure'},
     {v:'no_progress',l:'no_progress'},{v:'winner_trailing',l:'winner_trailing'},{v:'runner_trailing',l:'runner_trailing'},
@@ -966,7 +972,7 @@ function app(){return{
     }
   },
   tierLbl(){const o=this.tierOpts.find(x=>x.v===this.tf.tier);return o?o.l:'All tiers'},
-  symLbl(){const o=this.symOpts.find(x=>x.v===this.tf.symbol);return o?o.l:'All symbols'},
+  symLbl(){const o=this.symOptsList().find(x=>x.v===this.tf.symbol);return o?o.l:'All symbols'},
   exitLbl(){const o=this.exitOpts.find(x=>x.v===this.tf.exit);return o?o.l:'All exits'},
   sourceLbl(){const o=this.sourceOpts.find(x=>x.v===this.tf.source);return o?o.l:'All sources'},
   get liveConnected(){return !!(this.mktHealth&&this.mktHealth.connected);},
@@ -1011,7 +1017,7 @@ function app(){return{
   _defaultV1Policy(){
     return{
       direction:'long_only',
-      symbols:['BTCUSDT','ETHUSDT'],
+      symbols:['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','DOTUSDT'],
       venues:{
         primary:'binance_usdm_futures_testnet',
         secondary_context:'bybit_v5_public_testnet',
@@ -1200,7 +1206,7 @@ function app(){return{
     }
     await this.pollMarket();
     await this.refresh();
-    this._slowTimer=setInterval(()=>this.refresh(),7000);
+    this._slowTimer=setInterval(()=>this.refresh(),4000);
     this._mktTimer=setInterval(()=>this.pollMarket(),850);
     setInterval(()=>{this._clockTick++;},1000);
     document.addEventListener('keydown',(e)=>{
@@ -1233,7 +1239,7 @@ function app(){return{
     try{
       const j=await(await fetch('/api/market/tickers')).json();
       const tickers={...(j.tickers||{})};
-      for(const sym of ['BTCUSDT','ETHUSDT']){
+      for(const sym of this.universeSymbols()){
         if(!tickers[sym])tickers[sym]=this._skelTicker();
       }
       this.mkt={
@@ -1244,13 +1250,9 @@ function app(){return{
         tickers,
       };
     }catch(e){
-      this.mkt={
-        source:'error',
-        mode:'testnet',
-        stream_url:'',
-        feed_ready:false,
-        tickers:{BTCUSDT:this._skelTicker(),ETHUSDT:this._skelTicker()},
-      };
+      const fb={};
+      for(const sym of this.universeSymbols()){fb[sym]=this._skelTicker();}
+      this.mkt={source:'error',mode:'testnet',stream_url:'',feed_ready:false,tickers:fb};
     }
     try{this.mktHealth=await(await fetch('/api/market/health')).json()}catch(e){this.mktHealth={};}
     if(this.page==='market'){

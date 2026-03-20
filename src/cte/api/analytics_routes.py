@@ -55,7 +55,7 @@ async def trades(
     """Individual trade records for drilldown (newest first).
 
     Filter by ``source``: ``seed`` | ``paper_simulated`` | ``demo_exchange``.
-    v1 symbols: BTCUSDT, ETHUSDT (enforced by execution stack; journal is read-only).
+    Configured engine symbols (default: 10 Binance USDT linear majors; journal is read-only).
     """
     if not _engine:
         return []

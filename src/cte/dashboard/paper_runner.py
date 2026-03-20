@@ -81,11 +81,8 @@ def _dashboard_signal_settings(base: SignalSettings) -> SignalSettings:
     return base.model_copy(update={"tier_c_threshold": tier_c})
 
 
-# v1 symbols only
-_SYMBOL_MAP: dict[str, Symbol] = {
-    "BTCUSDT": Symbol.BTCUSDT,
-    "ETHUSDT": Symbol.ETHUSDT,
-}
+# Engine universe (Binance USDT linear); must match ``Symbol`` enum.
+_SYMBOL_MAP: dict[str, Symbol] = {s.value: s for s in Symbol}
 
 
 def paper_loop_enabled() -> bool:
