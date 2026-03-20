@@ -196,6 +196,63 @@ class PaperExecutionEngine:
 
         return position
 
+    def open_position_from_venue_fill(
+        self,
+        signal: ScoredSignalEvent,
+        quantity: Decimal,
+        notional_usd: Decimal,
+        event_time: datetime,
+        fill_price: Decimal,
+        *,
+        warmup_phase: str = "full",
+        venue_order_id: str = "",
+        entry_client_order_id: str = "",
+        entry_fees_usd: Decimal | None = None,
+    ) -> PaperPosition | None:
+        """Register an OPEN position using a venue-reported fill (no bid/ask simulation)."""
+        symbol = signal.symbol.value
+        book = self._books.get(symbol)
+        if book is None:
+            return None
+
+        best_bid, best_ask = book
+        signal_price = (best_bid + best_ask) / Decimal("2")
+        fees = entry_fees_usd
+        if fees is None:
+            fees = notional_usd * Decimal("0.0004")
+
+        fill_time = event_time + timedelta(milliseconds=self._exec.fill_delay_ms)
+
+        position = PaperPosition(
+            symbol=symbol,
+            direction="long",
+            status=PositionStatus.PENDING,
+            signal_id=signal.event_id,
+            signal_tier=signal.tier.value,
+            entry_reason=signal.reason.human_readable,
+            composite_score=signal.composite_score,
+            warmup_phase=warmup_phase,
+            quantity=quantity,
+            notional_usd=notional_usd,
+            signal_price=signal_price,
+            modeled_slippage_bps=Decimal("0"),
+            effective_spread_bps=Decimal("0"),
+            fill_model_used="venue_market",
+            signal_time=event_time,
+            modeled_fill_latency_ms=self._exec.fill_delay_ms,
+            stop_loss_pct=self._exits.stop_loss_pct,
+            take_profit_pct=self._exits.take_profit_pct,
+            estimated_fees_usd=fees,
+            venue_order_id=venue_order_id,
+            entry_client_order_id=entry_client_order_id,
+        )
+
+        position.open(fill_price, fill_time)
+        self._positions[position.position_id] = position
+        paper_fills_total.labels(symbol=symbol).inc()
+        paper_positions_open.labels(symbol=symbol).inc()
+        return position
+
     # ── Exit ──────────────────────────────────────────────────
 
     def close_position(
@@ -245,24 +302,53 @@ class PaperExecutionEngine:
 
         return position
 
-    # ── Exit Condition Evaluation ─────────────────────────────
+    def close_position_external_fill(
+        self,
+        position_id: UUID,
+        exit_price: Decimal,
+        event_time: datetime,
+        exit_reason: str,
+        exit_detail: str,
+        *,
+        additional_exit_fees_usd: Decimal = Decimal("0"),
+    ) -> PaperPosition | None:
+        """Close a position at a venue-reported exit price (no bid/ask fill model)."""
+        position = self._positions.get(position_id)
+        if position is None or not position.is_open:
+            return None
 
-    def evaluate_exits(
+        position.close(
+            exit_price=exit_price,
+            close_time=event_time,
+            exit_reason=exit_reason,
+            exit_detail=exit_detail,
+            additional_exit_fees_usd=additional_exit_fees_usd,
+        )
+
+        del self._positions[position_id]
+        self._closed_positions.append(position)
+
+        self._total_realized_pnl += position.realized_pnl
+        self._layered_exit.cleanup(position_id)
+
+        paper_positions_open.labels(symbol=position.symbol).dec()
+        paper_pnl_total.set(float(self._total_realized_pnl))
+
+        return position
+
+    def plan_exits(
         self,
         symbol: str,
         current_price: Decimal,
         event_time: datetime,
         features: StreamingFeatureVector | None = None,
-    ) -> list[PaperPosition]:
-        """Evaluate 5-layer smart exits for all open positions of ``symbol``.
+    ) -> list[tuple[UUID, str, str]]:
+        """Plan which positions would exit (layered engine + TP cap + max hold).
 
-        Uses :class:`LayeredExitEngine` (L1→L5). After layers, applies configured
-        **take-profit cap** and **max hold** from ``ExitSettings`` so ``defaults.toml``
-        targets remain enforceable alongside tier patience.
-
-        Returns list of positions that were closed.
+        Same rules as :meth:`evaluate_exits` but does not close; used when a venue
+        fill must be executed before local state is finalized.
         """
-        closed: list[PaperPosition] = []
+        planned: list[tuple[UUID, str, str]] = []
         position_ids = [
             pid for pid, pos in self._positions.items()
             if pos.symbol == symbol and pos.is_open
@@ -288,14 +374,7 @@ class PaperExecutionEngine:
             )
 
             if decision.should_exit:
-                result = self.close_position(
-                    pid,
-                    decision.exit_reason,
-                    decision.exit_detail,
-                    event_time,
-                )
-                if result:
-                    closed.append(result)
+                planned.append((pid, decision.exit_reason, decision.exit_detail))
                 continue
 
             gain = _paper_gain_pct(pos, current_price)
@@ -306,14 +385,7 @@ class PaperExecutionEngine:
                     f"Gain {gain:.2%} reached take-profit cap {self._exits.take_profit_pct:.2%} "
                     "(after layered evaluation)"
                 )
-                result = self.close_position(
-                    pid,
-                    ExitReason.TAKE_PROFIT.value,
-                    detail,
-                    event_time,
-                )
-                if result:
-                    closed.append(result)
+                planned.append((pid, ExitReason.TAKE_PROFIT.value, detail))
                 continue
 
             if hold_min >= self._exits.max_hold_minutes:
@@ -321,15 +393,34 @@ class PaperExecutionEngine:
                     f"Held {hold_min:.0f}m ≥ max_hold {self._exits.max_hold_minutes}m "
                     "(operational cap after layered evaluation)"
                 )
-                result = self.close_position(
-                    pid,
-                    ExitReason.TIMEOUT.value,
-                    detail,
-                    event_time,
-                )
-                if result:
-                    closed.append(result)
+                planned.append((pid, ExitReason.TIMEOUT.value, detail))
 
+        return planned
+
+    # ── Exit Condition Evaluation ─────────────────────────────
+
+    def evaluate_exits(
+        self,
+        symbol: str,
+        current_price: Decimal,
+        event_time: datetime,
+        features: StreamingFeatureVector | None = None,
+    ) -> list[PaperPosition]:
+        """Evaluate 5-layer smart exits for all open positions of ``symbol``.
+
+        Uses :class:`LayeredExitEngine` (L1→L5). After layers, applies configured
+        **take-profit cap** and **max hold** from ``ExitSettings`` so ``defaults.toml``
+        targets remain enforceable alongside tier patience.
+
+        Returns list of positions that were closed.
+        """
+        closed: list[PaperPosition] = []
+        for pid, reason, detail in self.plan_exits(
+            symbol, current_price, event_time, features
+        ):
+            result = self.close_position(pid, reason, detail, event_time)
+            if result:
+                closed.append(result)
         return closed
 
     # ── Accessors ─────────────────────────────────────────────
