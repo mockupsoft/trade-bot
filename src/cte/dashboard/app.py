@@ -41,6 +41,7 @@ from cte.dashboard.paper_runner import (
     _dashboard_paper_interval_sec,
     paper_loop_enabled,
 )
+from cte.dashboard.testnet_runner import DashboardTestnetRunner, venue_loop_enabled_for_settings
 from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
@@ -73,7 +74,7 @@ _feed_task: asyncio.Task | None = None
 _validation_campaigns: dict[str, ValidationCampaign] = {}
 _campaign_collector = CampaignCollector()
 _recon_status: dict = {"status": "not_run", "mismatches": 0, "last_run": None, "details": []}
-_paper_runner: DashboardPaperRunner | None = None
+_paper_runner: DashboardPaperRunner | DashboardTestnetRunner | None = None
 _paper_task: asyncio.Task | None = None
 
 
@@ -137,18 +138,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     if paper_loop_enabled():
-        _paper_runner = DashboardPaperRunner(
-            settings=settings,
-            market_feed=lambda: _market_feed,
-            analytics_engine=lambda: _analytics_engine,
-            ops_controller=lambda: _ops_controller,
-            symbols=dash_syms,
-        )
-        _paper_interval = _dashboard_paper_interval_sec()
-        _paper_task = asyncio.create_task(
-            _paper_runner.run_forever(interval_sec=_paper_interval)
-        )
-        await log.ainfo("paper_runner_scheduled", interval_sec=_paper_interval)
+        if venue_loop_enabled_for_settings(settings):
+            _paper_runner = DashboardTestnetRunner(
+                settings=settings,
+                market_feed=lambda: _market_feed,
+                analytics_engine=lambda: _analytics_engine,
+                ops_controller=lambda: _ops_controller,
+                symbols=dash_syms,
+            )
+            _paper_interval = _dashboard_paper_interval_sec()
+            _paper_task = asyncio.create_task(
+                _paper_runner.run_forever(interval_sec=_paper_interval)
+            )
+            await log.ainfo(
+                "dashboard_venue_runner_scheduled",
+                interval_sec=_paper_interval,
+                execution_mode="testnet",
+            )
+        else:
+            _paper_runner = DashboardPaperRunner(
+                settings=settings,
+                market_feed=lambda: _market_feed,
+                analytics_engine=lambda: _analytics_engine,
+                ops_controller=lambda: _ops_controller,
+                symbols=dash_syms,
+            )
+            _paper_interval = _dashboard_paper_interval_sec()
+            _paper_task = asyncio.create_task(
+                _paper_runner.run_forever(interval_sec=_paper_interval)
+            )
+            await log.ainfo("paper_runner_scheduled", interval_sec=_paper_interval)
     else:
         await log.ainfo("paper_runner_disabled", reason="CTE_DASHBOARD_PAPER_LOOP")
 

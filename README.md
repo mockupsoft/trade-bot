@@ -152,7 +152,7 @@ Full notes: [docs/DASHBOARD_MODES.md](docs/DASHBOARD_MODES.md).
 
 ### Validation Campaign (Real Data)
 
-End-to-end checks use **live WebSocket** prices and **paper** execution in the dashboard process (`source=paper_simulated`). **No seed trades.** This path does **not** submit Binance testnet REST orders; testnet keys satisfy the demo **safety gate** and future venue adapters.
+End-to-end checks use **live WebSocket** prices. By default the dashboard runs **paper** execution (`source=paper_simulated`). **No seed trades.** With `CTE_ENGINE_MODE=demo`, `CTE_EXECUTION_MODE=testnet`, and `CTE_DASHBOARD_VENUE_LOOP=1`, the dashboard can place **real Binance USDⓈ-M testnet REST orders** (`source=demo_exchange`); testnet keys still satisfy the demo **safety gate** (no production URLs).
 
 | Item | Command / artifact |
 |------|---------------------|

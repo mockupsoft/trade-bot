@@ -11,7 +11,9 @@ from cte.core.settings import (
 
 
 class TestCTESettings:
-    def test_default_settings_load(self):
+    def test_default_settings_load(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CTE_ENGINE_MODE", "paper")
+        monkeypatch.setenv("CTE_EXECUTION_MODE", "paper")
         settings = CTESettings()
         assert settings.engine.mode == EngineMode.PAPER
         assert "BTCUSDT" in settings.engine.symbols
@@ -19,13 +21,16 @@ class TestCTESettings:
         assert settings.engine.max_leverage == 3
         assert "stream.binancefuture.com" in settings.binance.ws_combined_url
 
-    def test_paper_mode_validation(self):
+    def test_paper_mode_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CTE_ENGINE_MODE", "paper")
+        monkeypatch.setenv("CTE_EXECUTION_MODE", "paper")
         settings = CTESettings()
         assert settings.execution.mode == ExecutionMode.PAPER
 
-    def test_mismatched_mode_raises(self):
+    def test_mismatched_mode_raises(self) -> None:
         with pytest.raises(ValueError, match="paper"):
             CTESettings(
+                engine={"mode": "paper"},
                 execution={"mode": "live"},
             )
 
