@@ -21,6 +21,8 @@ from enum import StrEnum
 import structlog
 from prometheus_client import Counter, Gauge
 
+from cte.core.universe import DEFAULT_TRADING_SYMBOLS
+
 logger = structlog.get_logger(__name__)
 
 kill_switch_activations = Counter("cte_kill_switch_total", "Kill switch activations", ["action"])
@@ -50,8 +52,8 @@ class OperationsController:
     def __init__(self) -> None:
         self._mode = TradingMode.ACTIVE
         self._symbol_toggles: dict[str, dict[str, str | bool | datetime | None]] = {
-            "BTCUSDT": {"enabled": True, "disabled_at": None, "disabled_reason": ""},
-            "ETHUSDT": {"enabled": True, "disabled_at": None, "disabled_reason": ""},
+            sym: {"enabled": True, "disabled_at": None, "disabled_reason": ""}
+            for sym in DEFAULT_TRADING_SYMBOLS
         }
         self._events: deque[OpsAuditEvent] = deque(maxlen=100)
         self._mode_history: list[tuple[str, str, str]] = []

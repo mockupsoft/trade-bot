@@ -25,9 +25,11 @@ from prometheus_client import Counter, Gauge, Histogram
 from cte.core.events import (
     ExitReason,
     ScoredSignalEvent,
+    StreamingFeatureVector,
 )
 from cte.execution.fill_model import BookLevel, FillMode, compute_fill
 from cte.execution.position import PaperPosition, PositionStatus
+from cte.exits.engine import LayeredExitEngine
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -48,6 +50,21 @@ paper_fill_slip = Histogram(
     buckets=[0.5, 1, 2, 3, 5, 7, 10, 15, 20],
 )
 paper_pnl_total = Gauge("cte_paper_pnl_total_usd", "Total paper PnL")
+
+
+def _paper_gain_pct(pos: PaperPosition, price: Decimal) -> float:
+    """Unrealized gain fraction (positive = profit for long)."""
+    if pos.entry_price <= 0:
+        return 0.0
+    if pos.direction == "long":
+        return float((price - pos.entry_price) / pos.entry_price)
+    return float((pos.entry_price - price) / pos.entry_price)
+
+
+def _hold_minutes(pos: PaperPosition, now: datetime) -> float:
+    if not pos.fill_time:
+        return 0.0
+    return (now - pos.fill_time).total_seconds() / 60.0
 
 
 class PaperExecutionEngine:
@@ -73,6 +90,7 @@ class PaperExecutionEngine:
         self._book_levels: dict[str, tuple[list[BookLevel], list[BookLevel]]] = {}
 
         self._total_realized_pnl = Decimal("0")
+        self._layered_exit = LayeredExitEngine()
 
     # ── Book Updates ──────────────────────────────────────────
 
@@ -103,6 +121,8 @@ class PaperExecutionEngine:
         quantity: Decimal,
         notional_usd: Decimal,
         event_time: datetime,
+        *,
+        warmup_phase: str = "full",
     ) -> PaperPosition | None:
         """Create and fill a paper position from a scored signal.
 
@@ -151,6 +171,7 @@ class PaperExecutionEngine:
             signal_tier=signal.tier.value,
             entry_reason=signal.reason.human_readable,
             composite_score=signal.composite_score,
+            warmup_phase=warmup_phase,
             quantity=quantity,
             notional_usd=notional_usd,
             signal_price=signal_price,
@@ -217,6 +238,8 @@ class PaperExecutionEngine:
 
         self._total_realized_pnl += position.realized_pnl
 
+        self._layered_exit.cleanup(position_id)
+
         paper_positions_open.labels(symbol=position.symbol).dec()
         paper_pnl_total.set(float(self._total_realized_pnl))
 
@@ -229,79 +252,85 @@ class PaperExecutionEngine:
         symbol: str,
         current_price: Decimal,
         event_time: datetime,
+        features: StreamingFeatureVector | None = None,
     ) -> list[PaperPosition]:
-        """Evaluate exit conditions for all open positions of a symbol.
+        """Evaluate 5-layer smart exits for all open positions of ``symbol``.
+
+        Uses :class:`LayeredExitEngine` (L1→L5). After layers, applies configured
+        **take-profit cap** and **max hold** from ``ExitSettings`` so ``defaults.toml``
+        targets remain enforceable alongside tier patience.
 
         Returns list of positions that were closed.
         """
-        closed = []
+        closed: list[PaperPosition] = []
         position_ids = [
             pid for pid, pos in self._positions.items()
             if pos.symbol == symbol and pos.is_open
         ]
 
+        book = self._books.get(symbol)
+        best_bid = current_price
+        best_ask = current_price
+        if book is not None:
+            best_bid, best_ask = book
+
         for pid in position_ids:
             pos = self._positions[pid]
-            pos.update_price(current_price)
 
-            exit_reason, exit_detail = self._check_exit_conditions(pos, current_price, event_time)
-            if exit_reason:
-                result = self.close_position(pid, exit_reason, exit_detail, event_time)
+            decision = self._layered_exit.evaluate(
+                pos,
+                current_price,
+                event_time,
+                features,
+                best_bid,
+                best_ask,
+                exit_settings=self._exits,
+            )
+
+            if decision.should_exit:
+                result = self.close_position(
+                    pid,
+                    decision.exit_reason,
+                    decision.exit_detail,
+                    event_time,
+                )
+                if result:
+                    closed.append(result)
+                continue
+
+            gain = _paper_gain_pct(pos, current_price)
+            hold_min = _hold_minutes(pos, event_time)
+
+            if gain >= self._exits.take_profit_pct:
+                detail = (
+                    f"Gain {gain:.2%} reached take-profit cap {self._exits.take_profit_pct:.2%} "
+                    "(after layered evaluation)"
+                )
+                result = self.close_position(
+                    pid,
+                    ExitReason.TAKE_PROFIT.value,
+                    detail,
+                    event_time,
+                )
+                if result:
+                    closed.append(result)
+                continue
+
+            if hold_min >= self._exits.max_hold_minutes:
+                detail = (
+                    f"Held {hold_min:.0f}m ≥ max_hold {self._exits.max_hold_minutes}m "
+                    "(operational cap after layered evaluation)"
+                )
+                result = self.close_position(
+                    pid,
+                    ExitReason.TIMEOUT.value,
+                    detail,
+                    event_time,
+                )
                 if result:
                     closed.append(result)
 
         return closed
-
-    def _check_exit_conditions(
-        self,
-        pos: PaperPosition,
-        price: Decimal,
-        now: datetime,
-    ) -> tuple[str, str]:
-        """Check all exit conditions. Returns (reason, detail) or ("", "")."""
-        if pos.entry_price <= 0:
-            return "", ""
-
-        if pos.direction == "long":
-            loss_pct = float((pos.entry_price - price) / pos.entry_price)
-            gain_pct = float((price - pos.entry_price) / pos.entry_price)
-        else:
-            loss_pct = float((price - pos.entry_price) / pos.entry_price)
-            gain_pct = float((pos.entry_price - price) / pos.entry_price)
-
-        # Stop loss
-        if loss_pct >= self._exits.stop_loss_pct:
-            return (
-                ExitReason.STOP_LOSS.value,
-                f"Loss {loss_pct:.2%} exceeded {self._exits.stop_loss_pct:.2%}",
-            )
-
-        # Take profit
-        if gain_pct >= self._exits.take_profit_pct:
-            return (
-                ExitReason.TAKE_PROFIT.value,
-                f"Gain {gain_pct:.2%} reached {self._exits.take_profit_pct:.2%}",
-            )
-
-        # Trailing stop
-        if pos.highest_price > pos.entry_price and pos.direction == "long":
-            drawdown = float((pos.highest_price - price) / pos.highest_price)
-            if drawdown >= self._exits.trailing_stop_pct and gain_pct > 0:
-                return (
-                    ExitReason.TRAILING_STOP.value,
-                    f"Drawdown {drawdown:.2%} from high {pos.highest_price}",
-                )
-
-        # Timeout
-        if pos.fill_time:
-            hold_minutes = (now - pos.fill_time).total_seconds() / 60
-            if hold_minutes >= self._exits.max_hold_minutes:
-                return (
-                    ExitReason.TIMEOUT.value,
-                    f"Held {hold_minutes:.0f}m > {self._exits.max_hold_minutes}m limit",
-                )
-
-        return "", ""
 
     # ── Accessors ─────────────────────────────────────────────
 

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from decimal import Decimal
 
-    from cte.core.events import ScoredSignalEvent
+    from cte.core.events import ScoredSignalEvent, StreamingFeatureVector
     from cte.core.streams import StreamPublisher
     from cte.execution.adapter import (
         ExecutionAdapter,
@@ -79,11 +79,13 @@ class ExecutionEngine:
         quantity: Decimal,
         notional_usd: Decimal,
         event_time: datetime,
+        *,
+        warmup_phase: str = "full",
     ) -> PaperPosition | None:
         """Execute a scored signal (paper mode)."""
         if self._paper_backend:
             return self._paper_backend.open_position(
-                signal, quantity, notional_usd, event_time
+                signal, quantity, notional_usd, event_time, warmup_phase=warmup_phase
             )
         raise NotImplementedError("Use place_order() for venue execution")
 
@@ -92,11 +94,19 @@ class ExecutionEngine:
             self._paper_backend.update_book(symbol, best_bid, best_ask)
 
     def update_price_and_evaluate(
-        self, symbol: str, price: Decimal, event_time: datetime
+        self,
+        symbol: str,
+        price: Decimal,
+        event_time: datetime,
+        features: StreamingFeatureVector | None = None,
     ) -> list[PaperPosition]:
+        """Update paper positions and run 5-layer exit evaluation (plus TP cap / max hold).
+
+        ``features`` should be the current ``StreamingFeatureVector`` for ``symbol`` when
+        available (dashboard / feature pipeline); L2 thesis and L1 stale/spread use it.
+        """
         if self._paper_backend:
-            self._paper_backend.update_price(symbol, price)
-            return self._paper_backend.evaluate_exits(symbol, price, event_time)
+            return self._paper_backend.evaluate_exits(symbol, price, event_time, features)
         return []
 
     # ── Venue mode operations ─────────────────────────────────

@@ -18,7 +18,7 @@ import asyncio
 import os
 import statistics
 import time
-from collections import deque
+from collections import defaultdict, deque
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -49,7 +49,7 @@ from cte.signals.engine import ScoringSignalEngine
 from cte.sizing.engine import SizingEngine
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable
 
     from cte.analytics.engine import AnalyticsEngine
     from cte.execution.paper import PaperExecutionEngine
@@ -59,11 +59,139 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger("dashboard.paper_runner")
 
-# v1 symbols only
-_SYMBOL_MAP: dict[str, Symbol] = {
-    "BTCUSDT": Symbol.BTCUSDT,
-    "ETHUSDT": Symbol.ETHUSDT,
-}
+# --- Rejection reason codes (API / dashboard) --------------------------------
+REJECTION_KEYS: tuple[str, ...] = (
+    "rejected_warmup",
+    "rejected_spread",
+    "rejected_freshness",
+    "rejected_feasibility",
+    "rejected_divergence",
+    "rejected_tier_score",
+    "rejected_cooldown",
+    "rejected_hourly_limit",
+    "rejected_min_notional",
+    "rejected_risk",
+    "rejected_symbol_disabled",
+    "rejected_entries_paused",
+    "rejected_existing_position",
+    "rejected_no_quote",
+    "rejected_sizing_failed",
+    "rejected_unknown_gate",
+)
+
+
+class EntryDiagnostics:
+    """Counts and last-N log for blocked paper entries (dashboard only)."""
+
+    def __init__(self) -> None:
+        self.global_counts: dict[str, int] = {k: 0 for k in REJECTION_KEYS}
+        self.per_symbol: dict[str, dict[str, int]] = defaultdict(
+            lambda: {k: 0 for k in REJECTION_KEYS}
+        )
+        self.last_blocked: deque[dict[str, Any]] = deque(maxlen=20)
+        self.entry_attempts = 0
+        self.eligible_signals = 0
+
+    def record(self, symbol: str, reason: str, detail: str = "") -> None:
+        if reason not in self.global_counts:
+            self.global_counts[reason] = 0
+        self.global_counts[reason] += 1
+        row = self.per_symbol[symbol]
+        if reason not in row:
+            row[reason] = 0
+        row[reason] += 1
+        self.last_blocked.append(
+            {
+                "ts": datetime.now(UTC).isoformat(),
+                "symbol": symbol,
+                "reason": reason,
+                "detail": detail[:240],
+            }
+        )
+
+
+# Dashboard paper loop: staged warmup + lower tier-C than global defaults.
+def _dashboard_warmup_mids_early() -> int:
+    raw = (os.environ.get("CTE_DASHBOARD_PAPER_WARMUP_MIDS_EARLY") or "20").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 20
+    return max(15, min(80, n))
+
+
+def _dashboard_warmup_mids_full() -> int:
+    raw = (
+        os.environ.get("CTE_DASHBOARD_PAPER_WARMUP_MIDS_FULL")
+        or os.environ.get("CTE_DASHBOARD_PAPER_WARMUP_MIDS")
+        or "36"
+    ).strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 36
+    return max(20, min(120, n))
+
+
+def _dashboard_warmup_thresholds() -> tuple[int, int]:
+    """Return (early, full) mid counts; full is always > early."""
+    early = _dashboard_warmup_mids_early()
+    full = _dashboard_warmup_mids_full()
+    if full <= early:
+        full = early + 1
+    return early, full
+
+
+def _dashboard_signal_settings(base: SignalSettings) -> SignalSettings:
+    """Tier thresholds for dashboard paper loop only (does not change Redis services)."""
+    raw = (os.environ.get("CTE_DASHBOARD_PAPER_TIER_C") or "0.32").strip()
+    try:
+        tier_c = float(raw)
+    except ValueError:
+        tier_c = 0.32
+    tier_c = max(0.15, min(float(base.tier_b_threshold) - 0.01, tier_c))
+    return base.model_copy(update={"tier_c_threshold": tier_c})
+
+
+def _dashboard_risk_settings(base: RiskSettings, symbol_count: int) -> RiskSettings:
+    """Raise total exposure cap so one max-sized LONG per symbol can coexist in sim."""
+    n = max(1, symbol_count)
+    per = float(base.max_position_pct)
+    needed = min(1.0, per * float(n))
+    merged = max(float(base.max_total_exposure_pct), needed)
+    return base.model_copy(update={"max_total_exposure_pct": merged})
+
+
+def _dashboard_early_size_mult() -> Decimal:
+    raw = (os.environ.get("CTE_DASHBOARD_PAPER_EARLY_SIZE_MULT") or "0.35").strip()
+    try:
+        m = float(raw)
+    except ValueError:
+        m = 0.35
+    m = max(0.1, min(1.0, m))
+    return Decimal(str(round(m, 4)))
+
+
+def _dashboard_paper_interval_sec() -> float:
+    raw = (os.environ.get("CTE_DASHBOARD_PAPER_INTERVAL_SEC") or "1.5").strip()
+    try:
+        s = float(raw)
+    except ValueError:
+        s = 1.5
+    return max(0.5, min(10.0, s))
+
+
+def _dashboard_stall_warn_sec() -> float:
+    raw = (os.environ.get("CTE_DASHBOARD_PAPER_STALL_WARN_MINUTES") or "5").strip()
+    try:
+        m = float(raw)
+    except ValueError:
+        m = 5.0
+    return max(60.0, m * 60.0)
+
+
+# Engine universe (Binance USDT linear); must match ``Symbol`` enum.
+_SYMBOL_MAP: dict[str, Symbol] = {s.value: s for s in Symbol}
 
 
 def paper_loop_enabled() -> bool:
@@ -94,7 +222,7 @@ def _mid_price(t: TickerState) -> Decimal | None:
     return None
 
 
-def _compute_momentum_z(mids: Iterable[Decimal], lookback: int) -> float:
+def _compute_momentum_z(mids: list[Decimal], lookback: int) -> float:
     arr = [float(x) for x in mids]
     if len(arr) < max(lookback + 5, 15):
         return 0.0
@@ -140,38 +268,48 @@ def _tf_block(
     )
 
 
-def build_streaming_vector_from_ticker(
+def try_build_streaming_vector_from_ticker(
     symbol: Symbol,
     mids: deque[Decimal],
     t: TickerState,
     signal_settings: SignalSettings,
     *,
-    warmup_mid_samples: int = 80,
-) -> StreamingFeatureVector | None:
-    """Build a feature vector from rolling mids + latest ticker (LONG-only adapter)."""
+    early_mids: int,
+    full_mids: int,
+) -> tuple[StreamingFeatureVector | None, str | None]:
+    """Build a feature vector; second value is rejection code when ``None``."""
     mid = _mid_price(t)
     if mid is None or mid <= 0:
-        return None
+        return None, "rejected_no_quote"
     spread = float(t.spread_bps)
     if spread <= 0 or t.best_bid <= 0 or t.best_ask <= 0:
-        return None
+        return None, "rejected_no_quote"
 
     age = t.age_ms
     fresh = max(0.0, min(1.0, 1.0 - min(age, 15000) / 15000.0))
     if fresh < signal_settings.gate_min_freshness:
-        return None
+        return None, "rejected_freshness"
     if spread > signal_settings.gate_max_spread_bps:
-        return None
+        return None, "rejected_spread"
 
     mlist = list(mids)
+    n = len(mlist)
+    early_ok = n >= early_mids
+    full_ok = n >= full_mids
+    if full_ok:
+        phase = "full"
+    elif early_ok:
+        phase = "early"
+    else:
+        phase = "none"
+
     lb60 = max(8, min(60, len(mlist) // 2 or 8))
     z = _compute_momentum_z(mlist, lb60)
     z10 = _compute_momentum_z(mlist, max(3, min(10, len(mlist) // 6 or 3)))
 
-    warmup_ok = len(mlist) >= warmup_mid_samples
     feas = 0.92 if spread < 12.0 and fresh >= 0.55 else 0.35
     if feas < signal_settings.gate_min_feasibility:
-        return None
+        return None, "rejected_feasibility"
 
     tc = t.trade_count_1m
     vol = float(t.volume_1m) if t.volume_1m > 0 else float(tc) * 0.01
@@ -183,7 +321,7 @@ def build_streaming_vector_from_ticker(
     tf60 = _tf_block(60, z, z * 0.92, spread, tc, vol, fill_base * 0.95)
     tf5m = _tf_block(300, z * 0.85, z * 0.88, spread, tc, vol, fill_base * 0.85)
 
-    return StreamingFeatureVector(
+    vec = StreamingFeatureVector(
         symbol=symbol,
         tf_10s=tf10,
         tf_30s=tf30,
@@ -203,16 +341,40 @@ def build_streaming_vector_from_ticker(
         mid_price=mid,
         mark_price=t.mark_price if t.mark_price > 0 else mid,
         data_quality=DataQuality(
-            warmup_complete=warmup_ok,
+            warmup_complete=full_ok,
+            warmup_early_eligible=early_ok,
+            warmup_mid_count=n,
+            warmup_early_threshold=early_mids,
+            warmup_full_threshold=full_mids,
+            warmup_phase=phase,
             binance_connected=not t.is_stale,
             bybit_connected=True,
             window_fill_pct={"10s": tf10.window_fill_pct, "30s": tf30.window_fill_pct},
         ),
     )
+    return vec, None
+
+
+def build_streaming_vector_from_ticker(
+    symbol: Symbol,
+    mids: deque[Decimal],
+    t: TickerState,
+    signal_settings: SignalSettings,
+) -> StreamingFeatureVector | None:
+    """Backward-compatible wrapper (tests); prefer ``try_build_*`` for diagnostics."""
+    early, full = _dashboard_warmup_thresholds()
+    vec, _rej = try_build_streaming_vector_from_ticker(
+        symbol, mids, t, signal_settings, early_mids=early, full_mids=full
+    )
+    return vec
 
 
 def _has_open_long(paper: PaperExecutionEngine, symbol: str) -> bool:
     return any(pos.symbol == symbol and pos.is_open for pos in paper.open_positions.values())
+
+
+def _iso_utc(dt: datetime | None) -> str | None:
+    return dt.isoformat() if dt else None
 
 
 class DashboardPaperRunner:
@@ -232,12 +394,22 @@ class DashboardPaperRunner:
         self._analytics_engine = analytics_engine
         self._ops = ops_controller
         self._symbols = symbols
+        self._warmup_early, self._warmup_full = _dashboard_warmup_thresholds()
 
         self._publisher = AsyncMock()
         self._publisher.publish = AsyncMock(return_value="ok")
 
+        self._signal_engine = ScoringSignalEngine(
+            _dashboard_signal_settings(settings.signals),
+            self._publisher,
+            warmup_gate_mode="dashboard_staged",
+        )
         self._portfolio = PortfolioState(initial_capital=Decimal("10000"))
-        self._risk = RiskManager(settings.risk, self._publisher, self._portfolio)
+        self._risk = RiskManager(
+            _dashboard_risk_settings(settings.risk, len(symbols)),
+            self._publisher,
+            self._portfolio,
+        )
 
         exec_settings = settings.execution.model_copy()
         exec_settings.mode = ExecutionMode.PAPER
@@ -276,6 +448,18 @@ class DashboardPaperRunner:
         self._exits_recorded = 0
         self._last_skip: dict[str, str] = {}
 
+        self._diag = EntryDiagnostics()
+        self._runner_started_mono: float | None = None
+        self._first_eligible_mono: float | None = None
+        self._first_entry_mono: float | None = None
+        self._first_entry_ticks: int | None = None
+        self._stall_warned = False
+        self._symbol_gate_state: dict[str, str] = {}
+        self._last_eligible_signal_at: datetime | None = None
+        self._last_risk_approved_at: datetime | None = None
+        self._last_nonzero_sizing_at: datetime | None = None
+        self._last_execution_attempt_at: datetime | None = None
+
     def stop(self) -> None:
         self._running = False
 
@@ -283,22 +467,166 @@ class DashboardPaperRunner:
     def last_error(self) -> str | None:
         return self._last_error
 
+    def _pipeline_stall_analysis(self) -> dict[str, Any]:
+        """Explain where the entry pipeline last progressed when entries_total is zero."""
+        if self._entries_total > 0:
+            return {
+                "stalled": False,
+                "furthest_stage": "opened",
+                "dominant_blocker": None,
+                "hint": "Paper entries have occurred.",
+            }
+        pos_counts = {k: v for k, v in self._diag.global_counts.items() if v > 0}
+        top = max(pos_counts.items(), key=lambda x: x[1])[0] if pos_counts else None
+        if self._last_execution_attempt_at:
+            stage = "execution_attempted"
+        elif self._last_nonzero_sizing_at:
+            stage = "sized"
+        elif self._last_risk_approved_at:
+            stage = "risk_approved"
+        elif self._last_eligible_signal_at:
+            stage = "eligible_signal"
+        else:
+            stage = "pre_signal"
+
+        hints: dict[str, str] = {
+            "pre_signal": "No tier-eligible signal yet — warmup, hard gates, tier floor, cooldown, or hourly cap.",
+            "eligible_signal": "Signal passed scoring; not yet risk-approved — check correlation, exposure, drawdown vetoes.",
+            "risk_approved": "Risk approved; sizing returned None or zero — check min_order / sizer.",
+            "sized": "Sized order ready; execution did not fill — missing bid/ask book.",
+            "execution_attempted": "execute_signal ran; if still no position, inspect paper backend / logs.",
+        }
+        hint = hints.get(stage, "")
+        if top:
+            hint += f" Most frequent block: {top}."
+        return {
+            "stalled": self._ticks_ok > 5,
+            "furthest_stage": stage,
+            "dominant_blocker": top,
+            "hint": hint,
+        }
+
     def status_dict(self) -> dict[str, Any]:
         paper = self._execution.paper_backend
         open_n = 0
         if paper:
             open_n = sum(1 for p in paper.open_positions.values() if p.is_open)
+        now_m = time.monotonic()
+        started = self._runner_started_mono
+        stall_sec = _dashboard_stall_warn_sec()
+        stall_active = False
+        top_blocker: str | None = None
+        pos_counts = {k: v for k, v in self._diag.global_counts.items() if v > 0}
+        if pos_counts:
+            top_blocker = max(pos_counts.items(), key=lambda x: x[1])[0]
+        if (
+            started is not None
+            and self._entries_total == 0
+            and (now_m - started) > stall_sec
+            and self._ticks_ok > 30
+        ):
+            stall_active = True
+            if not self._stall_warned:
+                self._stall_warned = True
+                logger.warning(
+                    "paper_stall_no_entries",
+                    seconds=int(now_m - started),
+                    ticks=self._ticks_ok,
+                    top_blocker=top_blocker,
+                )
+
+        t_elig = (
+            None
+            if self._first_eligible_mono is None or started is None
+            else self._first_eligible_mono - started
+        )
+        t_entry = (
+            None
+            if self._first_entry_mono is None or started is None
+            else self._first_entry_mono - started
+        )
+
+        pipe = self._pipeline_stall_analysis()
         return {
             "ticks_ok": self._ticks_ok,
             "entries_total": self._entries_total,
             "exits_recorded": self._exits_recorded,
             "open_positions": open_n,
             "last_error": self._last_error,
-            "demo_entries": self._demo_entries,
-            "warmup_mid_samples": self._warmup_mid_samples,
-            "tier_c_threshold": self._signal_settings.tier_c_threshold,
-            "mids_buffered": {s: len(self._mid_history[s]) for s in self._symbols},
-            "last_skip_by_symbol": dict(self._last_skip),
+            "pipeline_timestamps": {
+                "last_eligible_signal_at": _iso_utc(self._last_eligible_signal_at),
+                "last_risk_approved_signal_at": _iso_utc(self._last_risk_approved_at),
+                "last_nonzero_sizing_at": _iso_utc(self._last_nonzero_sizing_at),
+                "last_execution_attempt_at": _iso_utc(self._last_execution_attempt_at),
+            },
+            "pipeline_stall": pipe,
+            "warmup": {
+                "early_mids": self._warmup_early,
+                "full_mids": self._warmup_full,
+                "interval_sec": _dashboard_paper_interval_sec(),
+                "early_size_mult": str(_dashboard_early_size_mult()),
+            },
+            "entry_diagnostics": {
+                "global_counts": dict(self._diag.global_counts),
+                "entry_attempts": self._diag.entry_attempts,
+                "eligible_signals": self._diag.eligible_signals,
+                "last_blocked": list(self._diag.last_blocked),
+            },
+            "first_open_metrics": {
+                "time_to_first_eligible_signal_sec": t_elig,
+                "time_to_first_entry_sec": t_entry,
+                "ticks_to_first_entry": self._first_entry_ticks,
+            },
+            "stall": {
+                "warn_after_sec": stall_sec,
+                "stall_active": stall_active,
+                "top_blocker": top_blocker,
+            },
+        }
+
+    def warmup_snapshot(self) -> dict[str, Any]:
+        """Per-symbol warmup progress for APIs."""
+        out: dict[str, Any] = {
+            "early_mids": self._warmup_early,
+            "full_mids": self._warmup_full,
+            "interval_sec": _dashboard_paper_interval_sec(),
+            "symbols": {},
+        }
+        interval = _dashboard_paper_interval_sec()
+        for sym in self._symbols:
+            n = len(self._mid_history[sym])
+            pct = min(100.0, 100.0 * n / float(self._warmup_full))
+            eta_sec = None
+            if n < self._warmup_full:
+                need = self._warmup_full - n
+                eta_sec = round(need * interval, 1)
+            gate = "warming_up"
+            if n >= self._warmup_full:
+                gate = "ready_full"
+            elif n >= self._warmup_early:
+                gate = "ready_early"
+            phase = "none"
+            if n >= self._warmup_full:
+                phase = "full"
+            elif n >= self._warmup_early:
+                phase = "early"
+            out["symbols"][sym] = {
+                "mid_count": n,
+                "warmup_phase": phase,
+                "warmup_gate": gate,
+                "progress_pct": round(pct, 1),
+                "eta_sec_to_full": eta_sec,
+                "first_eligible_after_full": n >= self._warmup_full,
+            }
+        return out
+
+    def entry_diagnostics_payload(self) -> dict[str, Any]:
+        return {
+            "global_counts": dict(self._diag.global_counts),
+            "per_symbol": {k: dict(v) for k, v in self._diag.per_symbol.items()},
+            "entry_attempts": self._diag.entry_attempts,
+            "eligible_signals": self._diag.eligible_signals,
+            "last_blocked": list(self._diag.last_blocked),
         }
 
     def open_positions_payload(self) -> list[dict[str, Any]]:
@@ -320,18 +648,24 @@ class DashboardPaperRunner:
                     "unrealized_pnl": str(pos.unrealized_pnl),
                     "signal_tier": pos.signal_tier,
                     "composite_score": pos.composite_score,
+                    "warmup_phase": pos.warmup_phase,
                     "entry_reason": (pos.entry_reason or "")[:500],
                     "opened_at": pos.fill_time.isoformat() if pos.fill_time else "",
                 }
             )
         return out
 
-    async def run_forever(self, interval_sec: float = 2.0) -> None:
+    async def run_forever(self, interval_sec: float | None = None) -> None:
         self._running = True
+        if interval_sec is None:
+            interval_sec = _dashboard_paper_interval_sec()
+        self._runner_started_mono = time.monotonic()
         await logger.ainfo(
             "paper_runner_started",
             interval_sec=interval_sec,
             symbols=list(self._symbols),
+            warmup_early=self._warmup_early,
+            warmup_full=self._warmup_full,
         )
         while self._running:
             try:
@@ -346,6 +680,25 @@ class DashboardPaperRunner:
                 await logger.aexception("paper_runner_tick_failed", error=str(e))
             await asyncio.sleep(interval_sec)
         await logger.ainfo("paper_runner_stopped")
+
+    async def _maybe_log_warmup_transition(
+        self, sym: str, vec: StreamingFeatureVector | None, t: TickerState
+    ) -> None:
+        if vec is None:
+            return
+        dq = vec.data_quality
+        prev = self._symbol_gate_state.get(sym, "none")
+        if dq.warmup_early_eligible and prev == "none":
+            self._symbol_gate_state[sym] = "ready"
+            await logger.ainfo(
+                "paper_symbol_warmup_ready",
+                symbol=sym,
+                phase=dq.warmup_phase,
+                mids=dq.warmup_mid_count,
+            )
+        elif prev == "ready" and t.is_stale:
+            self._symbol_gate_state[sym] = "degraded"
+            await logger.awarning("paper_symbol_data_degraded", symbol=sym)
 
     async def tick(self) -> None:
         feed = self._market_feed()
@@ -379,39 +732,52 @@ class DashboardPaperRunner:
                 self._execution.update_book(sym, bid, ask)
 
             mark = t.mark_price if t.mark_price > 0 else mid
-            closed = self._execution.update_price_and_evaluate(sym, mark, event_now)
+            vec, vec_rej = try_build_streaming_vector_from_ticker(
+                sym_enum,
+                self._mid_history[sym],
+                t,
+                sig_settings,
+                early_mids=self._warmup_early,
+                full_mids=self._warmup_full,
+            )
+            await self._maybe_log_warmup_transition(sym, vec, t)
+
+            closed = self._execution.update_price_and_evaluate(sym, mark, now, vec)
             for pos in closed:
                 await self._on_position_closed(pos, analytics)
 
             if not ops.is_entries_allowed:
-                self._last_skip[sym] = "ops_not_active"
+                self._diag.record(sym, "rejected_entries_paused", "ops mode blocks entries")
                 continue
             if not ops.is_symbol_enabled(sym):
-                self._last_skip[sym] = "symbol_disabled"
+                self._diag.record(sym, "rejected_symbol_disabled", "")
                 continue
             if _has_open_long(paper, sym):
-                self._last_skip[sym] = "already_long"
+                self._diag.record(sym, "rejected_existing_position", "")
                 continue
 
-            vec = build_streaming_vector_from_ticker(
-                sym_enum,
-                self._mid_history[sym],
-                t,
-                self._signal_settings,
-                warmup_mid_samples=self._warmup_mid_samples,
-            )
             if vec is None:
-                n_mids = len(self._mid_history[sym])
-                if n_mids < self._warmup_mid_samples:
-                    self._last_skip[sym] = f"warmup_{n_mids}/{self._warmup_mid_samples}_mids"
-                else:
-                    self._last_skip[sym] = "no_feature_vector"
+                if vec_rej:
+                    self._diag.record(sym, vec_rej, "feature build")
                 continue
 
-            scored = await self._signal_engine.evaluate(vec)
-            if scored is None:
-                self._last_skip[sym] = "signal_gated_or_below_tier"
+            ev = await self._signal_engine.evaluate_with_reason(vec)
+            self._diag.entry_attempts += 1
+            if ev.signal is not None:
+                self._diag.eligible_signals += 1
+                if self._first_eligible_mono is None and self._runner_started_mono is not None:
+                    self._first_eligible_mono = time.monotonic()
+
+            if ev.signal is None:
+                if ev.rejection:
+                    self._diag.record(sym, ev.rejection, "")
                 continue
+
+            scored = ev.signal
+            self._last_eligible_signal_at = now
+            entry_wp = vec.data_quality.warmup_phase
+            if entry_wp not in ("early", "full"):
+                entry_wp = "full" if vec.data_quality.warmup_complete else "early"
 
             legacy = SignalEvent(
                 symbol=scored.symbol,
@@ -426,36 +792,50 @@ class DashboardPaperRunner:
                 Decimal(str(sizing_settings.max_order_usd)),
                 self._portfolio.portfolio_value * Decimal(str(risk_settings.max_position_pct)),
             )
+            if entry_wp == "early":
+                est = (est * _dashboard_early_size_mult()).quantize(Decimal("0.01"))
+
             if est < Decimal(str(sizing_settings.min_order_usd)):
-                self._last_skip[sym] = "sizing_below_min_order"
+                self._diag.record(sym, "rejected_min_notional", f"est={est}")
                 continue
 
             assessment = await self._risk.assess_signal(legacy, est)
             if assessment.decision != RiskDecision.APPROVED:
-                self._last_skip[sym] = "risk_veto"
+                self._diag.record(sym, "rejected_risk", str(assessment.decision))
                 continue
+            self._last_risk_approved_at = now
 
             sizer = SizingEngine(sizing_settings, self._publisher, self._portfolio.portfolio_value)
             sized = await sizer.size_order(legacy, assessment, mark)
             if sized is None:
-                self._last_skip[sym] = "sizing_failed"
+                self._diag.record(sym, "rejected_sizing_failed", "")
                 continue
+            if sized.notional_usd > 0:
+                self._last_nonzero_sizing_at = now
 
+            self._last_execution_attempt_at = now
             opened = await self._execution.execute_signal(
-                scored, sized.quantity, sized.notional_usd, event_now
+                scored,
+                sized.quantity,
+                sized.notional_usd,
+                now,
+                warmup_phase=entry_wp,
             )
             if opened is not None:
                 self._portfolio.update_exposure(sym, sized.notional_usd)
                 self._entries_total += 1
-                self._last_skip[sym] = "ok_opened"
+                if self._first_entry_mono is None and self._runner_started_mono is not None:
+                    self._first_entry_mono = time.monotonic()
+                    self._first_entry_ticks = self._ticks_ok
                 await logger.ainfo(
                     "paper_position_opened",
                     symbol=sym,
                     tier=scored.tier.value,
                     notional=str(sized.notional_usd),
+                    warmup_phase=entry_wp,
                 )
             else:
-                self._last_skip[sym] = "paper_fill_rejected_no_book"
+                self._diag.record(sym, "rejected_no_quote", "paper fill")
 
     async def _on_position_closed(
         self,
@@ -472,6 +852,7 @@ class DashboardPaperRunner:
             venue="binance",
             was_profitable_at_exit=was_prof,
             source="paper_simulated",
+            warmup_phase=position.warmup_phase,
         )
         self._exits_recorded += 1
         await logger.ainfo(
@@ -479,4 +860,5 @@ class DashboardPaperRunner:
             symbol=sym,
             pnl=str(position.realized_pnl),
             exit_reason=position.exit_reason,
+            warmup_phase=position.warmup_phase,
         )

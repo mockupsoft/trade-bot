@@ -24,14 +24,6 @@ import websockets
 logger = structlog.get_logger(__name__)
 
 BINANCE_COMBINED_STREAM = "wss://stream.binancefuture.com/stream"
-DEFAULT_STREAMS = [
-    "btcusdt@trade",
-    "btcusdt@depth5@100ms",
-    "btcusdt@markPrice@1s",
-    "ethusdt@trade",
-    "ethusdt@depth5@100ms",
-    "ethusdt@markPrice@1s",
-]
 
 
 @dataclass
@@ -120,17 +112,23 @@ class MarketDataFeed:
         self,
         ws_url: str | None = None,
         streams: list[str] | None = None,
+        symbols: tuple[str, ...] | None = None,
     ) -> None:
+        from cte.core.universe import (
+            DEFAULT_TRADING_SYMBOLS,
+            binance_futures_default_streams,
+        )
+
         env_ws = (os.environ.get("CTE_MARKET_WS_URL") or "").strip()
         self._ws_url = ws_url or (env_ws if env_ws else BINANCE_COMBINED_STREAM)
-        self._streams = streams or DEFAULT_STREAMS
+        syms = symbols if symbols is not None else DEFAULT_TRADING_SYMBOLS
+        self._streams = streams if streams is not None else binance_futures_default_streams(syms)
         self._ws = None
         self._running = False
         self._start_time: float = 0
 
         self._tickers: dict[str, TickerState] = {
-            "BTCUSDT": TickerState(symbol="BTCUSDT"),
-            "ETHUSDT": TickerState(symbol="ETHUSDT"),
+            s: TickerState(symbol=s) for s in syms
         }
         self._health = FeedHealth()
 

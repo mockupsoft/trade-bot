@@ -8,8 +8,8 @@ V1 targets **Binance USDⓈ-M futures testnet** end-to-end for operator UI and p
 |-------|-------------|
 | **Dashboard process** | Always `SystemMode.DEMO`: `enforce_safety` requires `CTE_BINANCE_TESTNET_API_KEY` / `CTE_BINANCE_TESTNET_API_SECRET`. No `inject_seed_data`. |
 | **Epoch** | Single active epoch: `crypto_v1_demo`. |
-| **Market WebSocket** | Defaults to `wss://stream.binancefuture.com/stream` (`BinanceSettings.ws_combined_url` / `CTE_BINANCE_WS_COMBINED_URL`). If depth lags trades, the feed **synthesizes tight bid/ask** from the last trade or mark (overwritten when book data arrives) so spread gates and paper fills always see a two-sided quote. |
-| **Paper loop (dashboard)** | Optional background task (default **on**, `CTE_DASHBOARD_PAPER_LOOP=1`): rolling mids from the feed → `StreamingFeatureVector` → `ScoringSignalEngine` → `RiskManager` → `SizingEngine` → `ExecutionEngine` (paper) → `AnalyticsEngine` when positions close. Respects Operations mode and per-symbol toggles. Not a substitute for Redis Streams in the distributed architecture. **Why no positions?** You need a live book (bid/ask), enough mids for warmup (`CTE_DASHBOARD_PAPER_WARMUP_MIDS`, default **50** when `CTE_DASHBOARD_PAPER_DEMO_ENTRIES=1`), and a composite at or above tier C (`CTE_DASHBOARD_PAPER_TIER_C_THRESHOLD` or demo floor **0.36**). `/api/paper/status` returns `mids_buffered`, `last_skip_by_symbol`, and thresholds. |
+| **Market WebSocket** | Defaults to `wss://stream.binancefuture.com/stream` (`BinanceSettings.ws_combined_url` / `CTE_BINANCE_WS_COMBINED_URL`). |
+| **Paper loop (dashboard)** | Optional background task (default **on**, `CTE_DASHBOARD_PAPER_LOOP=1`): rolling mids from the feed → `StreamingFeatureVector` → `ScoringSignalEngine` → `RiskManager` → `SizingEngine` → `ExecutionEngine` (paper) → `AnalyticsEngine` when positions close. Uses **staged warmup** (early vs full mid thresholds; early entries are smaller and tagged `warmup_phase=early`). Rejection reasons are counted and exposed on `/api/paper/status` and `/api/paper/entry-diagnostics`. Respects Operations mode and per-symbol toggles. Not a substitute for Redis Streams in the distributed architecture. |
 | **Other Python services** | Default `CTE_ENGINE_MODE=paper`, `CTE_EXECUTION_MODE=paper` — simulated fills while consuming **testnet-priced** streams from settings. |
 
 ## Local
@@ -39,9 +39,12 @@ docker compose -f deploy/docker-compose.yml up -d analytics
 
 ## Positions (trade journal)
 
-- **Open paper** (when the loop is enabled): `GET /api/paper/positions` lists in-memory LONG legs; `GET /api/paper/status` exposes tick counters and `open_positions` count (header pill **PAPER N open**).
-- **Closed journal**: UI calls `GET /api/analytics/trades` with `epoch`, optional `tier`, `symbol`, `exit_reason`, `source`, and `limit` (1–500). Rows are **newest first** and include `venue`, `was_profitable_at_exit`, and `exit_reason` (explainability field per PRD). Closes from the dashboard paper loop use `source=paper_simulated`.
-- v1 copy on the page states LONG-only, BTCUSDT/ETHUSDT, and source semantics (`paper_simulated`, `demo_exchange`, `seed`).
+- **Open paper** (when the loop is enabled): `GET /api/paper/positions` lists in-memory LONG legs; `GET /api/paper/status` exposes tick counters, staged warmup settings, first-open timing, aggregated entry blockers, and `open_positions` count.
+- **Warmup APIs**: `GET /api/paper/warmup` (per-symbol mid count, gate state, ETA to full threshold); `GET /api/paper/entry-diagnostics` (global/per-symbol rejection counts, last 20 blocked attempts). Market `GET /api/market/tickers` embeds a `warmup` object per symbol when the paper runner is active.
+- **Closed journal**: UI calls `GET /api/analytics/trades` with `epoch`, optional `tier`, `symbol`, `exit_reason`, `source`, `warmup_phase`, and `limit` (1–500). Rows are **newest first** and include `warmup_phase` (`none` / `early` / `full`), `venue`, `was_profitable_at_exit`, and `exit_reason`. Closes from the dashboard paper loop use `source=paper_simulated`.
+- **Analytics summary** (`/api/analytics/summary`): includes `warmup_phase_breakdown` with separate metrics for `early`, `full`, `none`, and `promotion_evidence` (full + none; **excludes early**). Readiness **Campaign** gates (`/api/readiness/campaign`) use promotion-only trade count, expectancy, and max drawdown by default so early-warmup trades do not satisfy promotion evidence.
+- **Paper status** (`/api/paper/status`): `pipeline_timestamps` (last eligible / risk-approved / sized / execution attempt) and `pipeline_stall` (human hint when no positions yet).
+- v1 copy on the page states LONG-only, configured universe (default: 10 Binance USDT linear majors), and source semantics (`paper_simulated`, `demo_exchange`, `seed`).
 
 ## Alerts page
 
@@ -65,6 +68,8 @@ curl -s http://localhost:8080/api/dashboard/meta | python -m json.tool
 curl -s http://localhost:8080/api/market/health | python -m json.tool
 curl -s http://localhost:8080/api/market/tickers | python -m json.tool
 curl -s http://localhost:8080/api/paper/status | python -m json.tool
+curl -s http://localhost:8080/api/paper/warmup | python -m json.tool
+curl -s http://localhost:8080/api/paper/entry-diagnostics | python -m json.tool
 ```
 
 - `meta` must include `"service": "cte.dashboard"` and `"market_profile": "binance_usdm_testnet"`. If you get **404**, another app owns port **8080** (stop it).

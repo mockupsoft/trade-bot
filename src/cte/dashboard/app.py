@@ -31,7 +31,16 @@ from cte.api.analytics_routes import set_engine
 from cte.api.health import router as health_router
 from cte.core.logging import setup_logging
 from cte.core.settings import get_settings
-from cte.dashboard.paper_runner import DashboardPaperRunner, paper_loop_enabled
+from cte.core.universe import (
+    DEFAULT_TRADING_SYMBOLS,
+    binance_futures_default_streams,
+    expand_legacy_engine_symbols,
+)
+from cte.dashboard.paper_runner import (
+    DashboardPaperRunner,
+    _dashboard_paper_interval_sec,
+    paper_loop_enabled,
+)
 from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
@@ -52,7 +61,8 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 # ── Global State ──────────────────────────────────────────────
 ACTIVE_TESTNET_EPOCH = "crypto_v1_demo"
-DASHBOARD_MARKET_SYMBOLS: tuple[str, ...] = ("BTCUSDT", "ETHUSDT")
+# Set at startup from expanded engine symbols (see ``lifespan``).
+_active_dashboard_symbols: tuple[str, ...] = DEFAULT_TRADING_SYMBOLS
 
 _system_mode: SystemMode = SystemMode.DEMO
 _epoch_manager = EpochManager()
@@ -77,7 +87,7 @@ def _resolve_mode() -> SystemMode:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _analytics_engine, _market_feed, _feed_task, _system_mode, _paper_runner, _paper_task
+    global _active_dashboard_symbols, _analytics_engine, _market_feed, _feed_task, _system_mode, _paper_runner, _paper_task
     setup_logging(level="INFO", service_name="dashboard")
 
     _system_mode = _resolve_mode()
@@ -108,12 +118,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     set_engine(_analytics_engine)
 
     settings = get_settings()
-    _market_feed = MarketDataFeed(ws_url=settings.binance.ws_combined_url)
+    expanded = expand_legacy_engine_symbols(list(settings.engine.symbols))
+    dash_syms = tuple(expanded)
+    _active_dashboard_symbols = dash_syms
+    streams = binance_futures_default_streams(dash_syms)
+    _market_feed = MarketDataFeed(
+        ws_url=settings.binance.ws_combined_url,
+        streams=streams,
+        symbols=dash_syms,
+    )
     _feed_task = asyncio.create_task(_market_feed.start())
     await log.ainfo(
         "market_feed_started",
         mode="testnet",
         ws_url=settings.binance.ws_combined_url,
+        symbol_count=len(dash_syms),
+        stream_count=len(streams),
     )
 
     if paper_loop_enabled():
@@ -122,10 +142,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             market_feed=lambda: _market_feed,
             analytics_engine=lambda: _analytics_engine,
             ops_controller=lambda: _ops_controller,
-            symbols=DASHBOARD_MARKET_SYMBOLS,
+            symbols=dash_syms,
         )
-        _paper_task = asyncio.create_task(_paper_runner.run_forever(interval_sec=2.0))
-        await log.ainfo("paper_runner_scheduled", interval_sec=2.0)
+        _paper_interval = _dashboard_paper_interval_sec()
+        _paper_task = asyncio.create_task(
+            _paper_runner.run_forever(interval_sec=_paper_interval)
+        )
+        await log.ainfo("paper_runner_scheduled", interval_sec=_paper_interval)
     else:
         await log.ainfo("paper_runner_disabled", reason="CTE_DASHBOARD_PAPER_LOOP")
 
@@ -202,6 +225,22 @@ async def paper_open_positions() -> dict[str, Any]:
     return {"positions": _paper_runner.open_positions_payload()}
 
 
+@app.get("/api/paper/warmup")
+async def paper_warmup_snapshot() -> dict[str, Any]:
+    """Per-symbol mid counts, warmup gate, ETA to full threshold (dashboard paper)."""
+    if _paper_runner is None:
+        return {"error": "paper runner not running", "symbols": {}}
+    return _paper_runner.warmup_snapshot()
+
+
+@app.get("/api/paper/entry-diagnostics")
+async def paper_entry_diagnostics() -> dict[str, Any]:
+    """Blocked entry reasons, last 20 attempts, attempt/eligible counters."""
+    if _paper_runner is None:
+        return {"error": "paper runner not running"}
+    return _paper_runner.entry_diagnostics_payload()
+
+
 # ── Market Data API ───────────────────────────────────────────
 
 
@@ -243,7 +282,7 @@ def _build_market_tickers_payload() -> dict[str, object]:
     """Always return v1 symbols so the dashboard grid is never empty."""
     settings = get_settings()
     stream_url = str(settings.binance.ws_combined_url)
-    base_rows = {sym: _empty_ticker_payload() for sym in DASHBOARD_MARKET_SYMBOLS}
+    base_rows = {sym: _empty_ticker_payload() for sym in _active_dashboard_symbols}
     if not _market_feed:
         return {
             "source": "none",
@@ -253,12 +292,21 @@ def _build_market_tickers_payload() -> dict[str, object]:
             "feed_ready": False,
         }
     tickers: dict[str, dict[str, object]] = {}
-    for sym in DASHBOARD_MARKET_SYMBOLS:
+    warm_by_sym: dict[str, Any] = {}
+    if _paper_runner is not None:
+        warm_by_sym = _paper_runner.warmup_snapshot().get("symbols", {})
+    for sym in _active_dashboard_symbols:
         t = _market_feed.tickers.get(sym)
-        tickers[sym] = _serialize_ticker(t) if t else _empty_ticker_payload()
+        row: dict[str, object] = _serialize_ticker(t) if t else _empty_ticker_payload()
+        if sym in warm_by_sym:
+            row["warmup"] = warm_by_sym[sym]
+        tickers[sym] = row
     for sym, t in _market_feed.tickers.items():
         if sym not in tickers:
-            tickers[sym] = _serialize_ticker(t)
+            row = _serialize_ticker(t)
+            if sym in warm_by_sym:
+                row["warmup"] = warm_by_sym[sym]
+            tickers[sym] = row
     return {
         "source": "binance_testnet",
         "mode": "testnet",
@@ -315,9 +363,10 @@ async def market_health():
 
 def _v1_operations_policy() -> dict[str, object]:
     """Static PRD alignment for the Operations UI (matches .cursorrules / phased plan)."""
+    s = get_settings()
     return {
         "direction": "long_only",
-        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "symbols": expand_legacy_engine_symbols(list(s.engine.symbols)),
         "venues": {
             "primary": "binance_usdm_futures_testnet",
             "secondary_context": "bybit_v5_public_testnet",
@@ -478,10 +527,13 @@ async def take_snapshot(period: str = "hourly"):
     trades = _analytics_engine._filter_trades()
     feed_health = _market_feed.health if _market_feed else None
     snapshot = compute_snapshot(
-        trades, epoch=_epoch_manager.active_name, period=period,
+        trades,
+        epoch=_epoch_manager.active_name,
+        period=period,
         stale_event_count=feed_health.errors_total if feed_health else 0,
         reconnect_count=feed_health.reconnect_count if feed_health else 0,
         recon_mismatch_count=_recon_status.get("mismatches", 0),
+        initial_capital=float(_analytics_engine._initial_capital),
     )
     _campaign_collector.add_snapshot(snapshot)
     return snapshot.to_dict()
@@ -695,23 +747,36 @@ async def alerts_status():
 @app.get("/api/readiness/campaign")
 async def campaign_readiness():
     """Readiness gates wired to REAL campaign metrics."""
+    from cte.analytics.metrics import compute_phase_metrics_slice, trades_for_promotion_evidence
     from cte.ops.readiness import build_campaign_validation_checklist
+
     collector = _campaign_collector
     latest = collector.latest
     trades = _analytics_engine._filter_trades() if _analytics_engine else []
     seed_count = sum(1 for t in trades if t.source == "seed")
-    return evaluate_readiness(build_campaign_validation_checklist(
-        campaign_days=collector.campaign_days,
-        total_trades=collector.total_trades,
-        all_recon_clean=collector.all_recon_clean,
-        max_dd_observed=collector.max_dd_observed,
-        avg_latency_p95_ms=collector.avg_latency_p95,
-        stale_ratio=0.0,
-        reject_ratio=latest.reject_rate if latest else 0.0,
-        error_count=latest.error_count if latest else 0,
-        expectancy=latest.expectancy if latest else 0.0,
-        seed_trade_count=seed_count,
-    ))
+    ic = float(_analytics_engine._initial_capital) if _analytics_engine else 10000.0
+    promo = trades_for_promotion_evidence(trades)
+    pm = compute_phase_metrics_slice(promo, ic)
+    promo_dd = float(pm["max_drawdown_pct"])
+    promo_exp = float(pm["expectancy"])
+    promo_n = int(pm["trade_count"])
+    return evaluate_readiness(
+        build_campaign_validation_checklist(
+            campaign_days=collector.campaign_days,
+            total_trades=len(trades),
+            all_recon_clean=collector.all_recon_clean,
+            max_dd_observed=collector.max_dd_observed,
+            avg_latency_p95_ms=collector.avg_latency_p95,
+            stale_ratio=0.0,
+            reject_ratio=latest.reject_rate if latest else 0.0,
+            error_count=latest.error_count if latest else 0,
+            expectancy=latest.expectancy if latest else 0.0,
+            seed_trade_count=seed_count,
+            promotion_trade_count=promo_n,
+            promotion_expectancy=promo_exp,
+            promotion_max_dd_observed=promo_dd,
+        )
+    )
 
 
 # ── Reports ───────────────────────────────────────────────────
@@ -781,7 +846,11 @@ def _build_config_snapshot() -> dict[str, object]:
             "id": "universe",
             "title": "Universe & direction",
             "rows": [
-                {"key": "symbols", "label": "Symbols", "value": list(s.engine.symbols)},
+                {
+                    "key": "symbols",
+                    "label": "Symbols (engine; dashboard expands legacy BTC+ETH to full universe)",
+                    "value": expand_legacy_engine_symbols(list(s.engine.symbols)),
+                },
                 {"key": "direction", "label": "Direction", "value": s.engine.direction.value},
                 {"key": "max_leverage", "label": "Max leverage (cap)", "value": s.engine.max_leverage},
             ],

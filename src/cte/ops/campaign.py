@@ -7,10 +7,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from cte.analytics.metrics import CompletedTrade
+
+from cte.analytics.metrics import (
+    compute_phase_metrics_slice,
+    compute_warmup_phase_breakdown,
+    trades_for_promotion_evidence,
+)
 
 
 @dataclass
@@ -48,6 +54,12 @@ class MetricSnapshot:
     paper_trades: int = 0
     demo_trades: int = 0
 
+    # Promotion evidence (excludes warmup_phase=early)
+    promotion_trade_count: int = 0
+    promotion_expectancy: float = 0.0
+    promotion_max_drawdown_pct: float = 0.0
+    warmup_phase_breakdown: dict[str, Any] = field(default_factory=dict)
+
     def to_dict(self) -> dict:
         return {
             "timestamp": self.timestamp.isoformat(),
@@ -72,6 +84,10 @@ class MetricSnapshot:
                 "paper_simulated": self.paper_trades,
                 "demo_exchange": self.demo_trades,
             },
+            "promotion_trade_count": self.promotion_trade_count,
+            "promotion_expectancy": round(self.promotion_expectancy, 4),
+            "promotion_max_drawdown_pct": round(self.promotion_max_drawdown_pct, 4),
+            "warmup_phase_breakdown": self.warmup_phase_breakdown,
         }
 
 
@@ -84,6 +100,7 @@ def compute_snapshot(
     reconnect_count: int = 0,
     recon_mismatch_count: int = 0,
     error_count: int = 0,
+    initial_capital: float = 10000.0,
 ) -> MetricSnapshot:
     """Compute a metric snapshot from a list of trades + operational counters."""
     if not trades:
@@ -92,6 +109,10 @@ def compute_snapshot(
                               reconnect_count=reconnect_count,
                               recon_mismatch_count=recon_mismatch_count,
                               error_count=error_count)
+
+    wb = compute_warmup_phase_breakdown(trades, initial_capital)
+    promo = trades_for_promotion_evidence(trades)
+    pm = compute_phase_metrics_slice(promo, initial_capital)
 
     wins = sum(1 for t in trades if t.pnl > 0)
     total = len(trades)
@@ -140,6 +161,10 @@ def compute_snapshot(
         seed_trades=sum(1 for t in trades if t.source == "seed"),
         paper_trades=sum(1 for t in trades if t.source == "paper_simulated"),
         demo_trades=sum(1 for t in trades if t.source == "demo_exchange"),
+        promotion_trade_count=pm["trade_count"],
+        promotion_expectancy=float(pm["expectancy"]),
+        promotion_max_drawdown_pct=float(pm["max_drawdown_pct"]),
+        warmup_phase_breakdown=wb,
     )
 
 

@@ -50,7 +50,7 @@ class TestTradeNormalization:
     async def test_normalize_unknown_symbol_returns_none(self, mock_publisher):
         raw = RawTradeEvent(
             venue=Venue.BINANCE,
-            symbol_raw="DOGEUSDT",
+            symbol_raw="NOTLISTEDUSDT",
             price="0.1",
             quantity="100",
             trade_id="999",

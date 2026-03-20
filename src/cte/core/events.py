@@ -34,6 +34,14 @@ class Venue(StrEnum):
 class Symbol(StrEnum):
     BTCUSDT = "BTCUSDT"
     ETHUSDT = "ETHUSDT"
+    BNBUSDT = "BNBUSDT"
+    SOLUSDT = "SOLUSDT"
+    XRPUSDT = "XRPUSDT"
+    DOGEUSDT = "DOGEUSDT"
+    ADAUSDT = "ADAUSDT"
+    AVAXUSDT = "AVAXUSDT"
+    LINKUSDT = "LINKUSDT"
+    DOTUSDT = "DOTUSDT"
 
 
 class Side(StrEnum):
@@ -504,6 +512,17 @@ class DataQuality(BaseModel):
     model_config = {"frozen": True}
 
     warmup_complete: bool = False
+    """True when mid-history reaches the *full* dashboard warmup threshold."""
+
+    warmup_early_eligible: bool = False
+    """True when mid-history reaches the *early* (staged) threshold (dashboard paper)."""
+
+    warmup_mid_count: int = 0
+    warmup_early_threshold: int = 0
+    warmup_full_threshold: int = 0
+    warmup_phase: str = "none"
+    """``none`` | ``early`` | ``full`` — staged warmup for dashboard paper diagnostics."""
+
     binance_connected: bool = False
     bybit_connected: bool = False
     window_fill_pct: dict[str, float] = Field(default_factory=dict)

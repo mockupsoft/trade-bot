@@ -17,6 +17,7 @@ Every decision is deterministic and carries a complete reason chain.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -39,7 +40,7 @@ from cte.signals.composite import (
 from cte.signals.composite import (
     SignalTier as CompositeTier,
 )
-from cte.signals.gates import check_all_gates
+from cte.signals.gates import WarmupGateMode, check_all_gates
 from cte.signals.scorer import (
     compute_context_score,
     compute_cross_venue_score,
@@ -69,6 +70,23 @@ scored_cooldown_active = Gauge(
     "cte_scored_cooldown_active", "Cooldown active", ["symbol"]
 )
 
+GATE_NAME_TO_REJECTION: dict[str, str] = {
+    "warmup": "rejected_warmup",
+    "stale_feed": "rejected_freshness",
+    "max_spread": "rejected_spread",
+    "execution_feasibility": "rejected_feasibility",
+    "max_divergence": "rejected_divergence",
+}
+
+
+@dataclass(frozen=True)
+class SignalEvaluationResult:
+    """Result of ``evaluate_with_reason`` (dashboard diagnostics)."""
+
+    signal: ScoredSignalEvent | None
+    rejection: str | None
+    """Machine code e.g. ``rejected_warmup``; ``None`` when a signal is emitted."""
+
 
 class ScoringSignalEngine:
     """Weighted scoring signal engine with hard gates and full auditability.
@@ -81,9 +99,12 @@ class ScoringSignalEngine:
         self,
         settings: SignalSettings,
         publisher: StreamPublisher,
+        *,
+        warmup_gate_mode: WarmupGateMode = "strict",
     ) -> None:
         self._settings = settings
         self._publisher = publisher
+        self._warmup_gate_mode: WarmupGateMode = warmup_gate_mode
         self._last_signal_time: dict[str, float] = {}
         self._signal_count_hour: dict[str, int] = {}
         self._hour_start: dict[str, float] = {}
@@ -113,24 +134,29 @@ class ScoringSignalEngine:
         - Symbol is on cooldown
         - Hourly signal limit reached
         """
+        return (await self.evaluate_with_reason(vector)).signal
+
+    async def evaluate_with_reason(
+        self, vector: StreamingFeatureVector
+    ) -> SignalEvaluationResult:
+        """Like ``evaluate`` but returns a rejection code when no signal is produced."""
         symbol = vector.symbol.value
 
-        # Cooldown check (before expensive scoring)
         if self._is_on_cooldown(symbol):
             scored_cooldown_active.labels(symbol=symbol).set(1)
-            return None
+            return SignalEvaluationResult(None, "rejected_cooldown")
         scored_cooldown_active.labels(symbol=symbol).set(0)
 
         if self._hourly_limit_reached(symbol):
-            return None
+            return SignalEvaluationResult(None, "rejected_hourly_limit")
 
-        # ── Step 1: Hard Gates ────────────────────────────────
         verdict = check_all_gates(
             vector,
             min_freshness=self._settings.gate_min_freshness,
             max_spread_bps=self._settings.gate_max_spread_bps,
             max_divergence_bps=self._settings.gate_max_divergence_bps,
             min_feasibility=self._settings.gate_min_feasibility,
+            warmup_gate_mode=self._warmup_gate_mode,
         )
 
         if not verdict.all_passed:
@@ -143,9 +169,13 @@ class ScoringSignalEngine:
                 symbol=symbol,
                 reasons=verdict.rejection_reasons,
             )
-            return None
+            rej = "rejected_unknown_gate"
+            for r in verdict.results:
+                if not r.passed:
+                    rej = GATE_NAME_TO_REJECTION.get(r.name, "rejected_unknown_gate")
+                    break
+            return SignalEvaluationResult(None, rej)
 
-        # ── Step 2: Sub-scores ────────────────────────────────
         momentum = compute_momentum_score(vector)
         orderflow = compute_orderflow_score(vector)
         liquidation = compute_liquidation_score(vector)
@@ -155,7 +185,6 @@ class ScoringSignalEngine:
         cross_venue = compute_cross_venue_score(vector)
         context = compute_context_score(vector)
 
-        # ── Step 3: Composite ─────────────────────────────────
         result = compute_composite(
             momentum=momentum,
             orderflow=orderflow,
@@ -169,7 +198,6 @@ class ScoringSignalEngine:
 
         scored_signal_composite.labels(symbol=symbol).observe(result.composite_score)
 
-        # ── Step 4: Tier filter ───────────────────────────────
         if result.tier == CompositeTier.REJECT:
             scored_signal_total.labels(symbol=symbol, tier="REJECT").inc()
             await logger.adebug(
@@ -177,10 +205,9 @@ class ScoringSignalEngine:
                 symbol=symbol,
                 composite=result.composite_score,
             )
-            return None
+            return SignalEvaluationResult(None, "rejected_tier_score")
 
-        # ── Step 5: Build signal event ────────────────────────
-        action = SignalAction.OPEN_LONG  # v1: LONG only
+        action = SignalAction.OPEN_LONG
 
         reason = _build_reason(result, vector)
         features_used = _extract_features_used(vector)
@@ -223,7 +250,6 @@ class ScoringSignalEngine:
             total_imputed_features=result.total_imputed,
         )
 
-        # ── Step 6: Publish ───────────────────────────────────
         await self._publisher.publish(STREAM_KEYS["signal_scored"], signal)
 
         scored_signal_total.labels(symbol=symbol, tier=result.tier.value).inc()
@@ -241,7 +267,7 @@ class ScoringSignalEngine:
             imputed=result.total_imputed,
         )
 
-        return signal
+        return SignalEvaluationResult(signal, None)
 
     # ── Cooldown & Rate Limiting ──────────────────────────────
 

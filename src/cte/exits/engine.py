@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 import structlog
 from prometheus_client import Counter, Gauge
 
-from cte.exits.config import get_profile
+from cte.exits.config import get_profile, merge_tier_profile_with_exit_defaults
 from cte.exits.layers import (
     ExitContext,
     LayerResult,
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from cte.core.events import StreamingFeatureVector
+    from cte.core.settings import ExitSettings
     from cte.execution.position import PaperPosition
 
 logger = structlog.get_logger(__name__)
@@ -96,12 +97,16 @@ class LayeredExitEngine:
         features: StreamingFeatureVector | None = None,
         best_bid: Decimal = Decimal("0"),
         best_ask: Decimal = Decimal("0"),
+        *,
+        exit_settings: ExitSettings | None = None,
     ) -> ExitDecision:
         """Evaluate all 5 layers for a position. Returns an ExitDecision.
 
         Deterministic: same inputs → same decision. No wall clock, no randomness.
         """
         profile = get_profile(position.signal_tier)
+        if exit_settings is not None:
+            profile = merge_tier_profile_with_exit_defaults(profile, exit_settings)
         state = self._get_state(position.position_id)
 
         position.update_price(current_price)

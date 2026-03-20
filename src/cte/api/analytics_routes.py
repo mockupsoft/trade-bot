@@ -50,18 +50,27 @@ async def trades(
     tier: str | None = None,
     exit_reason: str | None = None,
     source: str | None = None,
+    warmup_phase: str | None = Query(
+        default=None,
+        description="Filter by staged warmup: none | early | full",
+    ),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[dict]:
     """Individual trade records for drilldown (newest first).
 
     Filter by ``source``: ``seed`` | ``paper_simulated`` | ``demo_exchange``.
-    v1 symbols: BTCUSDT, ETHUSDT (enforced by execution stack; journal is read-only).
+    Configured engine symbols (default: 10 Binance USDT linear majors; journal is read-only).
     """
     if not _engine:
         return []
     return _engine.get_trades(
-        epoch=epoch, symbol=symbol, tier=tier, exit_reason=exit_reason,
-        source=source, limit=limit,
+        epoch=epoch,
+        symbol=symbol,
+        tier=tier,
+        exit_reason=exit_reason,
+        source=source,
+        warmup_phase=warmup_phase,
+        limit=limit,
     )
 
 

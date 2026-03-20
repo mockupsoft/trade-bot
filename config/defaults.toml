@@ -4,7 +4,7 @@
 
 [engine]
 mode = "paper"                    # simulated fills; market data URLs → testnet below
-symbols = ["BTCUSDT", "ETHUSDT"]
+symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT"]
 direction = "long_only"
 max_leverage = 3
 log_level = "INFO"
@@ -15,7 +15,8 @@ ws_combined_url = "wss://stream.binancefuture.com/stream"
 rest_base_url = "https://testnet.binancefuture.com"
 testnet_ws_url = "wss://stream.binancefuture.com"
 testnet_rest_url = "https://testnet.binancefuture.com"
-streams = ["btcusdt@trade", "btcusdt@depth20@100ms", "ethusdt@trade", "ethusdt@depth20@100ms"]
+# Combined WS streams (trade + depth + mark per symbol) — see ``cte.core.universe.binance_futures_default_streams``
+streams = ["btcusdt@trade", "btcusdt@depth5@100ms", "btcusdt@markPrice@1s", "ethusdt@trade", "ethusdt@depth5@100ms", "ethusdt@markPrice@1s", "bnbusdt@trade", "bnbusdt@depth5@100ms", "bnbusdt@markPrice@1s", "solusdt@trade", "solusdt@depth5@100ms", "solusdt@markPrice@1s", "xrpusdt@trade", "xrpusdt@depth5@100ms", "xrpusdt@markPrice@1s", "dogeusdt@trade", "dogeusdt@depth5@100ms", "dogeusdt@markPrice@1s", "adausdt@trade", "adausdt@depth5@100ms", "adausdt@markPrice@1s", "avaxusdt@trade", "avaxusdt@depth5@100ms", "avaxusdt@markPrice@1s", "linkusdt@trade", "linkusdt@depth5@100ms", "linkusdt@markPrice@1s", "dotusdt@trade", "dotusdt@depth5@100ms", "dotusdt@markPrice@1s"]
 ping_interval_sec = 180
 reconnect_base_sec = 1.0
 reconnect_max_sec = 60.0

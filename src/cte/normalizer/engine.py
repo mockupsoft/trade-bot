@@ -39,10 +39,7 @@ normalize_latency = Histogram(
     "cte_normalize_latency_seconds", "Normalization processing time", ["event_type"]
 )
 
-SYMBOL_MAP: dict[str, Symbol] = {
-    "BTCUSDT": Symbol.BTCUSDT,
-    "ETHUSDT": Symbol.ETHUSDT,
-}
+SYMBOL_MAP: dict[str, Symbol] = {s.value: s for s in Symbol}
 
 
 class EventNormalizer:

@@ -157,6 +157,7 @@ class TestTradesDrilldown:
         "mae_pct",
         "was_profitable_at_exit",
         "position_mode",
+        "warmup_phase",
     })
 
     def test_get_trades_list_newest_first(self, engine):

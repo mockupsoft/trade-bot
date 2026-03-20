@@ -1,7 +1,7 @@
 # CTE — Crypto Trading Engine
 
 [![CI](https://github.com/mockupsoft/trade-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/mockupsoft/trade-bot/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-419%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-498%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-72%25-yellow)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -65,7 +65,7 @@ src/cte/
 └── db/             2 modules   TimescaleDB schema (15 tables)
 ```
 
-### 419 Tests (27 test files)
+### 498 Tests (28+ test files)
 
 ```
 tests/
@@ -147,6 +147,8 @@ docker compose -f deploy/docker-compose.yml up -d analytics
 Verify: `curl -s http://localhost:8080/api/market/health | python -m json.tool`
 
 Full notes: [docs/DASHBOARD_MODES.md](docs/DASHBOARD_MODES.md).
+
+**Dashboard paper warmup:** the in-process loop uses **staged warmup**. The signal warmup gate clears after `CTE_DASHBOARD_PAPER_WARMUP_MIDS_EARLY` rolling mids (default 20); **full** confidence uses `CTE_DASHBOARD_PAPER_WARMUP_MIDS_FULL` (default 36). Entries opened before full use a reduced notional (`CTE_DASHBOARD_PAPER_EARLY_SIZE_MULT`) and are labeled `warmup_phase=early` in positions and analytics. Tune loop cadence with `CTE_DASHBOARD_PAPER_INTERVAL_SEC`. See `.env.example` and `/api/paper/warmup` / `/api/paper/entry-diagnostics`.
 
 ### Start Infrastructure (Docker)
 

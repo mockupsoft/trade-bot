@@ -44,6 +44,8 @@ class PaperPosition:
     signal_tier: str = ""
     entry_reason: str = ""
     composite_score: float = 0.0
+    warmup_phase: str = "none"
+    """``none`` | ``early`` | ``full`` — dashboard staged warmup (paper only)."""
 
     # Fill details
     entry_price: Decimal = Decimal("0")

@@ -115,6 +115,18 @@ class TestWarmupGate:
         warmup_gate = next(r for r in verdict.results if r.name == "warmup")
         assert not warmup_gate.passed
 
+    def test_dashboard_staged_passes_with_early_only(self):
+        v = _make_vector(
+            data_quality=DataQuality(
+                warmup_complete=False,
+                warmup_early_eligible=True,
+                warmup_mid_count=20,
+            ),
+        )
+        verdict = check_all_gates(v, warmup_gate_mode="dashboard_staged")
+        warmup_gate = next(r for r in verdict.results if r.name == "warmup")
+        assert warmup_gate.passed
+
 
 class TestMultipleGateFailures:
     def test_multiple_rejections_reported(self):

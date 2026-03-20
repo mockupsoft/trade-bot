@@ -37,8 +37,9 @@ class TestTickerState:
 class TestMarketDataFeed:
     def test_initialization(self):
         feed = MarketDataFeed()
+        assert len(feed.tickers) == 10
         assert "BTCUSDT" in feed.tickers
-        assert "ETHUSDT" in feed.tickers
+        assert "DOTUSDT" in feed.tickers
 
     def test_ws_url_explicit_arg(self):
         feed = MarketDataFeed(ws_url="wss://example.test/stream")

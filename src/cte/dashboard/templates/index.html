@@ -50,6 +50,7 @@
     .pill-r{@apply bg-red-500/15 text-red-400 ring-1 ring-red-500/25}
     .pill-y{@apply bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25}
     .pill-b{@apply bg-sky-500/15 text-sky-400 ring-1 ring-sky-500/25}
+    .pill-warn{@apply bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25}
     .pill-p{@apply bg-violet-500/15 text-violet-400 ring-1 ring-violet-500/25}
     /* Plain flex so layout works even if Tailwind @apply in this block is not processed (CDN). */
     .nav-item{
@@ -223,6 +224,7 @@
   </nav>
   <div class="p-4 border-t border-white/[0.06] text-[11px] space-y-1.5 text-slate-500">
     <div class="flex justify-between"><span>Epoch</span><span class="font-mono text-slate-400 truncate max-w-[120px]" x-text="epoch"></span></div>
+    <div class="flex justify-between"><span>Universe</span><span class="font-mono text-slate-400" x-text="universeSymbols().length+' syms'"></span></div>
     <div class="flex justify-between items-center">
       <span>Ops</span>
       <span :class="ops.mode==='active'?'text-emerald-400':ops.mode==='paused'?'text-amber-400':'text-red-400'" class="font-mono font-medium" x-text="ops.mode"></span>
@@ -246,6 +248,7 @@
         <span class="font-mono text-[12px] text-cyan-300/95" x-text="epoch"></span>
       </div>
       <div class="pill pill-p">TESTNET</div>
+      <div class="pill pill-b text-[10px] font-mono" x-text="universeSymbols().length+' SYMS'"></div>
       <div :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'FEED LIVE':'NO FEED'"></div>
       <div :class="ops.mode==='halted'?'pill pill-r':ops.mode==='paused'?'pill pill-y':'pill pill-g'" x-text="(ops.mode||'').toUpperCase()"></div>
       <div x-show="paperStatus && paperStatus.runner_active" class="pill pill-b text-[10px] font-mono tracking-tight" :title="'Paper pipeline ticks: '+((paperStatus.ticks_ok)||0)+' · entries '+((paperStatus.entries_total)||0)">
@@ -310,6 +313,93 @@
         </div>
       </div>
 
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6" x-show="paperStatus && paperStatus.ticks_ok !== undefined">
+        <div class="card border border-cyan-500/10">
+          <h3 class="text-sm font-semibold text-white tracking-tight mb-2">Paper pipeline · warmup &amp; first open</h3>
+          <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">Staged warmup: entries allowed after <span class="font-mono text-slate-400" x-text="(paperStatus.warmup||{}).early_mids||'—'"></span> mids (early, reduced size) or <span class="font-mono text-slate-400" x-text="(paperStatus.warmup||{}).full_mids||'—'"></span> mids (full). Loop <span class="font-mono text-slate-400" x-text="(paperStatus.warmup||{}).interval_sec||'—'"></span>s.</p>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono">
+            <div class="rounded-lg bg-white/[0.03] px-2 py-1.5 border border-white/[0.06]"><span class="text-slate-500 block text-[9px] uppercase">Ticks</span><span class="text-white" x-text="paperStatus.ticks_ok||0"></span></div>
+            <div class="rounded-lg bg-white/[0.03] px-2 py-1.5 border border-white/[0.06]"><span class="text-slate-500 block text-[9px] uppercase">Entries</span><span class="text-emerald-400" x-text="paperStatus.entries_total||0"></span></div>
+            <div class="rounded-lg bg-white/[0.03] px-2 py-1.5 border border-white/[0.06]"><span class="text-slate-500 block text-[9px] uppercase">Eligible Δ</span><span class="text-cyan-300" x-text="(paperStatus.entry_diagnostics||{}).eligible_signals||0"></span></div>
+            <div class="rounded-lg bg-white/[0.03] px-2 py-1.5 border border-white/[0.06]"><span class="text-slate-500 block text-[9px] uppercase">Attempts</span><span class="text-slate-300" x-text="(paperStatus.entry_diagnostics||{}).entry_attempts||0"></span></div>
+          </div>
+          <div class="mt-3 text-[10px] font-mono text-slate-500 space-y-1">
+            <p x-show="(paperStatus.first_open_metrics||{}).time_to_first_eligible_signal_sec != null">t → first eligible signal: <span class="text-slate-300" x-text="((paperStatus.first_open_metrics||{}).time_to_first_eligible_signal_sec||0).toFixed(1)+' s'"></span></p>
+            <p x-show="(paperStatus.first_open_metrics||{}).time_to_first_entry_sec != null">t → first entry: <span class="text-slate-300" x-text="((paperStatus.first_open_metrics||{}).time_to_first_entry_sec||0).toFixed(1)+' s'"></span> · ticks <span class="text-slate-300" x-text="(paperStatus.first_open_metrics||{}).ticks_to_first_entry||'—'"></span></p>
+            <p x-show="paperStatus.stall && paperStatus.stall.stall_active" class="text-amber-400/95">Stall warning: no entry after healthy feed — top blocker <span x-text="paperStatus.stall.top_blocker||'—'"></span></p>
+          </div>
+        </div>
+        <div class="card border border-white/[0.06]">
+          <h3 class="text-sm font-semibold text-white tracking-tight mb-2">Entry blockers (counts)</h3>
+          <p class="text-[10px] text-slate-600 mb-2 font-mono">Why signals or orders did not open a new leg (rolling).</p>
+          <div class="max-h-36 overflow-y-auto text-[10px] font-mono space-y-0.5 pr-1">
+            <template x-for="row in blockerRows()" :key="row.k">
+              <div class="flex justify-between gap-2 border-b border-white/[0.04] py-0.5" x-show="row.n > 0">
+                <span class="text-slate-500 truncate" x-text="row.k"></span>
+                <span class="text-slate-300 shrink-0" x-text="row.n"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6" x-show="paperStatus && paperStatus.pipeline_timestamps">
+        <div class="card border border-white/[0.06]">
+          <h3 class="text-sm font-semibold text-white mb-2">Pipeline timestamps (UTC)</h3>
+          <dl class="text-[10px] font-mono text-slate-400 space-y-1">
+            <div class="flex justify-between gap-2"><dt>last_eligible_signal_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_eligible_signal_at||'—'"></dd></div>
+            <div class="flex justify-between gap-2"><dt>last_risk_approved_signal_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_risk_approved_signal_at||'—'"></dd></div>
+            <div class="flex justify-between gap-2"><dt>last_nonzero_sizing_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_nonzero_sizing_at||'—'"></dd></div>
+            <div class="flex justify-between gap-2"><dt>last_execution_attempt_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_execution_attempt_at||'—'"></dd></div>
+          </dl>
+        </div>
+        <div class="card border border-amber-500/15" x-show="paperStatus.pipeline_stall">
+          <h3 class="text-sm font-semibold text-amber-200/95 mb-2">Where it stalls (no open yet)</h3>
+          <p class="text-[11px] text-slate-400 mb-2" x-text="paperStatus.pipeline_stall.hint||''"></p>
+          <p class="text-[10px] font-mono text-slate-500">furthest_stage: <span class="text-cyan-300" x-text="paperStatus.pipeline_stall.furthest_stage||'—'"></span> · blocker: <span class="text-amber-300" x-text="paperStatus.pipeline_stall.dominant_blocker||'—'"></span></p>
+        </div>
+      </div>
+
+      <div class="card mt-6 border border-white/[0.06]" x-show="m.warmup_phase_breakdown">
+        <h3 class="text-sm font-semibold text-white tracking-tight mb-3">Closed trades · warmup phase (early vs full)</h3>
+        <p class="text-[10px] text-slate-500 mb-4 font-mono">Promotion readiness uses <span class="text-slate-400">promotion_evidence</span> only (excludes <span class="text-amber-400">early</span>). See Readiness / Campaign.</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-[11px]">
+          <div class="rounded-xl bg-white/[0.03] border border-amber-500/20 p-3">
+            <p class="text-[10px] font-bold uppercase text-amber-500/90 mb-2">Early warmup</p>
+            <dl class="font-mono text-slate-400 space-y-1">
+              <div class="flex justify-between"><dt>n</dt><dd class="text-slate-200" x-text="wphase('early','trade_count')"></dd></div>
+              <div class="flex justify-between"><dt>win%</dt><dd class="text-slate-200" x-text="wphase('early','win_rate')"></dd></div>
+              <div class="flex justify-between"><dt>E</dt><dd class="text-slate-200" x-text="wphase('early','expectancy')"></dd></div>
+              <div class="flex justify-between"><dt>net</dt><dd class="text-slate-200" x-text="wphase('early','net_pnl')"></dd></div>
+              <div class="flex justify-between"><dt>slip</dt><dd class="text-slate-200" x-text="wphase('early','avg_slippage_bps')"></dd></div>
+              <div class="flex justify-between"><dt>maxDD</dt><dd class="text-slate-200" x-text="wphase('early','max_drawdown_pct')"></dd></div>
+            </dl>
+          </div>
+          <div class="rounded-xl bg-white/[0.03] border border-emerald-500/20 p-3">
+            <p class="text-[10px] font-bold uppercase text-emerald-500/90 mb-2">Full warmup</p>
+            <dl class="font-mono text-slate-400 space-y-1">
+              <div class="flex justify-between"><dt>n</dt><dd class="text-slate-200" x-text="wphase('full','trade_count')"></dd></div>
+              <div class="flex justify-between"><dt>win%</dt><dd class="text-slate-200" x-text="wphase('full','win_rate')"></dd></div>
+              <div class="flex justify-between"><dt>E</dt><dd class="text-slate-200" x-text="wphase('full','expectancy')"></dd></div>
+              <div class="flex justify-between"><dt>net</dt><dd class="text-slate-200" x-text="wphase('full','net_pnl')"></dd></div>
+              <div class="flex justify-between"><dt>slip</dt><dd class="text-slate-200" x-text="wphase('full','avg_slippage_bps')"></dd></div>
+              <div class="flex justify-between"><dt>maxDD</dt><dd class="text-slate-200" x-text="wphase('full','max_drawdown_pct')"></dd></div>
+            </dl>
+          </div>
+          <div class="rounded-xl bg-white/[0.03] border border-cyan-500/20 p-3">
+            <p class="text-[10px] font-bold uppercase text-cyan-500/90 mb-2">Promotion evidence</p>
+            <dl class="font-mono text-slate-400 space-y-1">
+              <div class="flex justify-between"><dt>n</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','trade_count')"></dd></div>
+              <div class="flex justify-between"><dt>win%</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','win_rate')"></dd></div>
+              <div class="flex justify-between"><dt>E</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','expectancy')"></dd></div>
+              <div class="flex justify-between"><dt>net</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','net_pnl')"></dd></div>
+              <div class="flex justify-between"><dt>slip</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','avg_slippage_bps')"></dd></div>
+              <div class="flex justify-between"><dt>maxDD</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','max_drawdown_pct')"></dd></div>
+            </dl>
+          </div>
+        </div>
+      </div>
+
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-8">
         <div class="card xl:col-span-1">
           <div class="flex items-center justify-between mb-4">
@@ -328,7 +418,7 @@
         <div class="card xl:col-span-1">
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-sm font-semibold text-white tracking-tight">PnL by symbol</h3>
-            <span class="text-[10px] text-slate-500 font-mono">BTC · ETH</span>
+            <span class="text-[10px] text-slate-500 font-mono" x-text="universeSubtitle()"></span>
           </div>
           <div class="h-[220px]"><canvas id="cSym"></canvas></div>
         </div>
@@ -372,7 +462,9 @@
           <div class="min-w-0 flex-1">
             <h3 class="text-base font-semibold text-white tracking-tight">Market feeds</h3>
             <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">
-              Binance USDⓈ-M <span class="text-cyan-500/80">testnet</span> combined stream · poll <span class="font-mono text-slate-400">~0.85s</span>
+              Binance USDⓈ-M <span class="text-cyan-500/80">testnet</span> combined stream ·
+              <span class="text-slate-400" x-text="universeSymbols().length+' symbols'"></span>
+              · poll <span class="font-mono text-slate-400">~0.85s</span>
             </p>
             <p class="text-[10px] text-slate-600 font-mono mt-1.5 truncate" x-text="mkt.stream_url || mktHealth.stream_url || ''" title="WebSocket base URL"></p>
           </div>
@@ -411,7 +503,7 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
         <template x-for="sym in marketSymbols()" :key="sym">
           <div class="card card-hover overflow-hidden">
             <div class="flex items-center justify-between mb-4">
@@ -452,6 +544,11 @@
                 <p class="font-mono text-white font-semibold mt-0.5" x-text="ti(sym).trade_count_1m||0"></p>
                 <p class="text-[10px] font-mono text-slate-500 mt-0.5" x-text="'Σq '+fmtBase(ti(sym).volume_1m)+' · rolling'"></p>
               </div>
+              <div>
+                <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Warmup</span>
+                <p class="font-mono text-sm mt-0.5" :class="warmupPillClass(sym)" x-text="warmupLbl(sym)"></p>
+                <p class="text-[10px] font-mono text-slate-500 mt-0.5" x-text="warmupSub(sym)"></p>
+              </div>
             </div>
           </div>
         </template>
@@ -463,6 +560,29 @@
     </div>
 
     <div x-show="page==='positions'" x-cloak>
+      <div class="card mb-6 border border-white/[0.06]" x-show="paperStatus && paperStatus.ticks_ok !== undefined">
+        <h3 class="text-sm font-semibold text-white tracking-tight mb-2">Why no positions?</h3>
+        <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">The paper loop needs staged mid history, passing signal gates, risk approval, and min notional. Early-warmup entries use a smaller size multiplier (<span class="font-mono text-slate-400" x-text="(paperStatus.warmup||{}).early_size_mult||'—'"></span> of cap).</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[11px]">
+          <div>
+            <p class="text-[10px] font-bold uppercase text-slate-500 mb-1">Last 20 blocked attempts</p>
+            <div class="font-mono text-[10px] space-y-1 max-h-40 overflow-y-auto">
+              <template x-for="(b, bi) in ((paperEntryDiag.last_blocked)||[])" :key="bi+'-'+(b.ts||'')">
+                <div class="text-slate-400 border-b border-white/[0.04] pb-1"><span class="text-slate-600" x-text="b.symbol"></span> · <span class="text-amber-400/90" x-text="b.reason"></span> <span class="text-slate-600" x-text="b.detail||''"></span></div>
+              </template>
+              <p x-show="!((paperEntryDiag.last_blocked)||[]).length" class="text-slate-600">No blocks logged yet (or runner idle).</p>
+            </div>
+          </div>
+          <div>
+            <p class="text-[10px] font-bold uppercase text-slate-500 mb-1">Blockers by count</p>
+            <div class="font-mono text-[10px] space-y-0.5">
+              <template x-for="row in blockerRows()" :key="'p-'+row.k">
+                <div class="flex justify-between" x-show="row.n > 0"><span class="text-slate-500 truncate" x-text="row.k"></span><span class="text-slate-300" x-text="row.n"></span></div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="card mb-6">
         <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
           <div>
@@ -488,6 +608,7 @@
               <tr>
                 <th>Symbol</th>
                 <th>Tier</th>
+                <th>Warmup</th>
                 <th class="text-right">Entry</th>
                 <th class="text-right">Qty</th>
                 <th class="text-right">uPnL</th>
@@ -499,6 +620,7 @@
                 <tr class="border-b border-white/[0.06]">
                   <td class="tbl-txt font-mono text-xs font-semibold text-white" x-text="op.symbol"></td>
                   <td><span class="pill" :class="tc(op.signal_tier)" x-text="op.signal_tier"></span></td>
+                  <td><span class="pill text-[10px]" :class="op.warmup_phase==='early'?'pill-warn':'pill-b'" x-text="op.warmup_phase||'—'"></span></td>
                   <td class="text-right tbl-num text-slate-300" x-text="fmtUsd(op.entry_price)"></td>
                   <td class="text-right tbl-num text-slate-400 font-mono text-[11px]" x-text="op.quantity"></td>
                   <td class="text-right tbl-num" :class="parseFloat(op.unrealized_pnl)>=0?'text-emerald-400':'text-red-400'" x-text="'$'+parseFloat(op.unrealized_pnl||0).toFixed(2)"></td>
@@ -506,7 +628,7 @@
                 </tr>
               </template>
               <tr x-show="!paperOpen.length">
-                <td colspan="6" class="py-8 text-center text-xs text-slate-600">No open paper positions — feed must be live with bid/ask, ops <span class="font-mono text-slate-500">ACTIVE</span>, then warmup mids (see diagnostics above) and a passing score (tier C+). <span class="font-mono text-slate-600">CTE_DASHBOARD_PAPER_DEMO_ENTRIES=1</span> (default) relaxes warmup/tier for the UI. Check <span class="font-mono text-slate-500">/api/paper/status</span>.</td>
+                <td colspan="7" class="py-8 text-center text-xs text-slate-600">No open paper positions — wait for a scored signal (feed must be live, ops ACTIVE, symbol enabled), or check <span class="font-mono text-slate-500">/api/paper/status</span>.</td>
               </tr>
             </tbody>
           </table>
@@ -517,7 +639,7 @@
           <div>
             <h3 class="text-base font-semibold text-white tracking-tight">Trade journal</h3>
             <p class="text-[12px] text-slate-500 mt-1.5 max-w-xl leading-relaxed">
-              Closed trades for active epoch (<span class="font-mono text-slate-400" x-text="epoch"></span>). LONG-only v1 universe; exit reason is the mandatory explainability field. Data from <span class="font-mono text-slate-500">/api/analytics/trades</span>.
+              Closed trades for active epoch (<span class="font-mono text-slate-400" x-text="epoch"></span>). LONG-only, full configured universe; exit reason is the mandatory explainability field. Data from <span class="font-mono text-slate-500">/api/analytics/trades</span>.
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -538,7 +660,7 @@
                 <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
               <div x-show="ddSym" x-cloak x-transition @click.outside="ddSym=false" class="dd-panel left-0">
-                <template x-for="o in symOpts" :key="o.v || 'all-sym'">
+                <template x-for="o in symOptsList()" :key="o.v || 'all-sym'">
                   <button type="button" :class="tf.symbol===o.v ? 'dd-opt-active' : ''" @click="setSym(o.v)" x-text="o.l"></button>
                 </template>
               </div>
@@ -574,6 +696,7 @@
                 <th>Symbol</th>
                 <th>Venue</th>
                 <th>Tier</th>
+                <th>WU</th>
                 <th class="text-right">PnL</th>
                 <th class="text-right">R</th>
                 <th>Exit</th>
@@ -591,6 +714,7 @@
                   <td class="tbl-txt"><span class="font-mono text-[12px] font-semibold text-white tracking-tight" x-text="t.symbol"></span></td>
                   <td class="tbl-txt font-mono text-[11px] text-slate-500" x-text="t.venue||'—'"></td>
                   <td><span class="pill" :class="tc(t.tier)" x-text="t.tier"></span></td>
+                  <td><span class="pill text-[10px]" :class="t.warmup_phase==='early'?'pill-warn':'pill-b'" x-text="t.warmup_phase||'—'"></span></td>
                   <td class="text-right tbl-num" :class="parseFloat(t.pnl)>=0?'text-emerald-400':'text-red-400'" :title="t.was_profitable_at_exit!=null?('profitable@exit: '+t.was_profitable_at_exit):''">
                     <span x-text="'$'+parseFloat(t.pnl).toFixed(2)"></span>
                   </td>
@@ -605,12 +729,12 @@
                 </tr>
               </template>
               <tr x-show="!trades.length">
-                <td colspan="12" class="py-14 px-4 text-center">
+                <td colspan="13" class="py-14 px-4 text-center">
                   <p class="text-slate-500 text-sm mb-4">No trades for this filter</p>
                   <div class="text-left max-w-xl mx-auto text-[11px] text-slate-600 space-y-2 leading-relaxed">
                     <p class="font-bold text-slate-500 uppercase tracking-wider text-[10px]">v1 journal (CTE rules)</p>
                     <ul class="list-disc pl-5 space-y-1.5">
-                      <li>Only <span class="font-mono text-slate-400">BTCUSDT</span> and <span class="font-mono text-slate-400">ETHUSDT</span>, <strong>long</strong> exposure; closed rows appear after the paper loop (or future venue adapter) records a <strong>closed</strong> position. Open legs are listed above.</li>
+                      <li>Configured universe (default: top Binance USDT linear majors, see Ops / Config), <strong>long</strong> only; closed rows appear after the paper loop records a <strong>closed</strong> position. Open legs are listed above.</li>
                       <li><span class="font-mono text-slate-500">exit_reason</span> is the explainability payload attached to each close (risk may veto before entry).</li>
                       <li><span class="font-mono text-slate-500">source</span>: <span class="font-mono">paper_simulated</span> / <span class="font-mono">demo_exchange</span>; <span class="font-mono">seed</span> is for dev-only fixtures.</li>
                     </ul>
@@ -679,7 +803,7 @@
         </div>
         <div class="card">
           <h3 class="text-sm font-semibold text-white mb-2 tracking-tight">Symbol toggles</h3>
-          <p class="text-[11px] text-slate-500 mb-4 leading-relaxed">v1 universe only. Disabling a symbol blocks new exposure on that leg; combine with pause/halt for full stop.</p>
+          <p class="text-[11px] text-slate-500 mb-4 leading-relaxed">All configured symbols (see list below). Disabling a symbol blocks new exposure on that leg; combine with pause/halt for full stop.</p>
           <template x-for="(info,sym) in ops.symbols||{}" :key="sym">
             <div class="flex items-center justify-between py-3 border-b border-white/[0.05] last:border-0">
               <div class="min-w-0">
@@ -786,6 +910,7 @@
     </div>
 
     <div x-show="page==='research'" x-cloak>
+      <p class="text-[11px] text-slate-500 mb-2 max-w-3xl leading-relaxed">Universe: <span class="font-mono text-slate-400" x-text="(v1Policy.symbols||universeSymbols()).join(', ')"></span></p>
       <p class="text-[11px] text-slate-500 mb-5 max-w-3xl leading-relaxed">Tier cards use <span class="font-mono text-slate-400">/api/analytics/summary?tier=A|B|C</span> for the active epoch. Exit attribution and runner stats use the same epoch-wide summary as Overview (<span class="font-mono text-slate-500">exit_reason</span> is the explainability axis per PRD).</p>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div class="card card-hover">
@@ -933,15 +1058,27 @@ function app(){return{
     {id:'config',label:'Config',svg:ICON.config},
     {id:'alerts',label:'Alerts',svg:ICON.alerts},
   ],
-  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:{meta:{hint:'',utc:''},sections:[]},configLoading:false,alertsSnap:{meta:{legend:'',utc:'',firing_count:0},rules:[]},alertsLoading:false,researchTiers:{},paperStatus:{},paperOpen:[],tf:{tier:'',symbol:'',exit:'',source:''},
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:{meta:{hint:'',utc:''},sections:[]},configLoading:false,alertsSnap:{meta:{legend:'',utc:'',firing_count:0},rules:[]},alertsLoading:false,researchTiers:{},paperStatus:{},paperEntryDiag:{},paperOpen:[],tf:{tier:'',symbol:'',exit:'',source:''},
   mkt:{},mktHealth:{},
   ddTier:false,ddSym:false,ddExit:false,ddSource:false,
   tierOpts:[
     {v:'',l:'All tiers'},{v:'A',l:'Tier A'},{v:'B',l:'Tier B'},{v:'C',l:'Tier C'},
   ],
-  symOpts:[
-    {v:'',l:'All symbols'},{v:'BTCUSDT',l:'BTCUSDT'},{v:'ETHUSDT',l:'ETHUSDT'},
-  ],
+  _universeFallback:['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','DOTUSDT'],
+  universeSymbols(){
+    const p=this.v1Policy;
+    return (p&&p.symbols&&p.symbols.length)?p.symbols:this._universeFallback;
+  },
+  symOptsList(){
+    const base=this.universeSymbols();
+    return [{v:'',l:'All symbols'},...base.map(s=>({v:s,l:s}))];
+  },
+  universeSubtitle(){
+    const u=this.universeSymbols();
+    if(!u.length)return '—';
+    if(u.length<=4)return u.join(' · ');
+    return u.length+' symbols';
+  },
   exitOpts:[
     {v:'',l:'All exits'},{v:'hard_stop',l:'hard_stop'},{v:'thesis_failure',l:'thesis_failure'},
     {v:'no_progress',l:'no_progress'},{v:'winner_trailing',l:'winner_trailing'},{v:'runner_trailing',l:'runner_trailing'},
@@ -975,7 +1112,7 @@ function app(){return{
     }
   },
   tierLbl(){const o=this.tierOpts.find(x=>x.v===this.tf.tier);return o?o.l:'All tiers'},
-  symLbl(){const o=this.symOpts.find(x=>x.v===this.tf.symbol);return o?o.l:'All symbols'},
+  symLbl(){const o=this.symOptsList().find(x=>x.v===this.tf.symbol);return o?o.l:'All symbols'},
   exitLbl(){const o=this.exitOpts.find(x=>x.v===this.tf.exit);return o?o.l:'All exits'},
   sourceLbl(){const o=this.sourceOpts.find(x=>x.v===this.tf.source);return o?o.l:'All sources'},
   get liveConnected(){return !!(this.mktHealth&&this.mktHealth.connected);},
@@ -986,10 +1123,44 @@ function app(){return{
     return Math.min(100,fresh*(12+Math.log10(10+m)*18));
   },
   marketSymbols(){
-    return Object.keys(this.mkt.tickers||{}).sort();
+    const tick=this.mkt.tickers||{};
+    const base=this.universeSymbols();
+    const seen=new Set(base);
+    const extra=Object.keys(tick).filter((k)=>!seen.has(k)).sort();
+    return [...base,...extra];
   },
   ti(sym){
     return (this.mkt.tickers||{})[sym]||{};
+  },
+  warmupLbl(sym){
+    const w=this.ti(sym).warmup;
+    if(!w)return '—';
+    if(w.warmup_gate==='ready_full')return 'full';
+    if(w.warmup_gate==='ready_early')return 'early';
+    return 'warming';
+  },
+  warmupSub(sym){
+    const w=this.ti(sym).warmup;
+    if(!w)return '';
+    const eta=w.eta_sec_to_full!=null?' · ~'+w.eta_sec_to_full+'s to full':'';
+    return (w.mid_count||0)+' mids · '+Math.round(w.progress_pct||0)+'%'+eta;
+  },
+  warmupPillClass(sym){
+    const w=this.ti(sym).warmup;
+    if(!w)return 'text-slate-500';
+    if(w.warmup_gate==='ready_full')return 'text-emerald-400';
+    if(w.warmup_gate==='ready_early')return 'text-cyan-400';
+    return 'text-amber-400';
+  },
+  blockerRows(){
+    const g=(this.paperEntryDiag&&this.paperEntryDiag.global_counts)||(this.paperStatus&&this.paperStatus.entry_diagnostics&&this.paperStatus.entry_diagnostics.global_counts)||{};
+    return Object.keys(g).map(k=>({k,n:g[k]||0})).sort((a,b)=>b.n-a.n);
+  },
+  wphase(phase, field){
+    const b=this.m&&this.m.warmup_phase_breakdown;
+    if(!b||!b[phase]||b[phase][field]===undefined)return '—';
+    const v=b[phase][field];
+    return typeof v==='number'?v:String(v);
   },
   fmtUsd(v){
     const x=parseFloat(String(v??'0'));
@@ -1020,7 +1191,7 @@ function app(){return{
   _defaultV1Policy(){
     return{
       direction:'long_only',
-      symbols:['BTCUSDT','ETHUSDT'],
+      symbols:['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','DOTUSDT'],
       venues:{
         primary:'binance_usdm_futures_testnet',
         secondary_context:'bybit_v5_public_testnet',
@@ -1209,7 +1380,7 @@ function app(){return{
     }
     await this.pollMarket();
     await this.refresh();
-    this._slowTimer=setInterval(()=>this.refresh(),7000);
+    this._slowTimer=setInterval(()=>this.refresh(),4000);
     this._mktTimer=setInterval(()=>this.pollMarket(),850);
     setInterval(()=>{this._clockTick++;},1000);
     document.addEventListener('keydown',(e)=>{
@@ -1222,6 +1393,7 @@ function app(){return{
     try{this.m=await(await fetch(`/api/analytics/summary?epoch=${encodeURIComponent(this.epoch)}`)).json()}catch(e){this.m={}}
     try{this.ops=await(await fetch('/api/ops/status')).json()}catch(e){this.ops={}}
     try{this.paperStatus=await(await fetch('/api/paper/status')).json()}catch(e){this.paperStatus={enabled:false,runner_active:false}}
+    try{this.paperEntryDiag=await(await fetch('/api/paper/entry-diagnostics')).json()}catch(e){this.paperEntryDiag={}}
     if(this.page==='positions')await this.loadPaperOpen();
     if(this.page==='readiness')await this.loadReadiness();
     if(this.page==='config')await this.loadConfig();
@@ -1242,7 +1414,7 @@ function app(){return{
     try{
       const j=await(await fetch('/api/market/tickers')).json();
       const tickers={...(j.tickers||{})};
-      for(const sym of ['BTCUSDT','ETHUSDT']){
+      for(const sym of this.universeSymbols()){
         if(!tickers[sym])tickers[sym]=this._skelTicker();
       }
       this.mkt={
@@ -1253,13 +1425,9 @@ function app(){return{
         tickers,
       };
     }catch(e){
-      this.mkt={
-        source:'error',
-        mode:'testnet',
-        stream_url:'',
-        feed_ready:false,
-        tickers:{BTCUSDT:this._skelTicker(),ETHUSDT:this._skelTicker()},
-      };
+      const fb={};
+      for(const sym of this.universeSymbols()){fb[sym]=this._skelTicker();}
+      this.mkt={source:'error',mode:'testnet',stream_url:'',feed_ready:false,tickers:fb};
     }
     try{this.mktHealth=await(await fetch('/api/market/health')).json()}catch(e){this.mktHealth={};}
     if(this.page==='market'){

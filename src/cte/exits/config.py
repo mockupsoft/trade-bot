@@ -6,7 +6,11 @@ Tier C = marginal signal → tight leash, prove yourself fast.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from cte.core.settings import ExitSettings
 
 
 @dataclass(frozen=True)
@@ -92,3 +96,18 @@ DEFAULT_PROFILES: dict[str, TierExitProfile] = {
 def get_profile(tier: str) -> TierExitProfile:
     """Get exit profile for a signal tier. Falls back to Tier C (tightest)."""
     return DEFAULT_PROFILES.get(tier, TIER_C_PROFILE)
+
+
+def merge_tier_profile_with_exit_defaults(
+    profile: TierExitProfile,
+    exits: ExitSettings,
+) -> TierExitProfile:
+    """Align Layer 1 hard stop with ``ExitSettings.stop_loss_pct`` (R-multiple base).
+
+    Keeps tier patience (L2-L5) from the tier profile; only hard risk rail follows
+    configured stop distance so ``PaperPosition.stop_distance_usd`` stays consistent.
+    """
+    return replace(
+        profile,
+        hard_stop_pct=float(exits.stop_loss_pct),
+    )

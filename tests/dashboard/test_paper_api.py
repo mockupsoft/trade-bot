@@ -17,3 +17,17 @@ def test_paper_positions_empty_without_runner(dashboard_client):
     r = dashboard_client.get("/api/paper/positions")
     assert r.status_code == 200
     assert r.json().get("positions") == []
+
+
+def test_paper_warmup_without_runner(dashboard_client):
+    r = dashboard_client.get("/api/paper/warmup")
+    assert r.status_code == 200
+    body = r.json()
+    assert "error" in body
+
+
+def test_paper_entry_diagnostics_without_runner(dashboard_client):
+    r = dashboard_client.get("/api/paper/entry-diagnostics")
+    assert r.status_code == 200
+    body = r.json()
+    assert "error" in body
