@@ -31,7 +31,11 @@ from cte.api.analytics_routes import set_engine
 from cte.api.health import router as health_router
 from cte.core.logging import setup_logging
 from cte.core.settings import get_settings
-from cte.core.universe import DEFAULT_TRADING_SYMBOLS
+from cte.core.universe import (
+    DEFAULT_TRADING_SYMBOLS,
+    binance_futures_default_streams,
+    expand_legacy_engine_symbols,
+)
 from cte.dashboard.paper_runner import DashboardPaperRunner, paper_loop_enabled
 from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
@@ -53,7 +57,8 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 # ── Global State ──────────────────────────────────────────────
 ACTIVE_TESTNET_EPOCH = "crypto_v1_demo"
-DASHBOARD_MARKET_SYMBOLS: tuple[str, ...] = DEFAULT_TRADING_SYMBOLS
+# Set at startup from expanded engine symbols (see ``lifespan``).
+_active_dashboard_symbols: tuple[str, ...] = DEFAULT_TRADING_SYMBOLS
 
 _system_mode: SystemMode = SystemMode.DEMO
 _epoch_manager = EpochManager()
@@ -78,7 +83,7 @@ def _resolve_mode() -> SystemMode:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _analytics_engine, _market_feed, _feed_task, _system_mode, _paper_runner, _paper_task
+    global _active_dashboard_symbols, _analytics_engine, _market_feed, _feed_task, _system_mode, _paper_runner, _paper_task
     setup_logging(level="INFO", service_name="dashboard")
 
     _system_mode = _resolve_mode()
@@ -109,16 +114,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     set_engine(_analytics_engine)
 
     settings = get_settings()
+    expanded = expand_legacy_engine_symbols(list(settings.engine.symbols))
+    dash_syms = tuple(expanded)
+    _active_dashboard_symbols = dash_syms
+    streams = binance_futures_default_streams(dash_syms)
     _market_feed = MarketDataFeed(
         ws_url=settings.binance.ws_combined_url,
-        streams=list(settings.binance.streams),
-        symbols=tuple(settings.engine.symbols),
+        streams=streams,
+        symbols=dash_syms,
     )
     _feed_task = asyncio.create_task(_market_feed.start())
     await log.ainfo(
         "market_feed_started",
         mode="testnet",
         ws_url=settings.binance.ws_combined_url,
+        symbol_count=len(dash_syms),
+        stream_count=len(streams),
     )
 
     if paper_loop_enabled():
@@ -127,7 +138,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             market_feed=lambda: _market_feed,
             analytics_engine=lambda: _analytics_engine,
             ops_controller=lambda: _ops_controller,
-            symbols=DASHBOARD_MARKET_SYMBOLS,
+            symbols=dash_syms,
         )
         _paper_task = asyncio.create_task(_paper_runner.run_forever(interval_sec=2.0))
         await log.ainfo("paper_runner_scheduled", interval_sec=2.0)
@@ -248,7 +259,7 @@ def _build_market_tickers_payload() -> dict[str, object]:
     """Always return v1 symbols so the dashboard grid is never empty."""
     settings = get_settings()
     stream_url = str(settings.binance.ws_combined_url)
-    base_rows = {sym: _empty_ticker_payload() for sym in DASHBOARD_MARKET_SYMBOLS}
+    base_rows = {sym: _empty_ticker_payload() for sym in _active_dashboard_symbols}
     if not _market_feed:
         return {
             "source": "none",
@@ -258,7 +269,7 @@ def _build_market_tickers_payload() -> dict[str, object]:
             "feed_ready": False,
         }
     tickers: dict[str, dict[str, object]] = {}
-    for sym in DASHBOARD_MARKET_SYMBOLS:
+    for sym in _active_dashboard_symbols:
         t = _market_feed.tickers.get(sym)
         tickers[sym] = _serialize_ticker(t) if t else _empty_ticker_payload()
     for sym, t in _market_feed.tickers.items():
@@ -323,7 +334,7 @@ def _v1_operations_policy() -> dict[str, object]:
     s = get_settings()
     return {
         "direction": "long_only",
-        "symbols": list(s.engine.symbols),
+        "symbols": expand_legacy_engine_symbols(list(s.engine.symbols)),
         "venues": {
             "primary": "binance_usdm_futures_testnet",
             "secondary_context": "bybit_v5_public_testnet",
@@ -787,7 +798,11 @@ def _build_config_snapshot() -> dict[str, object]:
             "id": "universe",
             "title": "Universe & direction",
             "rows": [
-                {"key": "symbols", "label": "Symbols", "value": list(s.engine.symbols)},
+                {
+                    "key": "symbols",
+                    "label": "Symbols (engine; dashboard expands legacy BTC+ETH to full universe)",
+                    "value": expand_legacy_engine_symbols(list(s.engine.symbols)),
+                },
                 {"key": "direction", "label": "Direction", "value": s.engine.direction.value},
                 {"key": "max_leverage", "label": "Max leverage (cap)", "value": s.engine.max_leverage},
             ],
