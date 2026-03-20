@@ -11,6 +11,7 @@ context while respecting ops toggles and risk veto.
 
 Disable with ``CTE_DASHBOARD_PAPER_LOOP=0`` (used in pytest dashboard suite).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -196,6 +197,21 @@ _SYMBOL_MAP: dict[str, Symbol] = {s.value: s for s in Symbol}
 def paper_loop_enabled() -> bool:
     raw = (os.environ.get("CTE_DASHBOARD_PAPER_LOOP") or "1").strip().lower()
     return raw not in ("0", "false", "no", "off")
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    raw = (os.environ.get(key) or "").strip().lower()
+    if raw == "":
+        return default
+    return raw not in ("0", "false", "no", "off")
+
+
+def _event_time_utc(t: TickerState) -> datetime:
+    """Decision time from venue/trade clock; wall clock only if feed timestamps missing."""
+    ms = t.last_trade_time_ms or t.last_update_ms
+    if ms <= 0:
+        ms = int(time.time() * 1000)
+    return datetime.fromtimestamp(ms / 1000.0, tz=UTC)
 
 
 def _mid_price(t: TickerState) -> Decimal | None:
@@ -403,15 +419,34 @@ class DashboardPaperRunner:
             self._publisher,
             adapter=None,
         )
-        self._mid_history: dict[str, deque[Decimal]] = {
-            s: deque(maxlen=400) for s in symbols
-        }
+        self._mid_history: dict[str, deque[Decimal]] = {s: deque(maxlen=400) for s in symbols}
+
+        # Dashboard-only: more permissive thresholds so Positions can populate under real
+        # testnet liquidity (narrow spreads are rare; composite often sits just below 0.40).
+        self._demo_entries = _env_bool("CTE_DASHBOARD_PAPER_DEMO_ENTRIES", True)
+        raw_warm = (os.environ.get("CTE_DASHBOARD_PAPER_WARMUP_MIDS") or "").strip()
+        if raw_warm:
+            self._warmup_mid_samples = max(15, int(raw_warm))
+        else:
+            self._warmup_mid_samples = 50 if self._demo_entries else 80
+
+        sig = settings.signals.model_copy()
+        raw_tier = (os.environ.get("CTE_DASHBOARD_PAPER_TIER_C_THRESHOLD") or "").strip()
+        if raw_tier:
+            sig = sig.model_copy(update={"tier_c_threshold": float(raw_tier)})
+        elif self._demo_entries:
+            sig = sig.model_copy(
+                update={"tier_c_threshold": min(sig.tier_c_threshold, 0.36)},
+            )
+        self._signal_settings = sig
+        self._signal_engine = ScoringSignalEngine(sig, self._publisher)
 
         self._running = False
         self._last_error: str | None = None
         self._ticks_ok = 0
         self._entries_total = 0
         self._exits_recorded = 0
+        self._last_skip: dict[str, str] = {}
 
         self._diag = EntryDiagnostics()
         self._runner_started_mono: float | None = None
@@ -676,19 +711,20 @@ class DashboardPaperRunner:
         if not paper:
             return
 
-        now = datetime.now(UTC)
-        sig_settings = self._settings.signals
-
         for sym in self._symbols:
             sym_enum = _SYMBOL_MAP.get(sym)
             if not sym_enum:
                 continue
             t = feed.get_ticker(sym)
             if not t:
+                self._last_skip[sym] = "no_ticker"
                 continue
             mid = _mid_price(t)
             if mid is None or mid <= 0:
+                self._last_skip[sym] = "no_mid_or_book"
                 continue
+
+            event_now = _event_time_utc(t)
 
             self._mid_history[sym].append(mid)
             bid, ask = t.best_bid, t.best_ask
@@ -769,9 +805,7 @@ class DashboardPaperRunner:
                 continue
             self._last_risk_approved_at = now
 
-            sizer = SizingEngine(
-                sizing_settings, self._publisher, self._portfolio.portfolio_value
-            )
+            sizer = SizingEngine(sizing_settings, self._publisher, self._portfolio.portfolio_value)
             sized = await sizer.size_order(legacy, assessment, mark)
             if sized is None:
                 self._diag.record(sym, "rejected_sizing_failed", "")

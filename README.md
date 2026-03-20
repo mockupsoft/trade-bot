@@ -134,7 +134,7 @@ export CTE_BINANCE_TESTNET_API_SECRET="..."
 CTE_ENGINE_MODE=demo cte-dashboard
 ```
 
-→ **http://localhost:8080** (binds `0.0.0.0`). Market stream defaults to `wss://stream.binancefuture.com/stream`.
+→ **http://localhost:8080** (listens on all interfaces; dual-stack IPv4+IPv6 so `localhost` → `::1` works). Market stream defaults to `wss://stream.binancefuture.com/stream`.
 
 **Docker** (`analytics` on **8080**) — compose sets `CTE_ENGINE_MODE=demo`; pass the same env vars or `.env`:
 

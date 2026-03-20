@@ -27,6 +27,12 @@ class TestTickerState:
         t = TickerState(best_bid=Decimal("0"), best_ask=Decimal("0"))
         assert t.spread_bps == 0.0
 
+    def test_ensure_quote_from_reference(self):
+        t = TickerState(last_price=Decimal("100"))
+        t.ensure_quote_from_reference()
+        assert t.best_bid < t.best_ask
+        assert t.spread_bps == pytest.approx(1.0, rel=0.05)
+
 
 class TestMarketDataFeed:
     def test_initialization(self):
@@ -62,6 +68,9 @@ class TestMarketDataFeed:
         assert t is not None
         assert t.last_price == Decimal("65432.10")
         assert t.trade_count_1m == 1
+        assert t.best_bid > 0 and t.best_ask > 0
+        assert t.best_ask > t.best_bid
+        assert t.spread_bps > 0
 
     def test_process_depth_message(self):
         feed = MarketDataFeed()
@@ -86,6 +95,9 @@ class TestMarketDataFeed:
         feed._process_message(msg)
         t = feed.get_ticker("BTCUSDT")
         assert t.mark_price == Decimal("65431.50")
+        assert t.last_price == Decimal("65431.50")
+        assert t.best_bid > 0 and t.best_ask > 0
+        assert t.spread_bps > 0
 
     def test_unknown_symbol_ignored(self):
         feed = MarketDataFeed()
