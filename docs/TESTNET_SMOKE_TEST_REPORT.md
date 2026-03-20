@@ -53,7 +53,7 @@ Observed API fields when the pipeline reached `place_order`:
 With **valid** keys, expect:
 
 - `testnet_place_order_result` log (JSON) with `venue_order_id`, `status`, `avg_price`
-- `GET /api/paper/positions` → `execution_channel=demo_exchange`, `venue_order_id` populated
+- `GET /api/paper/positions` → `execution_mode=testnet`, `execution_channel=binance_usdm_testnet`, `trade_source=demo_exchange`, `venue_order_id` populated
 
 ### 4. Position management (pending valid keys)
 

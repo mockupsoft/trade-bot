@@ -158,6 +158,7 @@ End-to-end checks use **live WebSocket** prices. By default the dashboard runs *
 |------|---------------------|
 | Full report | [docs/VALIDATION_CAMPAIGN_REPORT.md](docs/VALIDATION_CAMPAIGN_REPORT.md) |
 | Testnet venue smoke (REST orders) | [docs/TESTNET_SMOKE_TEST_REPORT.md](docs/TESTNET_SMOKE_TEST_REPORT.md) |
+| Testnet full lifecycle proof | [docs/TESTNET_E2E_PROOF_REPORT.md](docs/TESTNET_E2E_PROOF_REPORT.md) |
 | Snapshot bundle | `./scripts/collect_validation_snapshot.sh` (set `BASE_URL` if needed) |
 | Hourly metrics | `POST /api/campaign/snapshot?period=hourly` |
 | Long run | Keep `uvicorn` or `cte-dashboard` up ≥24h on a server; aggregate snapshots |

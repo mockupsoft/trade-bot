@@ -550,6 +550,7 @@ class DashboardPaperRunner:
         return {
             "runner_class": "DashboardPaperRunner",
             "in_process_execution": "paper_simulated",
+            "execution_mode": "paper",
             "ticks_ok": self._ticks_ok,
             "entries_total": self._entries_total,
             "exits_recorded": self._exits_recorded,

@@ -284,6 +284,7 @@ class DashboardTestnetRunner:
         return {
             "runner_class": "DashboardTestnetRunner",
             "in_process_execution": "demo_exchange",
+            "execution_mode": "testnet",
             "execution_channel": "binance_usdm_testnet",
             "ticks_ok": self._ticks_ok,
             "entries_total": self._entries_total,
@@ -400,7 +401,9 @@ class DashboardTestnetRunner:
                     "opened_at": pos.fill_time.isoformat() if pos.fill_time else "",
                     "venue_order_id": pos.venue_order_id,
                     "entry_client_order_id": pos.entry_client_order_id,
-                    "execution_channel": "demo_exchange",
+                    "execution_mode": "testnet",
+                    "execution_channel": "binance_usdm_testnet",
+                    "trade_source": "demo_exchange",
                 }
             )
         return out
