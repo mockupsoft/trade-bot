@@ -57,6 +57,30 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger("dashboard.paper_runner")
 
+# Dashboard paper loop: shorter warmup + lower tier-C than global defaults so the
+# in-process pipeline can open LONG paper legs from live testnet mids (still full
+# gates + risk). Override via CTE_DASHBOARD_PAPER_WARMUP_MIDS / CTE_DASHBOARD_PAPER_TIER_C.
+def _dashboard_warmup_mids() -> int:
+    raw = (os.environ.get("CTE_DASHBOARD_PAPER_WARMUP_MIDS") or "48").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 48
+    return max(20, min(120, n))
+
+
+def _dashboard_signal_settings(base: SignalSettings) -> SignalSettings:
+    """Tier thresholds for dashboard paper loop only (does not change Redis services)."""
+    raw = (os.environ.get("CTE_DASHBOARD_PAPER_TIER_C") or "0.32").strip()
+    try:
+        tier_c = float(raw)
+    except ValueError:
+        tier_c = 0.32
+    # Stay strictly below tier_b (default 0.55) so A/B/C bands stay ordered.
+    tier_c = max(0.15, min(float(base.tier_b_threshold) - 0.01, tier_c))
+    return base.model_copy(update={"tier_c_threshold": tier_c})
+
+
 # v1 symbols only
 _SYMBOL_MAP: dict[str, Symbol] = {
     "BTCUSDT": Symbol.BTCUSDT,
@@ -149,7 +173,7 @@ def build_streaming_vector_from_ticker(
     z = _compute_momentum_z(mlist, lb60)
     z10 = _compute_momentum_z(mlist, max(3, min(10, len(mlist) // 6 or 3)))
 
-    warmup_ok = len(mlist) >= 80
+    warmup_ok = len(mlist) >= _dashboard_warmup_mids()
     feas = 0.92 if spread < 12.0 and fresh >= 0.55 else 0.35
     if feas < signal_settings.gate_min_feasibility:
         return None
@@ -217,7 +241,10 @@ class DashboardPaperRunner:
         self._publisher = AsyncMock()
         self._publisher.publish = AsyncMock(return_value="ok")
 
-        self._signal_engine = ScoringSignalEngine(settings.signals, self._publisher)
+        self._signal_engine = ScoringSignalEngine(
+            _dashboard_signal_settings(settings.signals),
+            self._publisher,
+        )
         self._portfolio = PortfolioState(initial_capital=Decimal("10000"))
         self._risk = RiskManager(settings.risk, self._publisher, self._portfolio)
 

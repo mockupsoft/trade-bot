@@ -5,9 +5,15 @@ import time
 from collections import deque
 from decimal import Decimal
 
+import pytest
+
 from cte.core.events import Symbol
 from cte.core.settings import SignalSettings
-from cte.dashboard.paper_runner import build_streaming_vector_from_ticker
+from cte.dashboard.paper_runner import (
+    _dashboard_signal_settings,
+    _dashboard_warmup_mids,
+    build_streaming_vector_from_ticker,
+)
 from cte.market.feed import TickerState
 
 
@@ -30,3 +36,16 @@ def test_build_streaming_vector_warm_passes_gates() -> None:
     assert vec is not None
     assert vec.data_quality.warmup_complete
     assert vec.freshness.composite >= sig.gate_min_freshness
+
+
+def test_dashboard_warmup_mids_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CTE_DASHBOARD_PAPER_WARMUP_MIDS", raising=False)
+    assert _dashboard_warmup_mids() == 48
+
+
+def test_dashboard_signal_settings_lowers_tier_c(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CTE_DASHBOARD_PAPER_TIER_C", raising=False)
+    base = SignalSettings()
+    tuned = _dashboard_signal_settings(base)
+    assert tuned.tier_c_threshold < base.tier_b_threshold
+    assert tuned.tier_c_threshold == pytest.approx(0.32)
