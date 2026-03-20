@@ -81,6 +81,19 @@ def _dashboard_signal_settings(base: SignalSettings) -> SignalSettings:
     return base.model_copy(update={"tier_c_threshold": tier_c})
 
 
+def _dashboard_risk_settings(base: RiskSettings, symbol_count: int) -> RiskSettings:
+    """Raise total exposure cap so one max-sized LONG per symbol can coexist in sim.
+
+    Default ``max_total_exposure_pct`` (15%) with ``max_position_pct`` (5%) only
+    allows ~3 concurrent legs; a 10-symbol universe would block further entries.
+    """
+    n = max(1, symbol_count)
+    per = float(base.max_position_pct)
+    needed = min(1.0, per * float(n))
+    merged = max(float(base.max_total_exposure_pct), needed)
+    return base.model_copy(update={"max_total_exposure_pct": merged})
+
+
 # Engine universe (Binance USDT linear); must match ``Symbol`` enum.
 _SYMBOL_MAP: dict[str, Symbol] = {s.value: s for s in Symbol}
 
@@ -243,7 +256,11 @@ class DashboardPaperRunner:
             self._publisher,
         )
         self._portfolio = PortfolioState(initial_capital=Decimal("10000"))
-        self._risk = RiskManager(settings.risk, self._publisher, self._portfolio)
+        self._risk = RiskManager(
+            _dashboard_risk_settings(settings.risk, len(symbols)),
+            self._publisher,
+            self._portfolio,
+        )
 
         exec_settings = settings.execution.model_copy()
         exec_settings.mode = ExecutionMode.PAPER
