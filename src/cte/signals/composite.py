@@ -77,6 +77,15 @@ def compute_composite(
     w = weights or DEFAULT_WEIGHTS
     thresholds = tier_thresholds or DEFAULT_TIER_THRESHOLDS
 
+    # Micro-optimization: Unroll summation for known fixed keys to avoid generator overhead.
+    primary = (
+        momentum.score * w["momentum"]
+        + orderflow.score * w["orderflow"]
+        + liquidation.score * w["liquidation"]
+        + microstructure.score * w["microstructure"]
+        + cross_venue.score * w["cross_venue"]
+    )
+
     sub_scores = {
         "momentum": momentum.score,
         "orderflow": orderflow.score,
@@ -84,8 +93,6 @@ def compute_composite(
         "microstructure": microstructure.score,
         "cross_venue": cross_venue.score,
     }
-
-    primary = sum(sub_scores[k] * w[k] for k in sub_scores)
     primary = round(primary, 4)
 
     context_mult = max(0.0, min(1.0, context.score))
