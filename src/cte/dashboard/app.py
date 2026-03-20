@@ -36,7 +36,11 @@ from cte.core.universe import (
     binance_futures_default_streams,
     expand_legacy_engine_symbols,
 )
-from cte.dashboard.paper_runner import DashboardPaperRunner, paper_loop_enabled
+from cte.dashboard.paper_runner import (
+    DashboardPaperRunner,
+    _dashboard_paper_interval_sec,
+    paper_loop_enabled,
+)
 from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
@@ -140,8 +144,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             ops_controller=lambda: _ops_controller,
             symbols=dash_syms,
         )
-        _paper_task = asyncio.create_task(_paper_runner.run_forever(interval_sec=2.0))
-        await log.ainfo("paper_runner_scheduled", interval_sec=2.0)
+        _paper_interval = _dashboard_paper_interval_sec()
+        _paper_task = asyncio.create_task(
+            _paper_runner.run_forever(interval_sec=_paper_interval)
+        )
+        await log.ainfo("paper_runner_scheduled", interval_sec=_paper_interval)
     else:
         await log.ainfo("paper_runner_disabled", reason="CTE_DASHBOARD_PAPER_LOOP")
 
@@ -218,6 +225,22 @@ async def paper_open_positions() -> dict[str, Any]:
     return {"positions": _paper_runner.open_positions_payload()}
 
 
+@app.get("/api/paper/warmup")
+async def paper_warmup_snapshot() -> dict[str, Any]:
+    """Per-symbol mid counts, warmup gate, ETA to full threshold (dashboard paper)."""
+    if _paper_runner is None:
+        return {"error": "paper runner not running", "symbols": {}}
+    return _paper_runner.warmup_snapshot()
+
+
+@app.get("/api/paper/entry-diagnostics")
+async def paper_entry_diagnostics() -> dict[str, Any]:
+    """Blocked entry reasons, last 20 attempts, attempt/eligible counters."""
+    if _paper_runner is None:
+        return {"error": "paper runner not running"}
+    return _paper_runner.entry_diagnostics_payload()
+
+
 # ── Market Data API ───────────────────────────────────────────
 
 
@@ -269,12 +292,21 @@ def _build_market_tickers_payload() -> dict[str, object]:
             "feed_ready": False,
         }
     tickers: dict[str, dict[str, object]] = {}
+    warm_by_sym: dict[str, Any] = {}
+    if _paper_runner is not None:
+        warm_by_sym = _paper_runner.warmup_snapshot().get("symbols", {})
     for sym in _active_dashboard_symbols:
         t = _market_feed.tickers.get(sym)
-        tickers[sym] = _serialize_ticker(t) if t else _empty_ticker_payload()
+        row: dict[str, object] = _serialize_ticker(t) if t else _empty_ticker_payload()
+        if sym in warm_by_sym:
+            row["warmup"] = warm_by_sym[sym]
+        tickers[sym] = row
     for sym, t in _market_feed.tickers.items():
         if sym not in tickers:
-            tickers[sym] = _serialize_ticker(t)
+            row = _serialize_ticker(t)
+            if sym in warm_by_sym:
+                row["warmup"] = warm_by_sym[sym]
+            tickers[sym] = row
     return {
         "source": "binance_testnet",
         "mode": "testnet",

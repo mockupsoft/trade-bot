@@ -11,7 +11,7 @@ from cte.core.events import Symbol
 from cte.core.settings import SignalSettings
 from cte.dashboard.paper_runner import (
     _dashboard_signal_settings,
-    _dashboard_warmup_mids,
+    _dashboard_warmup_thresholds,
     build_streaming_vector_from_ticker,
 )
 from cte.market.feed import TickerState
@@ -38,9 +38,14 @@ def test_build_streaming_vector_warm_passes_gates() -> None:
     assert vec.freshness.composite >= sig.gate_min_freshness
 
 
-def test_dashboard_warmup_mids_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dashboard_warmup_thresholds_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CTE_DASHBOARD_PAPER_WARMUP_MIDS", raising=False)
-    assert _dashboard_warmup_mids() == 48
+    monkeypatch.delenv("CTE_DASHBOARD_PAPER_WARMUP_MIDS_FULL", raising=False)
+    monkeypatch.delenv("CTE_DASHBOARD_PAPER_WARMUP_MIDS_EARLY", raising=False)
+    early, full = _dashboard_warmup_thresholds()
+    assert early == 20
+    assert full == 36
+    assert full > early
 
 
 def test_dashboard_signal_settings_lowers_tier_c(monkeypatch: pytest.MonkeyPatch) -> None:

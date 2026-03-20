@@ -79,11 +79,13 @@ class ExecutionEngine:
         quantity: Decimal,
         notional_usd: Decimal,
         event_time: datetime,
+        *,
+        warmup_phase: str = "full",
     ) -> PaperPosition | None:
         """Execute a scored signal (paper mode)."""
         if self._paper_backend:
             return self._paper_backend.open_position(
-                signal, quantity, notional_usd, event_time
+                signal, quantity, notional_usd, event_time, warmup_phase=warmup_phase
             )
         raise NotImplementedError("Use place_order() for venue execution")
 

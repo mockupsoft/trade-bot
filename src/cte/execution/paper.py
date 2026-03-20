@@ -121,6 +121,8 @@ class PaperExecutionEngine:
         quantity: Decimal,
         notional_usd: Decimal,
         event_time: datetime,
+        *,
+        warmup_phase: str = "full",
     ) -> PaperPosition | None:
         """Create and fill a paper position from a scored signal.
 
@@ -169,6 +171,7 @@ class PaperExecutionEngine:
             signal_tier=signal.tier.value,
             entry_reason=signal.reason.human_readable,
             composite_score=signal.composite_score,
+            warmup_phase=warmup_phase,
             quantity=quantity,
             notional_usd=notional_usd,
             signal_price=signal_price,

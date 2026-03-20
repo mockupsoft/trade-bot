@@ -32,6 +32,8 @@ class CompletedTrade:
     mae_pct: float
     was_profitable_at_exit: bool
     position_mode: str  # normal | winner_protection | runner
+    warmup_phase: str = "none"
+    """``none`` | ``early`` | ``full`` — dashboard staged warmup entries."""
 
 
 def win_rate(trades: list[CompletedTrade]) -> float:

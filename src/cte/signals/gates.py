@@ -9,10 +9,12 @@ that no amount of positive momentum can compensate for.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from cte.core.events import StreamingFeatureVector
+
+WarmupGateMode = Literal["strict", "dashboard_staged"]
 
 
 @dataclass(frozen=True)
@@ -39,18 +41,23 @@ def check_all_gates(
     max_spread_bps: float = 15.0,
     max_divergence_bps: float = 50.0,
     min_feasibility: float = 0.3,
+    warmup_gate_mode: WarmupGateMode = "strict",
 ) -> GateVerdict:
     """Run all hard gates against a feature vector.
 
     Returns a GateVerdict with pass/fail for each gate.
     If any gate fails, all_passed is False.
+
+    ``warmup_gate_mode``:
+    - ``strict`` (default): require ``data_quality.warmup_complete`` (full).
+    - ``dashboard_staged``: allow ``warmup_early_eligible`` OR ``warmup_complete``.
     """
     results = [
         _check_stale_feed(vector, min_freshness),
         _check_max_spread(vector, max_spread_bps),
         _check_max_divergence(vector, max_divergence_bps),
         _check_execution_feasibility(vector, min_feasibility),
-        _check_warmup(vector),
+        _check_warmup(vector, warmup_gate_mode),
     ]
 
     rejections = [r.reason for r in results if not r.passed]
@@ -175,17 +182,30 @@ def _check_execution_feasibility(
     )
 
 
-def _check_warmup(vector: StreamingFeatureVector) -> GateResult:
+def _check_warmup(
+    vector: StreamingFeatureVector,
+    mode: WarmupGateMode = "strict",
+) -> GateResult:
     """Reject if the feature engine hasn't completed warmup.
 
     During warmup, windows are not full and features are unreliable.
     """
-    passed = vector.data_quality.warmup_complete
+    dq = vector.data_quality
+    if mode == "strict":
+        passed = bool(dq.warmup_complete)
+        reason = "" if passed else "Feature engine warmup not complete"
+    else:
+        passed = bool(dq.warmup_early_eligible) or bool(dq.warmup_complete)
+        reason = (
+            ""
+            if passed
+            else "Dashboard warmup: need early or full mid history (staged gate)"
+        )
 
     return GateResult(
         name="warmup",
         passed=passed,
         value=1.0 if passed else 0.0,
         threshold=1.0,
-        reason="" if passed else "Feature engine warmup not complete",
+        reason=reason,
     )

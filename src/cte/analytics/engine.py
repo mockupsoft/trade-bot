@@ -64,10 +64,14 @@ class AnalyticsEngine:
         was_profitable_at_exit: bool = False,
         position_mode: str = "normal",
         source: str = "paper_simulated",
+        warmup_phase: str | None = None,
     ) -> CompletedTrade:
         """Record a completed trade from a closed position."""
         epoch = self._epochs.active_name
 
+        wp = warmup_phase if warmup_phase is not None else getattr(
+            position, "warmup_phase", "none"
+        )
         trade = CompletedTrade(
             symbol=position.symbol,
             venue=venue,
@@ -85,6 +89,7 @@ class AnalyticsEngine:
             mae_pct=position.mae_pct,
             was_profitable_at_exit=was_profitable_at_exit,
             position_mode=position_mode,
+            warmup_phase=wp,
         )
 
         self._trades.append(trade)
@@ -134,10 +139,18 @@ class AnalyticsEngine:
         tier: str | None = None,
         exit_reason: str | None = None,
         source: str | None = None,
+        warmup_phase: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         """Get individual trade records for drilldown."""
-        filtered = self._filter_trades(epoch, symbol, tier, exit_reason=exit_reason, source=source)
+        filtered = self._filter_trades(
+            epoch,
+            symbol,
+            tier,
+            exit_reason=exit_reason,
+            source=source,
+            warmup_phase=warmup_phase,
+        )
         tail = filtered[-limit:] if limit else filtered
         # Newest first for operator journal (last recorded appears at top).
         rows: list[dict] = []
@@ -160,6 +173,7 @@ class AnalyticsEngine:
                     "mae_pct": t.mae_pct,
                     "was_profitable_at_exit": t.was_profitable_at_exit,
                     "position_mode": t.position_mode,
+                    "warmup_phase": t.warmup_phase,
                 },
             )
         return rows
@@ -215,6 +229,7 @@ class AnalyticsEngine:
         venue: str | None = None,
         exit_reason: str | None = None,
         source: str | None = None,
+        warmup_phase: str | None = None,
     ) -> list[CompletedTrade]:
         result = self._trades
         if epoch:
@@ -229,6 +244,8 @@ class AnalyticsEngine:
             result = [t for t in result if t.venue == venue]
         if exit_reason:
             result = [t for t in result if t.exit_reason == exit_reason]
+        if warmup_phase:
+            result = [t for t in result if t.warmup_phase == warmup_phase]
         return result
 
     @property
