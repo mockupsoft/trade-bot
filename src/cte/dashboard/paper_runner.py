@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import os
 import statistics
+import time
 from collections import deque
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -75,6 +76,14 @@ def _env_bool(key: str, default: bool) -> bool:
     if raw == "":
         return default
     return raw not in ("0", "false", "no", "off")
+
+
+def _event_time_utc(t: TickerState) -> datetime:
+    """Decision time from venue/trade clock; wall clock only if feed timestamps missing."""
+    ms = t.last_trade_time_ms or t.last_update_ms
+    if ms <= 0:
+        ms = int(time.time() * 1000)
+    return datetime.fromtimestamp(ms / 1000.0, tz=UTC)
 
 
 def _mid_price(t: TickerState) -> Decimal | None:
@@ -349,8 +358,6 @@ class DashboardPaperRunner:
         if not paper:
             return
 
-        now = datetime.now(UTC)
-
         for sym in self._symbols:
             sym_enum = _SYMBOL_MAP.get(sym)
             if not sym_enum:
@@ -364,13 +371,15 @@ class DashboardPaperRunner:
                 self._last_skip[sym] = "no_mid_or_book"
                 continue
 
+            event_now = _event_time_utc(t)
+
             self._mid_history[sym].append(mid)
             bid, ask = t.best_bid, t.best_ask
             if bid > 0 and ask > 0:
                 self._execution.update_book(sym, bid, ask)
 
             mark = t.mark_price if t.mark_price > 0 else mid
-            closed = self._execution.update_price_and_evaluate(sym, mark, now)
+            closed = self._execution.update_price_and_evaluate(sym, mark, event_now)
             for pos in closed:
                 await self._on_position_closed(pos, analytics)
 
@@ -433,7 +442,7 @@ class DashboardPaperRunner:
                 continue
 
             opened = await self._execution.execute_signal(
-                scored, sized.quantity, sized.notional_usd, now
+                scored, sized.quantity, sized.notional_usd, event_now
             )
             if opened is not None:
                 self._portfolio.update_exposure(sym, sized.notional_usd)
