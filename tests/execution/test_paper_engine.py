@@ -140,7 +140,8 @@ class TestExitEvaluation:
         engine.update_book("BTCUSDT", drop_price - 1, drop_price + 1)
         closed = engine.evaluate_exits("BTCUSDT", drop_price, _t(second=30))
         assert len(closed) == 1
-        assert closed[0].exit_reason == "stop_loss"
+        # Layer 1 hard risk uses ``hard_stop`` (aligned with ``ExitSettings.stop_loss_pct``).
+        assert closed[0].exit_reason == "hard_stop"
 
     def test_take_profit_triggered(self, engine):
         pos = engine.open_position(_signal(), Decimal("1"), Decimal("65000"), _t())
@@ -154,11 +155,12 @@ class TestExitEvaluation:
 
     def test_timeout_triggered(self, engine):
         engine.open_position(_signal(), Decimal("1"), Decimal("65000"), _t())
-        # Time far in the future (>24h)
+        # Time far in the future (>24h). Layer 3 (no_progress) fires first for a flat
+        # position (gain below tier budget) before the operational max_hold cap.
         future = _t() + __import__("datetime").timedelta(hours=25)
         closed = engine.evaluate_exits("BTCUSDT", Decimal("65000"), future)
         assert len(closed) == 1
-        assert closed[0].exit_reason == "timeout"
+        assert closed[0].exit_reason == "no_progress"
 
     def test_no_exit_when_in_range(self, engine):
         engine.open_position(_signal(), Decimal("1"), Decimal("65000"), _t())

@@ -363,7 +363,10 @@ class DashboardPaperRunner:
                 self._execution.update_book(sym, bid, ask)
 
             mark = t.mark_price if t.mark_price > 0 else mid
-            closed = self._execution.update_price_and_evaluate(sym, mark, now)
+            vec = build_streaming_vector_from_ticker(
+                sym_enum, self._mid_history[sym], t, sig_settings
+            )
+            closed = self._execution.update_price_and_evaluate(sym, mark, now, vec)
             for pos in closed:
                 await self._on_position_closed(pos, analytics)
 
@@ -374,9 +377,6 @@ class DashboardPaperRunner:
             if _has_open_long(paper, sym):
                 continue
 
-            vec = build_streaming_vector_from_ticker(
-                sym_enum, self._mid_history[sym], t, sig_settings
-            )
             if vec is None:
                 continue
 

@@ -33,7 +33,6 @@ from cte.core.settings import (
 from cte.core.streams import StreamPublisher
 from cte.execution.fill_model import FillMode
 from cte.execution.paper import PaperExecutionEngine
-from cte.exits.engine import LayeredExitEngine
 from cte.risk.manager import PortfolioState, RiskManager
 from cte.signals.engine import ScoringSignalEngine
 from cte.sizing.engine import SizingEngine
@@ -132,9 +131,7 @@ class TestFullPipeline:
         assert position.signal_tier in ("A", "B")
         assert position.fill_price > Decimal("65001")  # filled above ask
 
-        # 5. Price moves up → exit engine monitors
-        LayeredExitEngine()
-
+        # 5. Price moves up → 5-layer exit + take-profit cap
         # Price rises to TP
         tp_price = position.entry_price * Decimal("1.04")
         paper.update_book("BTCUSDT", tp_price - 1, tp_price + 1)
