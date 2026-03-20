@@ -473,6 +473,15 @@
           </div>
           <span class="text-[10px] text-slate-600 font-mono" x-show="paperStatus && paperStatus.last_error" x-text="paperStatus.last_error"></span>
         </div>
+        <div class="mb-4 rounded-lg border border-white/[0.08] bg-slate-950/40 px-3 py-2 text-[10px] font-mono text-slate-500 leading-relaxed" x-show="paperStatus && paperStatus.runner_active">
+          <span class="text-slate-400">Paper diagnostics</span>
+          <span class="text-slate-600"> · </span>
+          <span x-text="'warmup mids '+JSON.stringify(paperStatus.mids_buffered||{})+' / '+(paperStatus.warmup_mid_samples||'—')"></span>
+          <span class="text-slate-600"> · </span>
+          <span x-text="'tier_c≥'+(paperStatus.tier_c_threshold!=null?paperStatus.tier_c_threshold:'—')"></span>
+          <span class="text-slate-600"> · </span>
+          <span x-text="'last: '+JSON.stringify(paperStatus.last_skip_by_symbol||{})"></span>
+        </div>
         <div class="overflow-x-auto tbl-scroll">
           <table class="tbl min-w-[900px]">
             <thead>
@@ -497,7 +506,7 @@
                 </tr>
               </template>
               <tr x-show="!paperOpen.length">
-                <td colspan="6" class="py-8 text-center text-xs text-slate-600">No open paper positions — wait for a scored signal (feed must be live, ops ACTIVE, symbol enabled), or check <span class="font-mono text-slate-500">/api/paper/status</span>.</td>
+                <td colspan="6" class="py-8 text-center text-xs text-slate-600">No open paper positions — feed must be live with bid/ask, ops <span class="font-mono text-slate-500">ACTIVE</span>, then warmup mids (see diagnostics above) and a passing score (tier C+). <span class="font-mono text-slate-600">CTE_DASHBOARD_PAPER_DEMO_ENTRIES=1</span> (default) relaxes warmup/tier for the UI. Check <span class="font-mono text-slate-500">/api/paper/status</span>.</td>
               </tr>
             </tbody>
           </table>

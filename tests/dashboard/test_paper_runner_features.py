@@ -30,3 +30,9 @@ def test_build_streaming_vector_warm_passes_gates() -> None:
     assert vec is not None
     assert vec.data_quality.warmup_complete
     assert vec.freshness.composite >= sig.gate_min_freshness
+    mids50 = deque([Decimal("100") + Decimal(i) / Decimal(200) for i in range(50)], maxlen=400)
+    vec50 = build_streaming_vector_from_ticker(
+        Symbol.BTCUSDT, mids50, t, sig, warmup_mid_samples=50
+    )
+    assert vec50 is not None
+    assert vec50.data_quality.warmup_complete
