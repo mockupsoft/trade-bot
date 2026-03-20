@@ -150,6 +150,23 @@ Full notes: [docs/DASHBOARD_MODES.md](docs/DASHBOARD_MODES.md).
 
 **Dashboard paper warmup:** the in-process loop uses **staged warmup**. The signal warmup gate clears after `CTE_DASHBOARD_PAPER_WARMUP_MIDS_EARLY` rolling mids (default 20); **full** confidence uses `CTE_DASHBOARD_PAPER_WARMUP_MIDS_FULL` (default 36). Entries opened before full use a reduced notional (`CTE_DASHBOARD_PAPER_EARLY_SIZE_MULT`) and are labeled `warmup_phase=early` in positions and analytics. Tune loop cadence with `CTE_DASHBOARD_PAPER_INTERVAL_SEC`. See `.env.example` and `/api/paper/warmup` / `/api/paper/entry-diagnostics`.
 
+### Validation Campaign (Real Data)
+
+End-to-end checks use **live WebSocket** prices. By default the dashboard runs **paper** execution (`source=paper_simulated`). **No seed trades.** With `CTE_ENGINE_MODE=demo`, `CTE_EXECUTION_MODE=testnet`, and `CTE_DASHBOARD_VENUE_LOOP=1`, the dashboard can place **real Binance USDⓈ-M testnet REST orders** (`source=demo_exchange`); testnet keys still satisfy the demo **safety gate** (no production URLs).
+
+| Item | Command / artifact |
+|------|---------------------|
+| Full report | [docs/VALIDATION_CAMPAIGN_REPORT.md](docs/VALIDATION_CAMPAIGN_REPORT.md) |
+| Testnet venue smoke (REST orders) | [docs/TESTNET_SMOKE_TEST_REPORT.md](docs/TESTNET_SMOKE_TEST_REPORT.md) |
+| Testnet full lifecycle proof | [docs/TESTNET_E2E_PROOF_REPORT.md](docs/TESTNET_E2E_PROOF_REPORT.md) |
+| Snapshot bundle | `./scripts/collect_validation_snapshot.sh` (set `BASE_URL` if needed) |
+| Hourly metrics | `POST /api/campaign/snapshot?period=hourly` |
+| Long run | Keep `uvicorn` or `cte-dashboard` up ≥24h on a server; aggregate snapshots |
+
+**Pilot (automated check, ~45s fresh process):** feed connected, `reconnect_count=0`, BTC/ETH tickers live, ops pause/resume OK. **Closed trades in a fresh process** are zero until warmup + signals run; **longer** sessions produce real journal rows in `/api/analytics/trades`.
+
+**Readiness:** **GO** for “live data + paper pipeline + analytics” on the dashboard. **NO-GO** for a full 7-day production promotion gate from pilot data alone — see report.
+
 ### Start Infrastructure (Docker)
 
 ```bash

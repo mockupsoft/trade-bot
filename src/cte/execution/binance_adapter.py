@@ -177,6 +177,29 @@ class BinanceTestnetAdapter(ExecutionAdapter):
             ))
         return positions
 
+    async def get_usdt_wallet_snapshot(self) -> dict[str, Decimal]:
+        """USD-M futures wallet balances for USDT (cross-margin wallet)."""
+        params: dict = {"recvWindow": self._recv_window}
+        data = await self._signed_request("GET", "/fapi/v2/balance", params, weight=5)
+        if not isinstance(data, list):
+            return {
+                "wallet": Decimal("0"),
+                "available": Decimal("0"),
+                "cross_wallet": Decimal("0"),
+            }
+        for b in data:
+            if b.get("asset") == "USDT":
+                return {
+                    "wallet": Decimal(str(b.get("walletBalance", "0"))),
+                    "available": Decimal(str(b.get("availableBalance", "0"))),
+                    "cross_wallet": Decimal(str(b.get("crossWalletBalance", "0"))),
+                }
+        return {
+            "wallet": Decimal("0"),
+            "available": Decimal("0"),
+            "cross_wallet": Decimal("0"),
+        }
+
     async def close_position(
         self, symbol: str, quantity: Decimal, side: OrderSide
     ) -> OrderResult:

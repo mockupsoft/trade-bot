@@ -24,10 +24,14 @@ cp .env.example .env
 Edit `.env`:
 ```bash
 CTE_ENGINE_MODE=demo
+CTE_EXECUTION_MODE=testnet
+CTE_DASHBOARD_VENUE_LOOP=1
 CTE_BINANCE_TESTNET_API_KEY=your_testnet_api_key_here
 CTE_BINANCE_TESTNET_API_SECRET=your_testnet_api_secret_here
 CTE_BINANCE_TESTNET_REST_URL=https://testnet.binancefuture.com
 ```
+
+For a **single-symbol, minimal-notional** dashboard smoke test (`demo_exchange` path), see [TESTNET_SMOKE_TEST_REPORT.md](TESTNET_SMOKE_TEST_REPORT.md). Use `CTE_ENGINE_SYMBOLS='["SOLUSDT"]'` (JSON array) and optional `CTE_SIGNALS_COOLDOWN_SECONDS=0` while debugging venue errors so cooldown does not mask REST failures.
 
 ### 3. Pre-Start Safety Verification
 

@@ -47,6 +47,11 @@ class PaperPosition:
     warmup_phase: str = "none"
     """``none`` | ``early`` | ``full`` — dashboard staged warmup (paper only)."""
 
+    venue_order_id: str = ""
+    """Exchange order id when execution is venue-backed (e.g. Binance testnet)."""
+    entry_client_order_id: str = ""
+    """Client order id used when placing the entry order."""
+
     # Fill details
     entry_price: Decimal = Decimal("0")
     fill_price: Decimal = Decimal("0")
@@ -162,6 +167,8 @@ class PaperPosition:
         close_time: datetime,
         exit_reason: str,
         exit_detail: str = "",
+        *,
+        additional_exit_fees_usd: Decimal = Decimal("0"),
     ) -> None:
         """Transition from OPEN to CLOSED."""
         if self.status not in (PositionStatus.OPEN, PositionStatus.REDUCED):
@@ -181,7 +188,7 @@ class PaperPosition:
         else:
             self.realized_pnl = (self.entry_price - exit_price) * self.quantity
 
-        self.realized_pnl -= self.estimated_fees_usd
+        self.realized_pnl -= self.estimated_fees_usd + additional_exit_fees_usd
         self.unrealized_pnl = Decimal("0")
 
         self.state_transitions.append(
