@@ -527,10 +527,13 @@ async def take_snapshot(period: str = "hourly"):
     trades = _analytics_engine._filter_trades()
     feed_health = _market_feed.health if _market_feed else None
     snapshot = compute_snapshot(
-        trades, epoch=_epoch_manager.active_name, period=period,
+        trades,
+        epoch=_epoch_manager.active_name,
+        period=period,
         stale_event_count=feed_health.errors_total if feed_health else 0,
         reconnect_count=feed_health.reconnect_count if feed_health else 0,
         recon_mismatch_count=_recon_status.get("mismatches", 0),
+        initial_capital=float(_analytics_engine._initial_capital),
     )
     _campaign_collector.add_snapshot(snapshot)
     return snapshot.to_dict()
@@ -744,23 +747,36 @@ async def alerts_status():
 @app.get("/api/readiness/campaign")
 async def campaign_readiness():
     """Readiness gates wired to REAL campaign metrics."""
+    from cte.analytics.metrics import compute_phase_metrics_slice, trades_for_promotion_evidence
     from cte.ops.readiness import build_campaign_validation_checklist
+
     collector = _campaign_collector
     latest = collector.latest
     trades = _analytics_engine._filter_trades() if _analytics_engine else []
     seed_count = sum(1 for t in trades if t.source == "seed")
-    return evaluate_readiness(build_campaign_validation_checklist(
-        campaign_days=collector.campaign_days,
-        total_trades=collector.total_trades,
-        all_recon_clean=collector.all_recon_clean,
-        max_dd_observed=collector.max_dd_observed,
-        avg_latency_p95_ms=collector.avg_latency_p95,
-        stale_ratio=0.0,
-        reject_ratio=latest.reject_rate if latest else 0.0,
-        error_count=latest.error_count if latest else 0,
-        expectancy=latest.expectancy if latest else 0.0,
-        seed_trade_count=seed_count,
-    ))
+    ic = float(_analytics_engine._initial_capital) if _analytics_engine else 10000.0
+    promo = trades_for_promotion_evidence(trades)
+    pm = compute_phase_metrics_slice(promo, ic)
+    promo_dd = float(pm["max_drawdown_pct"])
+    promo_exp = float(pm["expectancy"])
+    promo_n = int(pm["trade_count"])
+    return evaluate_readiness(
+        build_campaign_validation_checklist(
+            campaign_days=collector.campaign_days,
+            total_trades=len(trades),
+            all_recon_clean=collector.all_recon_clean,
+            max_dd_observed=collector.max_dd_observed,
+            avg_latency_p95_ms=collector.avg_latency_p95,
+            stale_ratio=0.0,
+            reject_ratio=latest.reject_rate if latest else 0.0,
+            error_count=latest.error_count if latest else 0,
+            expectancy=latest.expectancy if latest else 0.0,
+            seed_trade_count=seed_count,
+            promotion_trade_count=promo_n,
+            promotion_expectancy=promo_exp,
+            promotion_max_dd_observed=promo_dd,
+        )
+    )
 
 
 # ── Reports ───────────────────────────────────────────────────

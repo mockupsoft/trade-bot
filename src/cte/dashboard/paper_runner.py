@@ -357,6 +357,10 @@ def _has_open_long(paper: PaperExecutionEngine, symbol: str) -> bool:
     return any(pos.symbol == symbol and pos.is_open for pos in paper.open_positions.values())
 
 
+def _iso_utc(dt: datetime | None) -> str | None:
+    return dt.isoformat() if dt else None
+
+
 class DashboardPaperRunner:
     """Runs signal→risk→size→paper→analytics on a fixed interval."""
 
@@ -416,6 +420,10 @@ class DashboardPaperRunner:
         self._first_entry_ticks: int | None = None
         self._stall_warned = False
         self._symbol_gate_state: dict[str, str] = {}
+        self._last_eligible_signal_at: datetime | None = None
+        self._last_risk_approved_at: datetime | None = None
+        self._last_nonzero_sizing_at: datetime | None = None
+        self._last_execution_attempt_at: datetime | None = None
 
     def stop(self) -> None:
         self._running = False
@@ -423,6 +431,45 @@ class DashboardPaperRunner:
     @property
     def last_error(self) -> str | None:
         return self._last_error
+
+    def _pipeline_stall_analysis(self) -> dict[str, Any]:
+        """Explain where the entry pipeline last progressed when entries_total is zero."""
+        if self._entries_total > 0:
+            return {
+                "stalled": False,
+                "furthest_stage": "opened",
+                "dominant_blocker": None,
+                "hint": "Paper entries have occurred.",
+            }
+        pos_counts = {k: v for k, v in self._diag.global_counts.items() if v > 0}
+        top = max(pos_counts.items(), key=lambda x: x[1])[0] if pos_counts else None
+        if self._last_execution_attempt_at:
+            stage = "execution_attempted"
+        elif self._last_nonzero_sizing_at:
+            stage = "sized"
+        elif self._last_risk_approved_at:
+            stage = "risk_approved"
+        elif self._last_eligible_signal_at:
+            stage = "eligible_signal"
+        else:
+            stage = "pre_signal"
+
+        hints: dict[str, str] = {
+            "pre_signal": "No tier-eligible signal yet — warmup, hard gates, tier floor, cooldown, or hourly cap.",
+            "eligible_signal": "Signal passed scoring; not yet risk-approved — check correlation, exposure, drawdown vetoes.",
+            "risk_approved": "Risk approved; sizing returned None or zero — check min_order / sizer.",
+            "sized": "Sized order ready; execution did not fill — missing bid/ask book.",
+            "execution_attempted": "execute_signal ran; if still no position, inspect paper backend / logs.",
+        }
+        hint = hints.get(stage, "")
+        if top:
+            hint += f" Most frequent block: {top}."
+        return {
+            "stalled": self._ticks_ok > 5,
+            "furthest_stage": stage,
+            "dominant_blocker": top,
+            "hint": hint,
+        }
 
     def status_dict(self) -> dict[str, Any]:
         paper = self._execution.paper_backend
@@ -464,12 +511,20 @@ class DashboardPaperRunner:
             else self._first_entry_mono - started
         )
 
+        pipe = self._pipeline_stall_analysis()
         return {
             "ticks_ok": self._ticks_ok,
             "entries_total": self._entries_total,
             "exits_recorded": self._exits_recorded,
             "open_positions": open_n,
             "last_error": self._last_error,
+            "pipeline_timestamps": {
+                "last_eligible_signal_at": _iso_utc(self._last_eligible_signal_at),
+                "last_risk_approved_signal_at": _iso_utc(self._last_risk_approved_at),
+                "last_nonzero_sizing_at": _iso_utc(self._last_nonzero_sizing_at),
+                "last_execution_attempt_at": _iso_utc(self._last_execution_attempt_at),
+            },
+            "pipeline_stall": pipe,
             "warmup": {
                 "early_mids": self._warmup_early,
                 "full_mids": self._warmup_full,
@@ -683,6 +738,7 @@ class DashboardPaperRunner:
                 continue
 
             scored = ev.signal
+            self._last_eligible_signal_at = now
             entry_wp = vec.data_quality.warmup_phase
             if entry_wp not in ("early", "full"):
                 entry_wp = "full" if vec.data_quality.warmup_complete else "early"
@@ -711,6 +767,7 @@ class DashboardPaperRunner:
             if assessment.decision != RiskDecision.APPROVED:
                 self._diag.record(sym, "rejected_risk", str(assessment.decision))
                 continue
+            self._last_risk_approved_at = now
 
             sizer = SizingEngine(
                 sizing_settings, self._publisher, self._portfolio.portfolio_value
@@ -719,7 +776,10 @@ class DashboardPaperRunner:
             if sized is None:
                 self._diag.record(sym, "rejected_sizing_failed", "")
                 continue
+            if sized.notional_usd > 0:
+                self._last_nonzero_sizing_at = now
 
+            self._last_execution_attempt_at = now
             opened = await self._execution.execute_signal(
                 scored,
                 sized.quantity,

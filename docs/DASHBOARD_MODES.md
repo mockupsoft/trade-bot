@@ -42,6 +42,8 @@ docker compose -f deploy/docker-compose.yml up -d analytics
 - **Open paper** (when the loop is enabled): `GET /api/paper/positions` lists in-memory LONG legs; `GET /api/paper/status` exposes tick counters, staged warmup settings, first-open timing, aggregated entry blockers, and `open_positions` count.
 - **Warmup APIs**: `GET /api/paper/warmup` (per-symbol mid count, gate state, ETA to full threshold); `GET /api/paper/entry-diagnostics` (global/per-symbol rejection counts, last 20 blocked attempts). Market `GET /api/market/tickers` embeds a `warmup` object per symbol when the paper runner is active.
 - **Closed journal**: UI calls `GET /api/analytics/trades` with `epoch`, optional `tier`, `symbol`, `exit_reason`, `source`, `warmup_phase`, and `limit` (1–500). Rows are **newest first** and include `warmup_phase` (`none` / `early` / `full`), `venue`, `was_profitable_at_exit`, and `exit_reason`. Closes from the dashboard paper loop use `source=paper_simulated`.
+- **Analytics summary** (`/api/analytics/summary`): includes `warmup_phase_breakdown` with separate metrics for `early`, `full`, `none`, and `promotion_evidence` (full + none; **excludes early**). Readiness **Campaign** gates (`/api/readiness/campaign`) use promotion-only trade count, expectancy, and max drawdown by default so early-warmup trades do not satisfy promotion evidence.
+- **Paper status** (`/api/paper/status`): `pipeline_timestamps` (last eligible / risk-approved / sized / execution attempt) and `pipeline_stall` (human hint when no positions yet).
 - v1 copy on the page states LONG-only, configured universe (default: 10 Binance USDT linear majors), and source semantics (`paper_simulated`, `demo_exchange`, `seed`).
 
 ## Alerts page

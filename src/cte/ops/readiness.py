@@ -484,8 +484,20 @@ def build_campaign_validation_checklist(
     error_count: int = 0,
     expectancy: float = 0.0,
     seed_trade_count: int = 0,
+    *,
+    promotion_trade_count: int | None = None,
+    promotion_expectancy: float | None = None,
+    promotion_max_dd_observed: float | None = None,
 ) -> list[ReadinessGate]:
-    """Build gates from REAL campaign metrics (not placeholders)."""
+    """Build gates from REAL campaign metrics (not placeholders).
+
+    When ``promotion_*`` args are provided, edge/risk gates use **promotion evidence**
+    trades only (excludes ``warmup_phase=early``). Otherwise falls back to legacy
+    ``total_trades`` / ``expectancy`` / ``max_dd_observed`` for backward compatibility.
+    """
+    promo_n = promotion_trade_count if promotion_trade_count is not None else total_trades
+    promo_exp = promotion_expectancy if promotion_expectancy is not None else expectancy
+    promo_dd = promotion_max_dd_observed if promotion_max_dd_observed is not None else max_dd_observed
     return [
         ReadinessGate(
             name="campaign_duration", category="campaign",
@@ -495,9 +507,10 @@ def build_campaign_validation_checklist(
         ),
         ReadinessGate(
             name="trade_count", category="campaign",
-            description=">=100 trades recorded",
-            status=GateStatus.PASS if total_trades >= 100 else GateStatus.FAIL,
-            value=str(total_trades), threshold="100",
+            description=">=100 promotion-evidence trades (excludes early warmup by default)",
+            status=GateStatus.PASS if promo_n >= 100 else GateStatus.FAIL,
+            value=str(promo_n), threshold="100",
+            detail=f"all_trades={total_trades} promotion_only={promotion_trade_count is not None}",
         ),
         ReadinessGate(
             name="no_seed_data", category="data_integrity",
@@ -514,9 +527,9 @@ def build_campaign_validation_checklist(
         ),
         ReadinessGate(
             name="max_drawdown", category="risk",
-            description="Max drawdown < 5% during campaign",
-            status=GateStatus.PASS if max_dd_observed < 0.05 else GateStatus.FAIL,
-            value=f"{max_dd_observed:.2%}", threshold="< 5%",
+            description="Max drawdown < 5% (promotion evidence DD when provided)",
+            status=GateStatus.PASS if promo_dd < 0.05 else GateStatus.FAIL,
+            value=f"{promo_dd:.2%}", threshold="< 5%",
         ),
         ReadinessGate(
             name="latency_p95", category="performance",
@@ -544,8 +557,8 @@ def build_campaign_validation_checklist(
         ),
         ReadinessGate(
             name="positive_expectancy", category="edge",
-            description="Expectancy > $0 per trade",
-            status=GateStatus.PASS if expectancy > 0 else GateStatus.FAIL,
-            value=f"${expectancy:.2f}", threshold="> $0",
+            description="Expectancy > $0 per trade (promotion evidence when provided)",
+            status=GateStatus.PASS if promo_exp > 0 else GateStatus.FAIL,
+            value=f"${promo_exp:.2f}", threshold="> $0",
         ),
     ]

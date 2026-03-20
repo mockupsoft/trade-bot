@@ -10,13 +10,20 @@ from cte.ops.campaign import CampaignCollector, MetricSnapshot, compute_snapshot
 from cte.ops.readiness import build_campaign_validation_checklist, evaluate_readiness
 
 
-def _trade(pnl=10, source="paper_simulated", latency=100, slip=5.0):
+def _trade(
+    pnl=10,
+    source="paper_simulated",
+    latency=100,
+    slip=5.0,
+    warmup_phase="none",
+):
     return CompletedTrade(
         symbol="BTCUSDT", venue="binance", tier="A", epoch="paper",
         source=source, pnl=Decimal(str(pnl)), exit_reason="winner_trailing",
         exit_layer=4, hold_seconds=300, r_multiple=1.0, entry_latency_ms=latency,
         modeled_slippage_bps=slip, mfe_pct=0.02, mae_pct=0.005,
         was_profitable_at_exit=pnl > 0, position_mode="normal",
+        warmup_phase=warmup_phase,
     )
 
 
@@ -68,6 +75,19 @@ class TestComputeSnapshot:
         assert "latency_p95_ms" in d
         assert "source_breakdown" in d
         assert d["source_breakdown"]["paper_simulated"] == 1
+        assert "promotion_trade_count" in d
+        assert "warmup_phase_breakdown" in d
+
+    def test_promotion_counts_exclude_early_warmup(self):
+        trades = [
+            _trade(10, warmup_phase="early"),
+            _trade(10, warmup_phase="early"),
+            _trade(50, warmup_phase="full"),
+        ]
+        snap = compute_snapshot(trades, epoch="test")
+        assert snap.trade_count == 3
+        assert snap.promotion_trade_count == 1
+        assert snap.promotion_expectancy == pytest.approx(50.0)
 
 
 class TestCampaignCollector:
@@ -151,3 +171,18 @@ class TestCampaignValidationGates:
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
         assert "positive_expectancy" in blocker_names
+
+    def test_promotion_trade_count_can_fail_while_total_high(self):
+        """Readiness uses promotion-only count when provided (early warmup excluded)."""
+        gates = build_campaign_validation_checklist(
+            campaign_days=10,
+            total_trades=120,
+            all_recon_clean=True,
+            max_dd_observed=0.02,
+            promotion_trade_count=40,
+            promotion_expectancy=5.0,
+            promotion_max_dd_observed=0.02,
+        )
+        result = evaluate_readiness(gates)
+        blocker_names = [b["name"] for b in result["blockers"]]
+        assert "trade_count" in blocker_names

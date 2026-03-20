@@ -343,6 +343,63 @@
         </div>
       </div>
 
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6" x-show="paperStatus && paperStatus.pipeline_timestamps">
+        <div class="card border border-white/[0.06]">
+          <h3 class="text-sm font-semibold text-white mb-2">Pipeline timestamps (UTC)</h3>
+          <dl class="text-[10px] font-mono text-slate-400 space-y-1">
+            <div class="flex justify-between gap-2"><dt>last_eligible_signal_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_eligible_signal_at||'—'"></dd></div>
+            <div class="flex justify-between gap-2"><dt>last_risk_approved_signal_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_risk_approved_signal_at||'—'"></dd></div>
+            <div class="flex justify-between gap-2"><dt>last_nonzero_sizing_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_nonzero_sizing_at||'—'"></dd></div>
+            <div class="flex justify-between gap-2"><dt>last_execution_attempt_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_execution_attempt_at||'—'"></dd></div>
+          </dl>
+        </div>
+        <div class="card border border-amber-500/15" x-show="paperStatus.pipeline_stall">
+          <h3 class="text-sm font-semibold text-amber-200/95 mb-2">Where it stalls (no open yet)</h3>
+          <p class="text-[11px] text-slate-400 mb-2" x-text="paperStatus.pipeline_stall.hint||''"></p>
+          <p class="text-[10px] font-mono text-slate-500">furthest_stage: <span class="text-cyan-300" x-text="paperStatus.pipeline_stall.furthest_stage||'—'"></span> · blocker: <span class="text-amber-300" x-text="paperStatus.pipeline_stall.dominant_blocker||'—'"></span></p>
+        </div>
+      </div>
+
+      <div class="card mt-6 border border-white/[0.06]" x-show="m.warmup_phase_breakdown">
+        <h3 class="text-sm font-semibold text-white tracking-tight mb-3">Closed trades · warmup phase (early vs full)</h3>
+        <p class="text-[10px] text-slate-500 mb-4 font-mono">Promotion readiness uses <span class="text-slate-400">promotion_evidence</span> only (excludes <span class="text-amber-400">early</span>). See Readiness / Campaign.</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-[11px]">
+          <div class="rounded-xl bg-white/[0.03] border border-amber-500/20 p-3">
+            <p class="text-[10px] font-bold uppercase text-amber-500/90 mb-2">Early warmup</p>
+            <dl class="font-mono text-slate-400 space-y-1">
+              <div class="flex justify-between"><dt>n</dt><dd class="text-slate-200" x-text="wphase('early','trade_count')"></dd></div>
+              <div class="flex justify-between"><dt>win%</dt><dd class="text-slate-200" x-text="wphase('early','win_rate')"></dd></div>
+              <div class="flex justify-between"><dt>E</dt><dd class="text-slate-200" x-text="wphase('early','expectancy')"></dd></div>
+              <div class="flex justify-between"><dt>net</dt><dd class="text-slate-200" x-text="wphase('early','net_pnl')"></dd></div>
+              <div class="flex justify-between"><dt>slip</dt><dd class="text-slate-200" x-text="wphase('early','avg_slippage_bps')"></dd></div>
+              <div class="flex justify-between"><dt>maxDD</dt><dd class="text-slate-200" x-text="wphase('early','max_drawdown_pct')"></dd></div>
+            </dl>
+          </div>
+          <div class="rounded-xl bg-white/[0.03] border border-emerald-500/20 p-3">
+            <p class="text-[10px] font-bold uppercase text-emerald-500/90 mb-2">Full warmup</p>
+            <dl class="font-mono text-slate-400 space-y-1">
+              <div class="flex justify-between"><dt>n</dt><dd class="text-slate-200" x-text="wphase('full','trade_count')"></dd></div>
+              <div class="flex justify-between"><dt>win%</dt><dd class="text-slate-200" x-text="wphase('full','win_rate')"></dd></div>
+              <div class="flex justify-between"><dt>E</dt><dd class="text-slate-200" x-text="wphase('full','expectancy')"></dd></div>
+              <div class="flex justify-between"><dt>net</dt><dd class="text-slate-200" x-text="wphase('full','net_pnl')"></dd></div>
+              <div class="flex justify-between"><dt>slip</dt><dd class="text-slate-200" x-text="wphase('full','avg_slippage_bps')"></dd></div>
+              <div class="flex justify-between"><dt>maxDD</dt><dd class="text-slate-200" x-text="wphase('full','max_drawdown_pct')"></dd></div>
+            </dl>
+          </div>
+          <div class="rounded-xl bg-white/[0.03] border border-cyan-500/20 p-3">
+            <p class="text-[10px] font-bold uppercase text-cyan-500/90 mb-2">Promotion evidence</p>
+            <dl class="font-mono text-slate-400 space-y-1">
+              <div class="flex justify-between"><dt>n</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','trade_count')"></dd></div>
+              <div class="flex justify-between"><dt>win%</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','win_rate')"></dd></div>
+              <div class="flex justify-between"><dt>E</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','expectancy')"></dd></div>
+              <div class="flex justify-between"><dt>net</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','net_pnl')"></dd></div>
+              <div class="flex justify-between"><dt>slip</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','avg_slippage_bps')"></dd></div>
+              <div class="flex justify-between"><dt>maxDD</dt><dd class="text-slate-200" x-text="wphase('promotion_evidence','max_drawdown_pct')"></dd></div>
+            </dl>
+          </div>
+        </div>
+      </div>
+
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-8">
         <div class="card xl:col-span-1">
           <div class="flex items-center justify-between mb-4">
@@ -1089,6 +1146,12 @@ function app(){return{
   blockerRows(){
     const g=(this.paperEntryDiag&&this.paperEntryDiag.global_counts)||(this.paperStatus&&this.paperStatus.entry_diagnostics&&this.paperStatus.entry_diagnostics.global_counts)||{};
     return Object.keys(g).map(k=>({k,n:g[k]||0})).sort((a,b)=>b.n-a.n);
+  },
+  wphase(phase, field){
+    const b=this.m&&this.m.warmup_phase_breakdown;
+    if(!b||!b[phase]||b[phase][field]===undefined)return '—';
+    const v=b[phase][field];
+    return typeof v==='number'?v:String(v);
   },
   fmtUsd(v){
     const x=parseFloat(String(v??'0'));

@@ -1,7 +1,7 @@
 # CTE — Crypto Trading Engine
 
 [![CI](https://github.com/mockupsoft/trade-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/mockupsoft/trade-bot/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-493%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-498%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-72%25-yellow)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -65,7 +65,7 @@ src/cte/
 └── db/             2 modules   TimescaleDB schema (15 tables)
 ```
 
-### 493 Tests (27+ test files)
+### 498 Tests (28+ test files)
 
 ```
 tests/

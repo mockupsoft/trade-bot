@@ -6,7 +6,7 @@ No I/O, no side effects, fully deterministic, fully testable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -34,6 +34,94 @@ class CompletedTrade:
     position_mode: str  # normal | winner_protection | runner
     warmup_phase: str = "none"
     """``none`` | ``early`` | ``full`` — dashboard staged warmup entries."""
+
+
+def trades_for_promotion_evidence(trades: list[CompletedTrade]) -> list[CompletedTrade]:
+    """Trades eligible for readiness / promotion stats (excludes staged early warmup).
+
+    Legacy rows with ``warmup_phase=none`` remain included so historical data still counts.
+    """
+    return [t for t in trades if t.warmup_phase != "early"]
+
+
+def compute_phase_metrics_slice(
+    trades: list[CompletedTrade], initial_capital: float
+) -> dict[str, Any]:
+    """Aggregate metrics for one trade subset (e.g. single warmup phase)."""
+    if not trades:
+        return {
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "expectancy": 0.0,
+            "gross_pnl": 0.0,
+            "net_pnl": 0.0,
+            "avg_slippage_bps": 0.0,
+            "max_drawdown_pct": 0.0,
+        }
+
+    net = sum(float(t.pnl) for t in trades)
+    gross_profit = sum(float(t.pnl) for t in trades if t.pnl > 0)
+    gross_loss = abs(sum(float(t.pnl) for t in trades if t.pnl < 0))
+    gross_pnl = gross_profit + gross_loss
+
+    return {
+        "trade_count": len(trades),
+        "win_rate": round(win_rate(trades), 4),
+        "expectancy": round(expectancy(trades), 4),
+        "gross_pnl": round(gross_pnl, 2),
+        "net_pnl": round(net, 2),
+        "avg_slippage_bps": round(avg_slippage_bps(trades), 2),
+        "max_drawdown_pct": round(max_drawdown_pct(trades, initial_capital), 4),
+    }
+
+
+def compute_warmup_phase_breakdown(
+    trades: list[CompletedTrade], initial_capital: float
+) -> dict[str, Any]:
+    """Side-by-side metrics for early / full / none, plus promotion-evidence-only slice."""
+    by_early = [t for t in trades if t.warmup_phase == "early"]
+    by_full = [t for t in trades if t.warmup_phase == "full"]
+    by_none = [t for t in trades if t.warmup_phase == "none"]
+    promo = trades_for_promotion_evidence(trades)
+    total_net = sum(float(t.pnl) for t in trades)
+    portfolio_dd = max_drawdown_pct(trades, initial_capital) if trades else 0.0
+
+    def _share(phase_trades: list[CompletedTrade]) -> float:
+        if not phase_trades or total_net == 0:
+            return 0.0
+        return round(sum(float(t.pnl) for t in phase_trades) / total_net * 100.0, 2)
+
+    def _dd_contrib(phase_trades: list[CompletedTrade]) -> float:
+        """Phase standalone max DD as a fraction of portfolio max DD (0-100)."""
+        if not phase_trades or portfolio_dd <= 0:
+            return 0.0
+        ph_dd = max_drawdown_pct(phase_trades, initial_capital)
+        return round(min(100.0, (ph_dd / portfolio_dd) * 100.0), 2)
+
+    early_m = compute_phase_metrics_slice(by_early, initial_capital)
+    full_m = compute_phase_metrics_slice(by_full, initial_capital)
+    none_m = compute_phase_metrics_slice(by_none, initial_capital)
+    promo_m = compute_phase_metrics_slice(promo, initial_capital)
+
+    early_m["net_pnl_share_of_portfolio_pct"] = _share(by_early)
+    full_m["net_pnl_share_of_portfolio_pct"] = _share(by_full)
+    none_m["net_pnl_share_of_portfolio_pct"] = _share(by_none)
+    promo_m["net_pnl_share_of_portfolio_pct"] = (
+        round(sum(float(t.pnl) for t in promo) / total_net * 100.0, 2) if total_net != 0 else 0.0
+    )
+    early_m["max_drawdown_contribution_pct"] = _dd_contrib(by_early)
+    full_m["max_drawdown_contribution_pct"] = _dd_contrib(by_full)
+    none_m["max_drawdown_contribution_pct"] = _dd_contrib(by_none)
+    promo_m["max_drawdown_contribution_pct"] = _dd_contrib(promo)
+
+    return {
+        "early": early_m,
+        "full": full_m,
+        "none": none_m,
+        "promotion_evidence": promo_m,
+        "promotion_evidence_excludes_early_warmup": True,
+        "portfolio_max_drawdown_pct": round(portfolio_dd, 4),
+    }
 
 
 def win_rate(trades: list[CompletedTrade]) -> float:
@@ -215,4 +303,5 @@ def compute_all_metrics(
             if trades else 0.0
         ),
         "count_by_source": count_by_dimension(trades, "source"),
+        "warmup_phase_breakdown": compute_warmup_phase_breakdown(trades, initial_capital),
     }
