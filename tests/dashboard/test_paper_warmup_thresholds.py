@@ -1,6 +1,8 @@
 """Staged warmup thresholds for dashboard paper loop."""
 from __future__ import annotations
 
+import pytest
+
 from cte.dashboard.paper_runner import _dashboard_warmup_thresholds
 
 
