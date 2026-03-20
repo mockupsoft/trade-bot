@@ -505,8 +505,8 @@ async def demo_to_live_checklist():
 
 @app.get("/api/readiness/edge_proof")
 async def edge_proof_checklist():
-    from cte.ops.readiness import build_edge_proof_checklist
-    gates = build_edge_proof_checklist()
+    from cte.ops.readiness import PerformanceMetrics, build_edge_proof_checklist
+    gates = build_edge_proof_checklist(PerformanceMetrics())
     return evaluate_readiness(gates)
 
 

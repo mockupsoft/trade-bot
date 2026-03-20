@@ -20,6 +20,34 @@ class GateStatus(StrEnum):
 
 
 @dataclass(frozen=True)
+class PerformanceMetrics:
+    # Edge stability
+    expectancy_overall: float = 0.0
+    expectancy_low_vol: float = 0.0
+    expectancy_high_vol: float = 0.0
+    expectancy_trending: float = 0.0
+    positive_regime_count: int = 0
+    # Tier separation
+    tier_a_expectancy: float = 0.0
+    tier_b_expectancy: float = 0.0
+    tier_c_expectancy: float = 0.0
+    tier_a_better_than_b: bool = False
+    tier_b_better_than_c: bool = False
+    # Exit value-add
+    smart_exit_pnl: float = 0.0
+    flat_exit_pnl: float = 0.0
+    exit_value_add_pct: float = 0.0
+    # Worst-case survival
+    worst_case_expectancy: float = 0.0
+    worst_case_max_dd: float = 0.0
+    # Kill switch accuracy
+    kill_switch_false_positive_rate: float = 0.0
+    kill_switch_response_ms: float = 0.0
+    # Sample size
+    total_trades: int = 0
+
+
+@dataclass(frozen=True)
 class ReadinessGate:
     name: str
     category: str
@@ -156,28 +184,8 @@ def build_demo_to_live_checklist(
 # ══════════════════════════════════════════════════════════════
 
 def build_edge_proof_checklist(
-    # Edge stability
-    expectancy_overall: float = 0.0,
-    expectancy_low_vol: float = 0.0,
-    expectancy_high_vol: float = 0.0,
-    expectancy_trending: float = 0.0,
-    positive_regime_count: int = 0,
-    # Tier separation
-    tier_a_expectancy: float = 0.0,
-    tier_b_expectancy: float = 0.0,
-    tier_c_expectancy: float = 0.0,
-    tier_a_better_than_b: bool = False,
-    tier_b_better_than_c: bool = False,
-    # Exit value-add
-    smart_exit_pnl: float = 0.0,
-    flat_exit_pnl: float = 0.0,
-    exit_value_add_pct: float = 0.0,
-    # Worst-case survival
-    worst_case_expectancy: float = 0.0,
-    worst_case_max_dd: float = 0.0,
-    # Kill switch accuracy
-    kill_switch_false_positive_rate: float = 0.0,
-    kill_switch_response_ms: float = 0.0,
+    metrics: PerformanceMetrics,
+    min_trades: int = 100,
 ) -> list[ReadinessGate]:
     """Edge proof gates — must pass before any real capital is risked."""
     return [
@@ -185,70 +193,77 @@ def build_edge_proof_checklist(
         ReadinessGate(
             name="edge_overall", category="edge_stability",
             description="Overall expectancy is positive",
-            status=GateStatus.PASS if expectancy_overall > 0 else GateStatus.FAIL,
-            value=f"${expectancy_overall:.2f}", threshold="> $0",
+            status=GateStatus.PASS if metrics.expectancy_overall > 0 else GateStatus.FAIL,
+            value=f"${metrics.expectancy_overall:.2f}", threshold="> $0",
         ),
         ReadinessGate(
             name="edge_regime_count", category="edge_stability",
             description="Expectancy positive in ≥3 volatility regimes",
-            status=GateStatus.PASS if positive_regime_count >= 3 else GateStatus.FAIL,
-            value=str(positive_regime_count), threshold="3",
+            status=GateStatus.PASS if metrics.positive_regime_count >= 3 else GateStatus.FAIL,
+            value=str(metrics.positive_regime_count), threshold="3",
             detail=(
-                f"Low-vol: ${expectancy_low_vol:.2f}, "
-                f"High-vol: ${expectancy_high_vol:.2f}, "
-                f"Trending: ${expectancy_trending:.2f}"
+                f"Low-vol: ${metrics.expectancy_low_vol:.2f}, "
+                f"High-vol: ${metrics.expectancy_high_vol:.2f}, "
+                f"Trending: ${metrics.expectancy_trending:.2f}"
             ),
         ),
         # ── Tier Separation ───────────────────────────────────
         ReadinessGate(
             name="tier_a_gt_b", category="tier_separation",
             description="Tier A expectancy > Tier B (directionally)",
-            status=GateStatus.PASS if tier_a_better_than_b else GateStatus.FAIL,
-            value=f"A=${tier_a_expectancy:.2f} B=${tier_b_expectancy:.2f}",
+            status=GateStatus.PASS if metrics.tier_a_better_than_b else GateStatus.FAIL,
+            value=f"A=${metrics.tier_a_expectancy:.2f} B=${metrics.tier_b_expectancy:.2f}",
             detail="Scoring model must rank signals correctly",
         ),
         ReadinessGate(
             name="tier_b_gt_c", category="tier_separation",
             description="Tier B expectancy > Tier C (directionally)",
-            status=GateStatus.PASS if tier_b_better_than_c else GateStatus.FAIL,
-            value=f"B=${tier_b_expectancy:.2f} C=${tier_c_expectancy:.2f}",
+            status=GateStatus.PASS if metrics.tier_b_better_than_c else GateStatus.FAIL,
+            value=f"B=${metrics.tier_b_expectancy:.2f} C=${metrics.tier_c_expectancy:.2f}",
             detail="If tiers don't separate, scoring model is noise",
         ),
         # ── Exit Value-Add ────────────────────────────────────
         ReadinessGate(
             name="exit_value_add", category="exit_effectiveness",
             description="Smart exit net PnL > flat SL/TP net PnL",
-            status=GateStatus.PASS if exit_value_add_pct > 0 else GateStatus.FAIL,
-            value=f"+{exit_value_add_pct:.1f}%",
-            detail=f"Smart: ${smart_exit_pnl:.2f} vs Flat: ${flat_exit_pnl:.2f}",
+            status=GateStatus.PASS if metrics.exit_value_add_pct > 0 else GateStatus.FAIL,
+            value=f"+{metrics.exit_value_add_pct:.1f}%",
+            detail=f"Smart: ${metrics.smart_exit_pnl:.2f} vs Flat: ${metrics.flat_exit_pnl:.2f}",
         ),
         # ── Worst-Case Survival ───────────────────────────────
         ReadinessGate(
             name="worst_case_expectancy", category="robustness",
             description="Expectancy stays positive under worst-case fills",
-            status=GateStatus.PASS if worst_case_expectancy > 0 else GateStatus.FAIL,
-            value=f"${worst_case_expectancy:.2f}",
+            status=GateStatus.PASS if metrics.worst_case_expectancy > 0 else GateStatus.FAIL,
+            value=f"${metrics.worst_case_expectancy:.2f}",
             detail="2x slippage model must not collapse the edge",
         ),
         ReadinessGate(
             name="worst_case_dd", category="robustness",
             description="Worst-case max drawdown < 10%",
-            status=GateStatus.PASS if worst_case_max_dd < 0.10 else GateStatus.FAIL,
-            value=f"{worst_case_max_dd:.1%}", threshold="< 10%",
+            status=GateStatus.PASS if metrics.worst_case_max_dd < 0.10 else GateStatus.FAIL,
+            value=f"{metrics.worst_case_max_dd:.1%}", threshold="< 10%",
         ),
         # ── Kill Switch Accuracy ──────────────────────────────
         ReadinessGate(
             name="kill_switch_false_positive", category="ops_quality",
             description="Kill switch false positive rate < 20%",
-            status=GateStatus.PASS if kill_switch_false_positive_rate < 0.20 else GateStatus.FAIL,
-            value=f"{kill_switch_false_positive_rate:.0%}", threshold="< 20%",
+            status=GateStatus.PASS if metrics.kill_switch_false_positive_rate < 0.20 else GateStatus.FAIL,
+            value=f"{metrics.kill_switch_false_positive_rate:.0%}", threshold="< 20%",
             detail="Too many false positives = lost alpha from unnecessary stops",
         ),
         ReadinessGate(
             name="kill_switch_speed", category="ops_quality",
             description="Kill switch response time < 2 seconds",
-            status=GateStatus.PASS if 0 < kill_switch_response_ms < 2000 else GateStatus.FAIL,
-            value=f"{kill_switch_response_ms:.0f}ms", threshold="< 2000ms",
+            status=GateStatus.PASS if 0 < metrics.kill_switch_response_ms < 2000 else GateStatus.FAIL,
+            value=f"{metrics.kill_switch_response_ms:.0f}ms", threshold="< 2000ms",
+        ),
+        # ── Sample Size ───────────────────────────────────────
+        ReadinessGate(
+            name="sample_size", category="validation",
+            description=f"At least {min_trades} trades completed",
+            status=GateStatus.PASS if metrics.total_trades >= min_trades else GateStatus.FAIL,
+            value=str(metrics.total_trades), threshold=str(min_trades),
         ),
     ]
 

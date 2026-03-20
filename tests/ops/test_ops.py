@@ -6,6 +6,7 @@ from datetime import date
 from cte.ops.go_no_go import build_go_no_go_report
 from cte.ops.kill_switch import OperationsController, TradingMode
 from cte.ops.readiness import (
+    PerformanceMetrics,
     build_dashboard_paper_to_testnet_gates,
     build_demo_to_live_checklist,
     build_edge_proof_checklist,
@@ -153,7 +154,7 @@ class TestReadinessGate:
 
 class TestEdgeProofGates:
     def test_all_pass(self):
-        gates = build_edge_proof_checklist(
+        metrics = PerformanceMetrics(
             expectancy_overall=15.0,
             expectancy_low_vol=5.0, expectancy_high_vol=10.0, expectancy_trending=20.0,
             positive_regime_count=3,
@@ -162,36 +163,44 @@ class TestEdgeProofGates:
             smart_exit_pnl=500.0, flat_exit_pnl=350.0, exit_value_add_pct=42.8,
             worst_case_expectancy=5.0, worst_case_max_dd=0.06,
             kill_switch_false_positive_rate=0.10, kill_switch_response_ms=500,
+            total_trades=100,
         )
+        gates = build_edge_proof_checklist(metrics)
         result = evaluate_readiness(gates)
         assert result["ready"]
 
     def test_tier_separation_fail(self):
-        gates = build_edge_proof_checklist(
+        metrics = PerformanceMetrics(
             expectancy_overall=10.0, positive_regime_count=3,
             tier_a_expectancy=5.0, tier_b_expectancy=15.0,  # B > A = wrong
             tier_a_better_than_b=False, tier_b_better_than_c=True,
+            total_trades=100,
         )
+        gates = build_edge_proof_checklist(metrics)
         result = evaluate_readiness(gates)
         assert not result["ready"]
         blocker_names = [b["name"] for b in result["blockers"]]
         assert "tier_a_gt_b" in blocker_names
 
     def test_worst_case_survival_fail(self):
-        gates = build_edge_proof_checklist(
+        metrics = PerformanceMetrics(
             expectancy_overall=10.0, positive_regime_count=3,
             worst_case_expectancy=-5.0,  # collapses under worst-case fills
             worst_case_max_dd=0.15,      # 15% > 10% threshold
+            total_trades=100,
         )
+        gates = build_edge_proof_checklist(metrics)
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
         assert "worst_case_expectancy" in blocker_names
         assert "worst_case_dd" in blocker_names
 
     def test_edge_regime_count(self):
-        gates = build_edge_proof_checklist(
+        metrics = PerformanceMetrics(
             expectancy_overall=10.0, positive_regime_count=1,
+            total_trades=100,
         )
+        gates = build_edge_proof_checklist(metrics)
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
         assert "edge_regime_count" in blocker_names
