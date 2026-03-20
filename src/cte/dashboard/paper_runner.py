@@ -399,11 +399,6 @@ class DashboardPaperRunner:
         self._publisher = AsyncMock()
         self._publisher.publish = AsyncMock(return_value="ok")
 
-        self._signal_engine = ScoringSignalEngine(
-            _dashboard_signal_settings(settings.signals),
-            self._publisher,
-            warmup_gate_mode="dashboard_staged",
-        )
         self._portfolio = PortfolioState(initial_capital=Decimal("10000"))
         self._risk = RiskManager(
             _dashboard_risk_settings(settings.risk, len(symbols)),
@@ -430,7 +425,7 @@ class DashboardPaperRunner:
         else:
             self._warmup_mid_samples = 50 if self._demo_entries else 80
 
-        sig = settings.signals.model_copy()
+        sig = _dashboard_signal_settings(settings.signals)
         raw_tier = (os.environ.get("CTE_DASHBOARD_PAPER_TIER_C_THRESHOLD") or "").strip()
         if raw_tier:
             sig = sig.model_copy(update={"tier_c_threshold": float(raw_tier)})
@@ -439,7 +434,11 @@ class DashboardPaperRunner:
                 update={"tier_c_threshold": min(sig.tier_c_threshold, 0.36)},
             )
         self._signal_settings = sig
-        self._signal_engine = ScoringSignalEngine(sig, self._publisher)
+        self._signal_engine = ScoringSignalEngine(
+            sig,
+            self._publisher,
+            warmup_gate_mode="dashboard_staged",
+        )
 
         self._running = False
         self._last_error: str | None = None
@@ -736,13 +735,13 @@ class DashboardPaperRunner:
                 sym_enum,
                 self._mid_history[sym],
                 t,
-                sig_settings,
+                self._signal_settings,
                 early_mids=self._warmup_early,
                 full_mids=self._warmup_full,
             )
             await self._maybe_log_warmup_transition(sym, vec, t)
 
-            closed = self._execution.update_price_and_evaluate(sym, mark, now, vec)
+            closed = self._execution.update_price_and_evaluate(sym, mark, event_now, vec)
             for pos in closed:
                 await self._on_position_closed(pos, analytics)
 
@@ -774,7 +773,7 @@ class DashboardPaperRunner:
                 continue
 
             scored = ev.signal
-            self._last_eligible_signal_at = now
+            self._last_eligible_signal_at = event_now
             entry_wp = vec.data_quality.warmup_phase
             if entry_wp not in ("early", "full"):
                 entry_wp = "full" if vec.data_quality.warmup_complete else "early"
@@ -803,7 +802,7 @@ class DashboardPaperRunner:
             if assessment.decision != RiskDecision.APPROVED:
                 self._diag.record(sym, "rejected_risk", str(assessment.decision))
                 continue
-            self._last_risk_approved_at = now
+            self._last_risk_approved_at = event_now
 
             sizer = SizingEngine(sizing_settings, self._publisher, self._portfolio.portfolio_value)
             sized = await sizer.size_order(legacy, assessment, mark)
@@ -811,14 +810,14 @@ class DashboardPaperRunner:
                 self._diag.record(sym, "rejected_sizing_failed", "")
                 continue
             if sized.notional_usd > 0:
-                self._last_nonzero_sizing_at = now
+                self._last_nonzero_sizing_at = event_now
 
-            self._last_execution_attempt_at = now
+            self._last_execution_attempt_at = event_now
             opened = await self._execution.execute_signal(
                 scored,
                 sized.quantity,
                 sized.notional_usd,
-                now,
+                event_now,
                 warmup_phase=entry_wp,
             )
             if opened is not None:
