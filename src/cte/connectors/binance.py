@@ -5,9 +5,12 @@ Uses the new stream URL separation (fstream.binance.com).
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import orjson
 import websockets
 
+from cte.connectors.base import BaseConnector
 from cte.core.events import (
     STREAM_KEYS,
     BaseEvent,
@@ -15,9 +18,10 @@ from cte.core.events import (
     RawTradeEvent,
     Venue,
 )
-from cte.core.settings import BinanceSettings
-from cte.core.streams import StreamPublisher
-from cte.connectors.base import BaseConnector
+
+if TYPE_CHECKING:
+    from cte.core.settings import BinanceSettings
+    from cte.core.streams import StreamPublisher
 
 
 class BinanceConnector(BaseConnector):

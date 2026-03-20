@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import TYPE_CHECKING
 
 import asyncpg
 import structlog
 
-from cte.core.settings import DatabaseSettings
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from cte.core.settings import DatabaseSettings
 
 logger = structlog.get_logger(__name__)
 

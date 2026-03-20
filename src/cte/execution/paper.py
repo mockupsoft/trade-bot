@@ -1,211 +1,323 @@
-"""Paper trading execution engine.
+"""Paper execution engine — bid/ask-aware, replay-safe, full audit trail.
 
-Simulates order fills with configurable slippage and latency.
-No real exchange connection — purely internal simulation.
+Converts scored signals into paper positions using realistic fill models.
+No asyncio.sleep, no datetime.now — all timing comes from event timestamps
+to support deterministic replay.
+
+Key differences from the old paper engine:
+- Fills at bid/ask, not mid-price
+- Carries signal tier, entry reason, composite score onto position
+- Tracks MFE/MAE on every price update
+- Records entry latency, modeled fill latency, slip cost
+- Position state machine (PENDING → OPEN → CLOSED)
+- Optional VWAP depth-based fills
+- All timestamps from event clock (replay-safe)
 """
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 from decimal import Decimal
-from uuid import UUID, uuid4
+from typing import TYPE_CHECKING
 
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
 
 from cte.core.events import (
-    STREAM_KEYS,
-    OrderEvent,
-    OrderStatus,
-    OrderType,
-    PositionSnapshot,
-    Side,
-    SizedOrderEvent,
-    Symbol,
-    Venue,
+    ExitReason,
+    ScoredSignalEvent,
 )
-from cte.core.settings import ExecutionSettings
-from cte.core.streams import StreamPublisher
+from cte.execution.fill_model import BookLevel, FillMode, compute_fill
+from cte.execution.position import PaperPosition, PositionStatus
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from cte.core.settings import ExecutionSettings, ExitSettings
+    from cte.core.streams import StreamPublisher
 
 logger = structlog.get_logger(__name__)
 
-orders_total = Counter("cte_orders_total", "Total orders processed", ["symbol", "status"])
-positions_open = Gauge("cte_positions_open", "Currently open positions", ["symbol"])
-fill_latency = Histogram(
-    "cte_order_fill_latency_seconds", "Simulated fill latency", ["venue"]
+paper_fills_total = Counter(
+    "cte_paper_fills_total", "Paper fills executed", ["symbol"]
 )
-
-
-class PaperPosition:
-    """In-memory tracking of a paper position."""
-
-    def __init__(
-        self,
-        position_id: UUID,
-        symbol: Symbol,
-        side: Side,
-        entry_price: Decimal,
-        quantity: Decimal,
-        signal_id: UUID,
-        leverage: int = 1,
-    ) -> None:
-        self.position_id = position_id
-        self.symbol = symbol
-        self.side = side
-        self.entry_price = entry_price
-        self.quantity = quantity
-        self.signal_id = signal_id
-        self.leverage = leverage
-        self.opened_at = datetime.now(timezone.utc)
-        self.highest_price = entry_price
-        self.lowest_price = entry_price
-        self.current_price = entry_price
-
-    def update_price(self, price: Decimal) -> None:
-        self.current_price = price
-        if price > self.highest_price:
-            self.highest_price = price
-        if price < self.lowest_price:
-            self.lowest_price = price
-
-    @property
-    def unrealized_pnl(self) -> Decimal:
-        if self.side == Side.BUY:
-            return (self.current_price - self.entry_price) * self.quantity
-        return (self.entry_price - self.current_price) * self.quantity
-
-    def to_snapshot(self) -> PositionSnapshot:
-        return PositionSnapshot(
-            position_id=self.position_id,
-            symbol=self.symbol,
-            side=self.side,
-            entry_price=self.entry_price,
-            current_price=self.current_price,
-            quantity=self.quantity,
-            unrealized_pnl=self.unrealized_pnl,
-            leverage=self.leverage,
-            opened_at=self.opened_at,
-            signal_id=self.signal_id,
-            highest_price=self.highest_price,
-            lowest_price=self.lowest_price,
-        )
+paper_positions_open = Gauge(
+    "cte_paper_positions_open", "Open paper positions", ["symbol"]
+)
+paper_fill_slip = Histogram(
+    "cte_paper_fill_slippage_bps", "Fill slippage in bps", ["symbol"],
+    buckets=[0.5, 1, 2, 3, 5, 7, 10, 15, 20],
+)
+paper_pnl_total = Gauge("cte_paper_pnl_total_usd", "Total paper PnL")
 
 
 class PaperExecutionEngine:
-    """Simulates order execution for paper trading mode."""
+    """Bid/ask-aware paper execution engine with full position tracking."""
 
     def __init__(
         self,
-        settings: ExecutionSettings,
+        exec_settings: ExecutionSettings,
+        exit_settings: ExitSettings,
         publisher: StreamPublisher,
+        fill_mode: FillMode = FillMode.SPREAD_CROSSING,
     ) -> None:
-        self._settings = settings
+        self._exec = exec_settings
+        self._exits = exit_settings
         self._publisher = publisher
+        self._fill_mode = fill_mode
+
         self._positions: dict[UUID, PaperPosition] = {}
-        self._last_prices: dict[str, Decimal] = {}
+        self._closed_positions: list[PaperPosition] = []
 
-    async def execute_order(self, order: SizedOrderEvent) -> OrderEvent:
-        """Simulate order fill with slippage and latency."""
-        await asyncio.sleep(self._settings.fill_delay_ms / 1000)
+        # Latest book per symbol (bid, ask)
+        self._books: dict[str, tuple[Decimal, Decimal]] = {}
+        self._book_levels: dict[str, tuple[list[BookLevel], list[BookLevel]]] = {}
 
-        last_price = self._last_prices.get(order.symbol.value, order.notional_usd / order.quantity)
-        fill_price = self._apply_slippage(last_price, order.side)
+        self._total_realized_pnl = Decimal("0")
 
-        position_id = uuid4()
-        position = PaperPosition(
-            position_id=position_id,
-            symbol=order.symbol,
-            side=order.side,
-            entry_price=fill_price,
-            quantity=order.quantity,
-            signal_id=order.signal_id,
-            leverage=order.leverage,
-        )
-        self._positions[position_id] = position
-        positions_open.labels(symbol=order.symbol.value).inc()
+    # ── Book Updates ──────────────────────────────────────────
 
-        order_event = OrderEvent(
-            signal_id=order.signal_id,
-            symbol=order.symbol,
-            side=order.side,
-            order_type=order.order_type,
-            status=OrderStatus.FILLED,
-            requested_quantity=order.quantity,
-            filled_quantity=order.quantity,
-            average_price=fill_price,
-            venue=Venue.BINANCE,
-            reason=f"Paper fill: {order.reason}",
-        )
-
-        await self._publisher.publish(STREAM_KEYS["order"], order_event)
-
-        snapshot = position.to_snapshot()
-        await self._publisher.publish(STREAM_KEYS["position"], snapshot)
-
-        orders_total.labels(symbol=order.symbol.value, status="filled").inc()
-        fill_latency.labels(venue="paper").observe(self._settings.fill_delay_ms / 1000)
-
-        await logger.ainfo(
-            "paper_fill",
-            symbol=order.symbol.value,
-            side=order.side.value,
-            price=str(fill_price),
-            quantity=str(order.quantity),
-            position_id=str(position_id),
-        )
-
-        return order_event
-
-    async def close_position(
+    def update_book(
         self,
-        position_id: UUID,
-        exit_price: Decimal,
-        reason: str,
-    ) -> OrderEvent | None:
-        """Close a paper position."""
-        position = self._positions.pop(position_id, None)
-        if position is None:
-            await logger.awarning("position_not_found", position_id=str(position_id))
-            return None
+        symbol: str,
+        best_bid: Decimal,
+        best_ask: Decimal,
+        bid_levels: list[BookLevel] | None = None,
+        ask_levels: list[BookLevel] | None = None,
+    ) -> None:
+        """Update the latest orderbook for a symbol."""
+        self._books[symbol] = (best_bid, best_ask)
+        if bid_levels is not None and ask_levels is not None:
+            self._book_levels[symbol] = (bid_levels, ask_levels)
 
-        position.update_price(exit_price)
-        positions_open.labels(symbol=position.symbol.value).dec()
-
-        close_side = Side.SELL if position.side == Side.BUY else Side.BUY
-
-        order_event = OrderEvent(
-            signal_id=position.signal_id,
-            symbol=position.symbol,
-            side=close_side,
-            order_type=OrderType.MARKET,
-            status=OrderStatus.FILLED,
-            requested_quantity=position.quantity,
-            filled_quantity=position.quantity,
-            average_price=exit_price,
-            venue=Venue.BINANCE,
-            reason=f"Paper close: {reason}",
-        )
-
-        await self._publisher.publish(STREAM_KEYS["order"], order_event)
-
-        orders_total.labels(symbol=position.symbol.value, status="filled").inc()
-
-        return order_event
-
-    def update_market_price(self, symbol: str, price: Decimal) -> None:
-        """Update market price for all positions of a symbol."""
-        self._last_prices[symbol] = price
+    def update_price(self, symbol: str, price: Decimal) -> None:
+        """Update market price and re-evaluate all open positions for this symbol."""
         for pos in self._positions.values():
-            if pos.symbol.value == symbol:
+            if pos.symbol == symbol and pos.is_open:
                 pos.update_price(price)
 
-    def _apply_slippage(self, price: Decimal, side: Side) -> Decimal:
-        """Apply simulated slippage."""
-        slippage_factor = Decimal(str(self._settings.slippage_bps)) / Decimal("10000")
-        if side == Side.BUY:
-            return price * (1 + slippage_factor)
-        return price * (1 - slippage_factor)
+    # ── Entry ─────────────────────────────────────────────────
+
+    def open_position(
+        self,
+        signal: ScoredSignalEvent,
+        quantity: Decimal,
+        notional_usd: Decimal,
+        event_time: datetime,
+    ) -> PaperPosition | None:
+        """Create and fill a paper position from a scored signal.
+
+        Uses bid/ask from the latest book update. If no book available,
+        rejects the fill (cannot fill without a quote).
+        """
+        symbol = signal.symbol.value
+        book = self._books.get(symbol)
+        if book is None:
+            return None
+
+        best_bid, best_ask = book
+
+        # Determine fill side
+        side = "buy" if signal.action.value == "open_long" else "sell"
+
+        # Choose book levels for VWAP mode
+        levels = None
+        if self._fill_mode == FillMode.VWAP_DEPTH:
+            stored = self._book_levels.get(symbol)
+            if stored:
+                levels = stored[1] if side == "buy" else stored[0]
+
+        # Compute fill
+        fill_result = compute_fill(
+            side=side,
+            quantity=quantity,
+            best_bid=best_bid,
+            best_ask=best_ask,
+            slippage_bps=self._exec.slippage_bps,
+            mode=self._fill_mode,
+            book_levels=levels,
+        )
+
+        # Modeled latency: offset from event time (no sleep!)
+        fill_time = event_time + timedelta(milliseconds=self._exec.fill_delay_ms)
+
+        # Signal price = mid at signal time
+        signal_price = (best_bid + best_ask) / 2
+
+        position = PaperPosition(
+            symbol=symbol,
+            direction="long" if side == "buy" else "short",
+            status=PositionStatus.PENDING,
+            signal_id=signal.event_id,
+            signal_tier=signal.tier.value,
+            entry_reason=signal.reason.human_readable,
+            composite_score=signal.composite_score,
+            quantity=quantity,
+            notional_usd=notional_usd,
+            signal_price=signal_price,
+            modeled_slippage_bps=fill_result.slippage_bps,
+            effective_spread_bps=fill_result.effective_spread_bps,
+            fill_model_used=fill_result.model_used.value,
+            signal_time=event_time,
+            modeled_fill_latency_ms=self._exec.fill_delay_ms,
+            stop_loss_pct=self._exits.stop_loss_pct,
+            take_profit_pct=self._exits.take_profit_pct,
+            estimated_fees_usd=notional_usd * Decimal("0.0004"),  # 4 bps taker fee
+        )
+
+        # Transition PENDING → OPEN
+        position.open(fill_result.fill_price, fill_time)
+
+        self._positions[position.position_id] = position
+
+        paper_fills_total.labels(symbol=symbol).inc()
+        paper_positions_open.labels(symbol=symbol).inc()
+        paper_fill_slip.labels(symbol=symbol).observe(float(fill_result.slippage_bps))
+
+        return position
+
+    # ── Exit ──────────────────────────────────────────────────
+
+    def close_position(
+        self,
+        position_id: UUID,
+        exit_reason: str,
+        exit_detail: str,
+        event_time: datetime,
+    ) -> PaperPosition | None:
+        """Close a position at current bid/ask."""
+        position = self._positions.get(position_id)
+        if position is None or not position.is_open:
+            return None
+
+        book = self._books.get(position.symbol)
+        if book is None:
+            return None
+
+        best_bid, best_ask = book
+        side = "sell" if position.direction == "long" else "buy"
+
+        fill_result = compute_fill(
+            side=side,
+            quantity=position.quantity,
+            best_bid=best_bid,
+            best_ask=best_ask,
+            slippage_bps=self._exec.slippage_bps,
+            mode=self._fill_mode,
+        )
+
+        position.close(
+            exit_price=fill_result.fill_price,
+            close_time=event_time,
+            exit_reason=exit_reason,
+            exit_detail=exit_detail,
+        )
+
+        del self._positions[position_id]
+        self._closed_positions.append(position)
+
+        self._total_realized_pnl += position.realized_pnl
+
+        paper_positions_open.labels(symbol=position.symbol).dec()
+        paper_pnl_total.set(float(self._total_realized_pnl))
+
+        return position
+
+    # ── Exit Condition Evaluation ─────────────────────────────
+
+    def evaluate_exits(
+        self,
+        symbol: str,
+        current_price: Decimal,
+        event_time: datetime,
+    ) -> list[PaperPosition]:
+        """Evaluate exit conditions for all open positions of a symbol.
+
+        Returns list of positions that were closed.
+        """
+        closed = []
+        position_ids = [
+            pid for pid, pos in self._positions.items()
+            if pos.symbol == symbol and pos.is_open
+        ]
+
+        for pid in position_ids:
+            pos = self._positions[pid]
+            pos.update_price(current_price)
+
+            exit_reason, exit_detail = self._check_exit_conditions(pos, current_price, event_time)
+            if exit_reason:
+                result = self.close_position(pid, exit_reason, exit_detail, event_time)
+                if result:
+                    closed.append(result)
+
+        return closed
+
+    def _check_exit_conditions(
+        self,
+        pos: PaperPosition,
+        price: Decimal,
+        now: datetime,
+    ) -> tuple[str, str]:
+        """Check all exit conditions. Returns (reason, detail) or ("", "")."""
+        if pos.entry_price <= 0:
+            return "", ""
+
+        if pos.direction == "long":
+            loss_pct = float((pos.entry_price - price) / pos.entry_price)
+            gain_pct = float((price - pos.entry_price) / pos.entry_price)
+        else:
+            loss_pct = float((price - pos.entry_price) / pos.entry_price)
+            gain_pct = float((pos.entry_price - price) / pos.entry_price)
+
+        # Stop loss
+        if loss_pct >= self._exits.stop_loss_pct:
+            return (
+                ExitReason.STOP_LOSS.value,
+                f"Loss {loss_pct:.2%} exceeded {self._exits.stop_loss_pct:.2%}",
+            )
+
+        # Take profit
+        if gain_pct >= self._exits.take_profit_pct:
+            return (
+                ExitReason.TAKE_PROFIT.value,
+                f"Gain {gain_pct:.2%} reached {self._exits.take_profit_pct:.2%}",
+            )
+
+        # Trailing stop
+        if pos.highest_price > pos.entry_price and pos.direction == "long":
+            drawdown = float((pos.highest_price - price) / pos.highest_price)
+            if drawdown >= self._exits.trailing_stop_pct and gain_pct > 0:
+                return (
+                    ExitReason.TRAILING_STOP.value,
+                    f"Drawdown {drawdown:.2%} from high {pos.highest_price}",
+                )
+
+        # Timeout
+        if pos.fill_time:
+            hold_minutes = (now - pos.fill_time).total_seconds() / 60
+            if hold_minutes >= self._exits.max_hold_minutes:
+                return (
+                    ExitReason.TIMEOUT.value,
+                    f"Held {hold_minutes:.0f}m > {self._exits.max_hold_minutes}m limit",
+                )
+
+        return "", ""
+
+    # ── Accessors ─────────────────────────────────────────────
 
     @property
     def open_positions(self) -> dict[UUID, PaperPosition]:
         return dict(self._positions)
+
+    @property
+    def closed_positions(self) -> list[PaperPosition]:
+        return list(self._closed_positions)
+
+    @property
+    def total_realized_pnl(self) -> Decimal:
+        return self._total_realized_pnl
+
+    def get_position(self, position_id: UUID) -> PaperPosition | None:
+        return self._positions.get(position_id) or next(
+            (p for p in self._closed_positions if p.position_id == position_id), None
+        )

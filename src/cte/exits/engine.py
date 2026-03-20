@@ -1,175 +1,206 @@
-"""Smart exit engine.
+"""Layered Smart Exit Engine — 5 priority layers with tier-specific patience.
 
-Monitors open positions and triggers exits based on configurable conditions:
-trailing stop, take profit, stop loss, timeout, and invalidation.
+Replaces the flat stop/trail/TP exit model with a hierarchical system
+where higher-priority layers always override lower ones, and each tier
+gets a different patience profile.
+
+Evaluation order (every tick, per position):
+  L1 Hard Risk      → immediate exit (safety rails)
+  L2 Thesis Failure → feature-based invalidation with confirmation
+  L3 No Progress    → time-budget exhaustion
+  L4 Winner Prot    → trailing for proved winners
+  L5 Runner Mode    → wide trailing for exceptional winners
+
+Every exit produces an ExitDecision with:
+- Which layer triggered
+- Full evaluation of all layers (for explainability)
+- Position mode at exit time
+- Analytics hooks (was_profitable_at_exit, exit_gain_pct)
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from decimal import Decimal
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 import structlog
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 
-from cte.core.events import (
-    STREAM_KEYS,
-    ExitEvent,
-    ExitReason,
+from cte.exits.config import get_profile
+from cte.exits.layers import (
+    ExitContext,
+    LayerResult,
+    PositionExitState,
+    check_layer1_hard_risk,
+    check_layer2_thesis_failure,
+    check_layer3_no_progress,
+    check_layer4_winner_protection,
+    check_layer5_runner,
 )
-from cte.core.settings import ExitSettings
-from cte.core.streams import StreamPublisher
-from cte.execution.paper import PaperPosition
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
+    from cte.core.events import StreamingFeatureVector
+    from cte.execution.position import PaperPosition
 
 logger = structlog.get_logger(__name__)
 
-exits_total = Counter(
-    "cte_exits_total", "Total exits triggered", ["symbol", "reason"]
+exit_decisions_total = Counter(
+    "cte_exit_decisions_total", "Exit decisions by layer", ["symbol", "layer", "reason"]
+)
+position_mode_gauge = Gauge(
+    "cte_position_mode", "Position mode (0=normal, 1=winner, 2=runner)", ["symbol"]
+)
+saved_losers_total = Counter("cte_saved_losers_total", "Exits that saved a losing position")
+potential_killed_winners = Counter(
+    "cte_potential_killed_winners_total",
+    "Exits on profitable positions by non-TP layers",
 )
 
 
-class ExitCondition:
-    """Evaluation result for a single exit condition."""
+@dataclass
+class ExitDecision:
+    """Full explainability payload for an exit decision."""
 
-    def __init__(self, triggered: bool, reason: ExitReason, detail: str = "") -> None:
-        self.triggered = triggered
-        self.reason = reason
-        self.detail = detail
+    should_exit: bool
+    exit_reason: str
+    exit_layer: int
+    exit_layer_name: str
+    exit_detail: str
+    all_layers: list[LayerResult]
+    position_mode: str
+    was_profitable_at_exit: bool
+    exit_gain_pct: float
+    hold_seconds: int
+    current_r: float | None
 
 
-class SmartExitEngine:
-    """Monitors positions and triggers exits when conditions are met."""
+class LayeredExitEngine:
+    """5-layer exit engine with tier-specific patience and full explainability."""
 
-    def __init__(
-        self,
-        settings: ExitSettings,
-        publisher: StreamPublisher,
-    ) -> None:
-        self._settings = settings
-        self._publisher = publisher
-        self._trailing_highs: dict[UUID, Decimal] = {}
+    def __init__(self) -> None:
+        self._states: dict[UUID, PositionExitState] = {}
 
-    async def evaluate_position(
+    def _get_state(self, position_id: UUID) -> PositionExitState:
+        if position_id not in self._states:
+            self._states[position_id] = PositionExitState()
+        return self._states[position_id]
+
+    def evaluate(
         self,
         position: PaperPosition,
         current_price: Decimal,
-        now: datetime | None = None,
-    ) -> ExitEvent | None:
-        """Check all exit conditions for a position. Returns ExitEvent if any triggers."""
-        if now is None:
-            now = datetime.now(timezone.utc)
+        now: datetime,
+        features: StreamingFeatureVector | None = None,
+        best_bid: Decimal = Decimal("0"),
+        best_ask: Decimal = Decimal("0"),
+    ) -> ExitDecision:
+        """Evaluate all 5 layers for a position. Returns an ExitDecision.
+
+        Deterministic: same inputs → same decision. No wall clock, no randomness.
+        """
+        profile = get_profile(position.signal_tier)
+        state = self._get_state(position.position_id)
 
         position.update_price(current_price)
 
-        if position.position_id not in self._trailing_highs:
-            self._trailing_highs[position.position_id] = position.entry_price
-        if current_price > self._trailing_highs[position.position_id]:
-            self._trailing_highs[position.position_id] = current_price
-
-        conditions = [
-            self._check_stop_loss(position, current_price),
-            self._check_take_profit(position, current_price),
-            self._check_trailing_stop(position, current_price),
-            self._check_timeout(position, now),
-        ]
-
-        triggered = [c for c in conditions if c.triggered]
-        if not triggered:
-            return None
-
-        exit_condition = triggered[0]
-        hold_seconds = int((now - position.opened_at).total_seconds())
-
-        pnl = (current_price - position.entry_price) * position.quantity
-
-        event = ExitEvent(
-            position_id=position.position_id,
-            symbol=position.symbol,
-            exit_reason=exit_condition.reason,
-            exit_price=current_price,
-            pnl=pnl,
-            hold_duration_seconds=hold_seconds,
-            reason_detail=exit_condition.detail,
+        ctx = ExitContext(
+            position=position,
+            current_price=current_price,
+            now=now,
+            best_bid=best_bid,
+            best_ask=best_ask,
+            features=features,
         )
 
-        await self._publisher.publish(STREAM_KEYS["exit"], event)
+        # Evaluate all layers in priority order
+        layers: list[LayerResult] = []
 
-        exits_total.labels(
-            symbol=position.symbol.value, reason=exit_condition.reason.value
+        l1 = check_layer1_hard_risk(ctx, profile)
+        layers.append(l1)
+        if l1.triggered:
+            return self._make_decision(ctx, state, l1, layers)
+
+        l2 = check_layer2_thesis_failure(ctx, profile, state)
+        layers.append(l2)
+        if l2.triggered:
+            return self._make_decision(ctx, state, l2, layers)
+
+        # Check L5 before L4 because runner mode overrides winner protection.
+        # But runner trailing (L5) is evaluated only if runner qualifies.
+        # If not a runner yet, fall through to L4.
+        l5 = check_layer5_runner(ctx, profile, state)
+        layers.append(l5)
+        if l5.triggered:
+            return self._make_decision(ctx, state, l5, layers)
+
+        l4 = check_layer4_winner_protection(ctx, profile, state)
+        layers.append(l4)
+        if l4.triggered:
+            return self._make_decision(ctx, state, l4, layers)
+
+        l3 = check_layer3_no_progress(ctx, profile, state)
+        layers.append(l3)
+        if l3.triggered:
+            return self._make_decision(ctx, state, l3, layers)
+
+        # No exit
+        mode_val = {"normal": 0, "winner_protection": 1, "runner": 2}
+        position_mode_gauge.labels(symbol=position.symbol).set(
+            mode_val.get(state.position_mode, 0)
+        )
+
+        return ExitDecision(
+            should_exit=False,
+            exit_reason="",
+            exit_layer=0,
+            exit_layer_name="",
+            exit_detail="",
+            all_layers=layers,
+            position_mode=state.position_mode,
+            was_profitable_at_exit=False,
+            exit_gain_pct=ctx.gain_pct,
+            hold_seconds=ctx.hold_seconds,
+            current_r=ctx.current_r,
+        )
+
+    def cleanup(self, position_id: UUID) -> None:
+        """Remove per-position state after position is closed."""
+        self._states.pop(position_id, None)
+
+    def _make_decision(
+        self,
+        ctx: ExitContext,
+        state: PositionExitState,
+        triggered: LayerResult,
+        layers: list[LayerResult],
+    ) -> ExitDecision:
+        was_profitable = ctx.gain_pct > 0
+
+        exit_decisions_total.labels(
+            symbol=ctx.position.symbol,
+            layer=triggered.layer_name,
+            reason=triggered.exit_reason,
         ).inc()
 
-        self._trailing_highs.pop(position.position_id, None)
+        # Analytics hooks
+        if was_profitable and triggered.layer in (2, 3):
+            potential_killed_winners.inc()
+        if not was_profitable and triggered.layer in (1, 2):
+            saved_losers_total.inc()
 
-        await logger.ainfo(
-            "exit_triggered",
-            position_id=str(position.position_id),
-            symbol=position.symbol.value,
-            reason=exit_condition.reason.value,
-            pnl=str(pnl),
-            hold_seconds=hold_seconds,
+        return ExitDecision(
+            should_exit=True,
+            exit_reason=triggered.exit_reason,
+            exit_layer=triggered.layer,
+            exit_layer_name=triggered.layer_name,
+            exit_detail=triggered.detail,
+            all_layers=layers,
+            position_mode=state.position_mode,
+            was_profitable_at_exit=was_profitable,
+            exit_gain_pct=ctx.gain_pct,
+            hold_seconds=ctx.hold_seconds,
+            current_r=ctx.current_r,
         )
-
-        return event
-
-    def _check_stop_loss(
-        self, position: PaperPosition, price: Decimal
-    ) -> ExitCondition:
-        loss_pct = float((position.entry_price - price) / position.entry_price)
-        threshold = self._settings.stop_loss_pct
-
-        if loss_pct >= threshold:
-            return ExitCondition(
-                triggered=True,
-                reason=ExitReason.STOP_LOSS,
-                detail=f"Loss {loss_pct:.2%} exceeded stop loss {threshold:.2%}",
-            )
-        return ExitCondition(triggered=False, reason=ExitReason.STOP_LOSS)
-
-    def _check_take_profit(
-        self, position: PaperPosition, price: Decimal
-    ) -> ExitCondition:
-        gain_pct = float((price - position.entry_price) / position.entry_price)
-        threshold = self._settings.take_profit_pct
-
-        if gain_pct >= threshold:
-            return ExitCondition(
-                triggered=True,
-                reason=ExitReason.TAKE_PROFIT,
-                detail=f"Gain {gain_pct:.2%} reached take profit {threshold:.2%}",
-            )
-        return ExitCondition(triggered=False, reason=ExitReason.TAKE_PROFIT)
-
-    def _check_trailing_stop(
-        self, position: PaperPosition, price: Decimal
-    ) -> ExitCondition:
-        trailing_high = self._trailing_highs.get(
-            position.position_id, position.entry_price
-        )
-
-        if trailing_high <= 0:
-            return ExitCondition(triggered=False, reason=ExitReason.TRAILING_STOP)
-
-        drawdown = float((trailing_high - price) / trailing_high)
-        threshold = self._settings.trailing_stop_pct
-
-        if drawdown >= threshold and price > position.entry_price:
-            return ExitCondition(
-                triggered=True,
-                reason=ExitReason.TRAILING_STOP,
-                detail=f"Trailing drawdown {drawdown:.2%} from high {trailing_high}",
-            )
-        return ExitCondition(triggered=False, reason=ExitReason.TRAILING_STOP)
-
-    def _check_timeout(
-        self, position: PaperPosition, now: datetime
-    ) -> ExitCondition:
-        hold_minutes = (now - position.opened_at).total_seconds() / 60
-        threshold = self._settings.max_hold_minutes
-
-        if hold_minutes >= threshold:
-            return ExitCondition(
-                triggered=True,
-                reason=ExitReason.TIMEOUT,
-                detail=f"Held {hold_minutes:.0f} min, exceeds max {threshold} min",
-            )
-        return ExitCondition(triggered=False, reason=ExitReason.TIMEOUT)

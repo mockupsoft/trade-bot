@@ -1,10 +1,9 @@
 """Shared test fixtures for CTE test suite."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock
-from uuid import uuid4
 
 import pytest
 
@@ -12,7 +11,7 @@ from cte.core.events import (
     FeatureVector,
     OrderbookLevel,
     OrderbookSnapshotEvent,
-    RawOrderbookEvent,
+    OrderType,
     RawTradeEvent,
     RiskAssessmentEvent,
     RiskCheckResult,
@@ -25,12 +24,11 @@ from cte.core.events import (
     Symbol,
     TradeEvent,
     Venue,
-    OrderType,
 )
 from cte.core.settings import (
     CTESettings,
-    ExitSettings,
     ExecutionSettings,
+    ExitSettings,
     FeatureSettings,
     RiskSettings,
     SignalSettings,
@@ -74,7 +72,7 @@ def sample_trade() -> TradeEvent:
         price=Decimal("50000.50"),
         quantity=Decimal("0.001"),
         side=Side.BUY,
-        trade_time=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        trade_time=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         venue_trade_id="123456",
     )
 
@@ -93,7 +91,7 @@ def sample_orderbook() -> OrderbookSnapshotEvent:
             OrderbookLevel(price=Decimal("50002"), quantity=Decimal("1.5")),
         ],
         sequence=1000,
-        snapshot_time=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        snapshot_time=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
     )
 
 
@@ -101,8 +99,8 @@ def sample_orderbook() -> OrderbookSnapshotEvent:
 def sample_feature_vector() -> FeatureVector:
     return FeatureVector(
         symbol=Symbol.BTCUSDT,
-        window_start=datetime(2024, 1, 1, 8, 0, 0, tzinfo=timezone.utc),
-        window_end=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        window_start=datetime(2024, 1, 1, 8, 0, 0, tzinfo=UTC),
+        window_end=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         rsi=45.0,
         ema_fast=50100.0,
         ema_slow=50000.0,

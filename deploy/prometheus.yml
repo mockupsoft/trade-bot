@@ -53,4 +53,4 @@ scrape_configs:
   - job_name: "cte-analytics"
     static_configs:
       - targets: ["analytics:8080"]
-    metrics_path: "/api/analytics/metrics"
+    metrics_path: "/api/dashboard/metrics"

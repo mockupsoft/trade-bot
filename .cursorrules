@@ -1,11 +1,26 @@
-# Crypto Trading Engine – Cursor Rules
-# These rules govern all AI-assisted development in this repository.
+# Crypto Trading Engine – Cursor Rules (Updated)
+# Last updated: Phase 0–4 complete, 7 subsystems built.
 
 ## Project Identity
 - Project: Crypto Trading Engine (CTE)
 - Language: Python 3.12 (strict typing, no Any unless unavoidable)
 - Framework: FastAPI + asyncio
-- This is a standalone system. No Polymarket code, no copy-paste from other trading bots.
+- Status: Phase 0–4 architecture complete, entering Phase 1 implementation
+
+## Built Subsystems (48 modules, 377+ tests)
+1. Core: events (25+ models), settings, exceptions, logging, streams, CLI
+2. Connectors: Binance USDⓈ-M WS, Bybit v5 WS, base with reconnection
+3. Normalizer: raw → canonical event transformer
+4. Streaming Feature Engine: O(1) incremental, 10 features, 4 timeframes (10s/30s/60s/5m)
+5. Scoring Signal Engine: 6 sub-scores, 5 hard gates, A/B/C tier mapping
+6. Risk Manager: 5 checks with absolute veto
+7. Position Sizing: fixed-fraction + Kelly
+8. Paper Execution: bid/ask fills, MFE/MAE, R-multiple, position state machine
+9. 5-Layer Smart Exit: hard risk, thesis failure, no progress, winner protection, runner mode
+10. Demo/Testnet Execution: common adapter, order FSM (11 states), rate limiter, reconciliation
+11. Analytics: epoch-aware, 15+ metrics, saved_losers/killed_winners, slippage drift
+12. Monitoring: 9 alert rules, Prometheus + Grafana dashboards
+13. Dashboard: Professional web UI (FastAPI + Chart.js + Alpine.js + Tailwind CSS)
 
 ## Hard Constraints (Never Violate)
 1. NO live wallet connection in v1. Paper/demo only.
@@ -14,10 +29,14 @@
 4. V1 venues: Binance USDⓈ-M Futures (primary), Bybit v5 public (secondary).
 5. Every trade decision MUST carry an explainable reason payload.
 6. Risk manager has absolute veto power over any signal.
-7. Whale/news/X data is context-only, never a primary trigger.
+7. Whale/news data is context-only, never a primary trigger.
 8. All state transitions must be event-driven via Redis Streams.
 9. Database writes must use TimescaleDB hypertables for time-series data.
 10. No AI-agent orchestration, no multi-exchange arbitrage, no high leverage (max 3x).
+11. Context score can only dampen signals (multiply ≤ 1.0), never amplify.
+12. All exit decisions must go through the 5-layer priority evaluation.
+13. Paper fills MUST use bid/ask, never mid-price.
+14. All timestamps from event clock — no datetime.now() in computation paths.
 
 ## Code Style
 - Use `ruff` for linting and formatting (line-length=100).
@@ -26,54 +45,56 @@
 - Prefer composition over inheritance.
 - No global mutable state. Pass dependencies via constructor injection.
 - Async by default. Sync only for CPU-bound computation in thread pools.
-- f-strings for formatting. No % or .format().
 - Use `structlog` for all logging. JSON output. No print().
 - Test files mirror source layout: `src/cte/foo/bar.py` → `tests/foo/test_bar.py`.
-- Minimum 80% test coverage for core modules (signal, risk, execution).
+
+## Architecture Rules
+- Each module is a separate Python package under `src/cte/`.
+- Modules communicate ONLY through Redis Streams (no direct imports between services).
+- Each service has its own FastAPI app for health/metrics/admin endpoints.
+- Configuration via environment variables + `.env` files + `config/defaults.toml`.
+- Secrets are NEVER logged, committed, or hardcoded.
+- All timestamps in UTC, stored as timezone-aware datetime or Unix epoch milliseconds.
+- Feature computations use pure functions (no I/O, no side effects).
+- Signal scoring uses weighted composite model (not ML black box).
+- Exit engine evaluates 5 layers in priority order every tick.
+- Analytics support epoch isolation for cross-phase comparison.
 
 ## Naming Conventions
 - Modules: snake_case (`market_data`, `signal_engine`)
 - Classes: PascalCase (`BinanceConnector`, `TradeSignal`)
 - Functions/methods: snake_case (`process_trade`, `calculate_rsi`)
 - Constants: UPPER_SNAKE_CASE (`MAX_POSITION_SIZE`, `DEFAULT_TIMEOUT`)
-- Events: PascalCase with Event suffix (`TradeEvent`, `OrderbookSnapshotEvent`)
-- Redis stream keys: `cte:{module}:{event_type}` (e.g. `cte:market:trade`)
+- Events: PascalCase (`TradeEvent`, `ScoredSignalEvent`)
+- Redis stream keys: `cte:{module}:{event_type}`
 
-## Architecture Rules
-- Each module is a separate Python package under `src/cte/`.
-- Modules communicate ONLY through Redis Streams (no direct imports between services).
-- Each service has its own FastAPI app for health/metrics/admin endpoints.
-- Configuration via environment variables + `.env` files, validated by Pydantic Settings.
-- Secrets are NEVER logged, committed, or hardcoded.
-- All timestamps in UTC, stored as timezone-aware datetime or Unix epoch milliseconds.
+## Key Design Decisions (Do Not Reverse)
+- SecondBucket aggregation (not per-trade storage) for feature engine
+- Clamped linear z-mapping (not sigmoid) for signal scoring
+- Context as post-multiplier (not weighted term) in composite score
+- Thesis failure with confirmation window (not single-check) in exit engine
+- Runner mode suspends no-progress timer
+- Bid/ask spread-crossing fills (not mid-price) in paper execution
+- Common ExecutionAdapter interface shared by paper/testnet/live
+- Token bucket rate limiter (not fixed sleep) for exchange APIs
+- Epoch-based analytics isolation for cross-phase comparison
 
-## Phased Development (Strict Order)
-1. Phase 0: Architecture + rules + repo skeleton (THIS PHASE)
-2. Phase 1: Market data connectors + canonical normalizer + data validation
+## Phased Development
+1. Phase 0: Architecture + skeleton ✅
+2. Phase 1: Market data connectors + validation (NEXT)
 3. Phase 2: Feature engine + signal engine (paper mode)
 4. Phase 3: Paper trading with simulated execution
-5. Phase 4: Demo/testnet execution via Binance testnet
-6. Phase 5: Live trading with minimal capital (BTCUSDT only, 1x leverage)
+5. Phase 4: Demo/testnet execution
+6. Phase 5: Live trading with minimal capital
 
 ## Git Conventions
 - Branch naming: `feature/{module}-{description}`, `fix/{module}-{description}`
-- Commit messages: `{type}({scope}): {description}` (e.g. `feat(market-data): add binance ws connector`)
+- Commit messages: `{type}({scope}): {description}`
 - Types: feat, fix, refactor, test, docs, chore, ci
 - One logical change per commit.
-- All PRs require passing CI (lint + tests).
-
-## Dependency Management
-- Use `pyproject.toml` with `uv` or `pip`.
-- Pin exact versions in lock file.
-- No unnecessary dependencies. Justify every new package.
 
 ## Error Handling
 - Use typed exceptions inheriting from `CTEError` base.
 - Never swallow exceptions silently.
 - Circuit breaker pattern for external API calls.
 - Exponential backoff for reconnections (base=1s, max=60s, jitter=true).
-
-## Monitoring
-- Every service exposes `/health` and `/metrics` (Prometheus format).
-- All Redis Stream consumer groups track lag.
-- Alert thresholds defined in config, not hardcoded.

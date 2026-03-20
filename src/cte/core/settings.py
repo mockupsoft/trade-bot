@@ -5,31 +5,31 @@ Environment variables take highest precedence.
 """
 from __future__ import annotations
 
-from enum import Enum
+import tomllib
+from enum import StrEnum
 from pathlib import Path
 from typing import Self
 
-import tomllib
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class EngineMode(str, Enum):
+class EngineMode(StrEnum):
     PAPER = "paper"
     DEMO = "demo"
     LIVE = "live"
 
 
-class Direction(str, Enum):
+class Direction(StrEnum):
     LONG_ONLY = "long_only"
 
 
-class SizingMethod(str, Enum):
+class SizingMethod(StrEnum):
     FIXED_FRACTION = "fixed_fraction"
     KELLY = "kelly"
 
 
-class ExecutionMode(str, Enum):
+class ExecutionMode(StrEnum):
     PAPER = "paper"
     TESTNET = "testnet"
     LIVE = "live"
@@ -46,9 +46,9 @@ class EngineSettings(BaseSettings):
 
 
 class BinanceSettings(BaseSettings):
-    ws_base_url: str = "wss://fstream.binance.com"
-    ws_combined_url: str = "wss://fstream.binance.com/stream"
-    rest_base_url: str = "https://fapi.binance.com"
+    ws_base_url: str = "wss://stream.binancefuture.com"
+    ws_combined_url: str = "wss://stream.binancefuture.com/stream"
+    rest_base_url: str = "https://testnet.binancefuture.com"
     testnet_ws_url: str = "wss://stream.binancefuture.com"
     testnet_rest_url: str = "https://testnet.binancefuture.com"
     streams: list[str] = Field(default=[
@@ -66,9 +66,9 @@ class BinanceSettings(BaseSettings):
 
 
 class BybitSettings(BaseSettings):
-    ws_base_url: str = "wss://stream.bybit.com/v5/public/linear"
+    ws_base_url: str = "wss://stream-testnet.bybit.com/v5/public/linear"
     testnet_ws_url: str = "wss://stream-testnet.bybit.com/v5/public/linear"
-    rest_base_url: str = "https://api.bybit.com"
+    rest_base_url: str = "https://api-testnet.bybit.com"
     topics: list[str] = Field(default=[
         "publicTrade.BTCUSDT",
         "publicTrade.ETHUSDT",
@@ -113,6 +113,7 @@ class DatabaseSettings(BaseSettings):
 
 
 class FeatureSettings(BaseSettings):
+    # Legacy indicator settings (used by old FeatureEngine for backward compat)
     rsi_period: int = 14
     ema_fast_period: int = 12
     ema_slow_period: int = 26
@@ -120,13 +121,41 @@ class FeatureSettings(BaseSettings):
     volume_profile_bins: int = 50
     window_size_minutes: int = 240
 
+    # Streaming feature engine settings
+    streaming_windows: list[int] = Field(default=[10, 30, 60, 300])
+    emit_interval_seconds: int = 1
+    zscore_min_samples: int = 10
+    warmup_seconds: int = 300
+    persist_interval_seconds: int = 10
+    whale_lookback_minutes: int = 60
+    news_lookback_minutes: int = 30
+
     model_config = SettingsConfigDict(env_prefix="CTE_FEATURES_")
 
 
 class SignalSettings(BaseSettings):
+    # Legacy settings (kept for backward compat with old SignalEngine)
     min_confidence: float = Field(default=0.6, ge=0.0, le=1.0)
     cooldown_seconds: int = 300
     max_signals_per_hour: int = 10
+
+    # Scoring signal engine weights (must sum to 1.0)
+    w_momentum: float = 0.35
+    w_orderflow: float = 0.25
+    w_liquidation: float = 0.10
+    w_microstructure: float = 0.20
+    w_cross_venue: float = 0.10
+
+    # Tier thresholds
+    tier_a_threshold: float = 0.72
+    tier_b_threshold: float = 0.55
+    tier_c_threshold: float = 0.40
+
+    # Hard gate thresholds
+    gate_min_freshness: float = 0.5
+    gate_max_spread_bps: float = 15.0
+    gate_max_divergence_bps: float = 50.0
+    gate_min_feasibility: float = 0.3
 
     model_config = SettingsConfigDict(env_prefix="CTE_SIGNALS_")
 
@@ -157,6 +186,8 @@ class ExecutionSettings(BaseSettings):
     fill_delay_ms: int = 100
     max_retries: int = 3
     retry_delay_sec: float = 1.0
+    fill_model: str = "spread_crossing"   # spread_crossing | vwap_depth | worst_case
+    fee_bps: int = 4                      # taker fee in basis points
 
     model_config = SettingsConfigDict(env_prefix="CTE_EXECUTION_")
 

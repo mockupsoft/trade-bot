@@ -6,13 +6,16 @@ its own FastAPI app using this factory, then mounts service-specific routers.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 
 from cte.api.health import router as health_router
 from cte.core.logging import setup_logging
 from cte.core.settings import CTESettings, get_settings
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 
 def create_app(
@@ -27,7 +30,7 @@ def create_app(
     setup_logging(level=settings.engine.log_level, service_name=service_name)
 
     app = FastAPI(
-        title=f"CTE – {service_name}",
+        title=f"CTE - {service_name}",
         version="0.1.0",
         docs_url=f"/api/{service_name}/docs",
         openapi_url=f"/api/{service_name}/openapi.json",

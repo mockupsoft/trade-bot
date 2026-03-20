@@ -49,3 +49,6 @@ coverage.xml
 
 # ruff
 .ruff_cache/
+
+# Experimental / removed Vite UI (official UI is cte.dashboard)
+frontend/

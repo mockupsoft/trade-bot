@@ -17,6 +17,7 @@ class TestCTESettings:
         assert "BTCUSDT" in settings.engine.symbols
         assert "ETHUSDT" in settings.engine.symbols
         assert settings.engine.max_leverage == 3
+        assert "stream.binancefuture.com" in settings.binance.ws_combined_url
 
     def test_paper_mode_validation(self):
         settings = CTESettings()
@@ -41,5 +42,5 @@ class TestCTESettings:
         assert settings.risk.emergency_stop_drawdown_pct == 0.05
 
     def test_leverage_cap(self):
-        with pytest.raises(Exception):
+        with pytest.raises((TypeError, ValueError)):
             CTESettings(engine={"max_leverage": 10})

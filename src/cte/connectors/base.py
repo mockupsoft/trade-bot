@@ -5,18 +5,20 @@ import asyncio
 import random
 import time
 from abc import ABC, abstractmethod
-from enum import Enum
+from enum import StrEnum
+from typing import TYPE_CHECKING
 
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
 
-from cte.core.events import BaseEvent
-from cte.core.streams import StreamPublisher
+if TYPE_CHECKING:
+    from cte.core.events import BaseEvent
+    from cte.core.streams import StreamPublisher
 
 logger = structlog.get_logger(__name__)
 
 
-class ConnectionState(str, Enum):
+class ConnectionState(StrEnum):
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     CONNECTED = "connected"
@@ -159,7 +161,7 @@ class BaseConnector(ABC):
             self.reconnect_base * (2 ** self._reconnect_count),
             self.reconnect_max,
         )
-        jitter = random.uniform(0, exp_delay * 0.1)  # noqa: S311
+        jitter = random.uniform(0, exp_delay * 0.1)
         return exp_delay + jitter
 
     async def stop(self) -> None:

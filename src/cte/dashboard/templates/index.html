@@ -1,0 +1,1374 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CTE — Crypto Trading Engine</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['DM Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+          },
+          boxShadow: {
+            'panel': '0 0 0 1px rgba(255,255,255,0.06), 0 4px 24px rgba(0,0,0,0.35)',
+            'panel-inset': 'inset 0 1px 0 rgba(255,255,255,0.04)',
+            'glow': '0 0 20px rgba(34,211,238,0.15)',
+          },
+        },
+      },
+    };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.0/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    html.dark{background:#030506}
+    body{
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(34,211,238,0.08), transparent 50%),
+        radial-gradient(900px 500px at 100% 0%, rgba(139,92,246,0.06), transparent 45%),
+        linear-gradient(180deg, #050708 0%, #030506 40%, #030506 100%);
+    }
+    .card{
+      @apply rounded-2xl border border-white/[0.08] bg-[#0c1016]/90 backdrop-blur-sm p-5;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset, 0 8px 32px rgba(0,0,0,0.35);
+    }
+    .card-hover{@apply transition-all duration-200 hover:border-cyan-500/20 hover:shadow-glow}
+    .card-head{@apply text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-1}
+    .sv{@apply text-2xl font-semibold tabular-nums tracking-tight font-mono text-slate-100}
+    .sl{@apply text-[11px] text-slate-500 font-medium mt-1.5 uppercase tracking-wider}
+    .pill{@apply text-[10px] px-2.5 py-1 rounded-md font-semibold tracking-wide inline-flex items-center gap-1 transition-colors duration-150}
+    .pill-g{@apply bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/25}
+    .pill-r{@apply bg-red-500/15 text-red-400 ring-1 ring-red-500/25}
+    .pill-y{@apply bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25}
+    .pill-b{@apply bg-sky-500/15 text-sky-400 ring-1 ring-sky-500/25}
+    .pill-p{@apply bg-violet-500/15 text-violet-400 ring-1 ring-violet-500/25}
+    /* Plain flex so layout works even if Tailwind @apply in this block is not processed (CDN). */
+    .nav-item{
+      position: relative;
+      display: flex !important;
+      flex-direction: row !important;
+      flex-wrap: nowrap !important;
+      align-items: center !important;
+      justify-content: flex-start;
+      gap: 0.75rem;
+      width: 100%;
+      padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+      border-radius: 0.75rem;
+      font-size: 13px;
+      line-height: 1.25;
+      cursor: pointer;
+      border: 1px solid transparent;
+      text-align: left;
+      box-sizing: border-box;
+      transition: background .18s ease, border-color .18s ease, transform .15s ease, box-shadow .2s ease;
+    }
+    .nav-active{
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+      border-color: rgba(255,255,255,0.12);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    .nav-active .nav-ic{
+      background: rgba(34,211,238,0.25);
+      color: rgb(165 243 252);
+      box-shadow: 0 0 0 1px rgba(34,211,238,0.4), 0 0 16px rgba(34,211,238,0.12);
+    }
+    .nav-inactive{color:rgb(100 116 139)}
+    .nav-inactive:hover{color:rgb(241 245 249);background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.06)}
+    .nav-inactive:hover .nav-ic{background:rgba(255,255,255,0.1);color:rgb(226 232 240)}
+    .nav-inactive:active{@apply scale-[0.98]}
+    .nav-ic{
+      flex-shrink: 0;
+      display: flex !important;
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+      border-radius: 0.5rem;
+      background: rgba(255,255,255,0.04);
+      color: rgb(148 163 184);
+      transition: background .2s ease, color .2s ease, box-shadow .2s ease;
+      width: 34px !important;
+      height: 34px !important;
+      min-width: 34px !important;
+      min-height: 34px !important;
+    }
+    .nav-ic svg,.nav-svg{
+      display: block !important;
+      width: 17px !important;
+      height: 17px !important;
+      max-width: 17px !important;
+      max-height: 17px !important;
+    }
+    .nav-active-bar{@apply absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-8 rounded-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.55)]}
+    .nav-label{
+      font-weight: 500;
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .btn{@apply px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 active:scale-[0.98]}
+    .btn-danger{@apply bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/30}
+    .btn-warn{@apply bg-amber-500 hover:bg-amber-400 text-slate-900}
+    .btn-ok{@apply bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/25}
+    .tbl{@apply w-full border-collapse}
+    .tbl-wrap{@apply rounded-xl border border-white/[0.08] overflow-hidden bg-[#080b10]/80}
+    .tbl thead{@apply sticky top-0 z-[1]}
+    .tbl th{@apply text-left py-3.5 px-4 font-semibold text-slate-400 bg-[#0d1218] border-b border-white/[0.08] uppercase tracking-wider text-[10px]}
+    .tbl td{@apply py-3.5 px-4 border-b border-white/[0.05] text-slate-300 text-[13px] leading-snug}
+    .tbl tbody tr{@apply transition-colors hover:bg-cyan-500/[0.06]}
+    .tbl tbody tr:nth-child(even) td{@apply bg-white/[0.02]}
+    .tbl-num{@apply font-mono tabular-nums text-[13px] font-medium}
+    .tbl-txt{@apply text-slate-300 text-[13px]}
+    .gate-pass{@apply text-emerald-400 font-medium}
+    .gate-fail{@apply text-red-400 font-medium}
+    .gate-skip{@apply text-slate-500 font-medium}
+    @keyframes live-pulse{
+      0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(34,211,238,0.4)}
+      50%{opacity:0.85;box-shadow:0 0 0 6px rgba(34,211,238,0)}
+    }
+    .live-dot{@apply w-2 h-2 rounded-full bg-cyan-400}
+    .live-dot-on{animation:live-pulse 2s ease-in-out infinite}
+    @keyframes price-up{0%{background-color:rgba(34,197,94,0.25)}100%{background-color:transparent}}
+    @keyframes price-down{0%{background-color:rgba(239,68,68,0.2)}100%{background-color:transparent}}
+    .flash-up{animation:price-up 0.6s ease-out}
+    .flash-down{animation:price-down 0.6s ease-out}
+    .dd-trigger{
+      @apply inline-flex flex-row flex-nowrap items-center justify-between gap-2 min-w-[160px] max-w-[260px] rounded-xl border border-white/[0.12] bg-[#0c1016] px-3 text-left text-[13px] font-medium text-slate-100 shadow-sm outline-none;
+      height: 2.25rem;
+      min-height: 2.25rem;
+      max-height: 2.25rem;
+      transition: background .15s ease, border-color .15s ease, box-shadow .2s ease;
+    }
+    .dd-trigger:hover{@apply border-white/[0.2] bg-[#121820]}
+    .dd-trigger:focus-visible{@apply ring-2 ring-cyan-500/40}
+    .dd-trigger-open{@apply border-cyan-500/35 bg-[#0f1620] shadow-[0_0_0_1px_rgba(34,211,238,0.15)]}
+    .icon-chevron{
+      width: 14px !important;
+      height: 14px !important;
+      min-width: 14px !important;
+      min-height: 14px !important;
+      flex-shrink: 0;
+      display: block;
+      color: rgb(148 163 184);
+      transition: transform .2s ease, color .15s ease;
+    }
+    .dd-trigger-open .icon-chevron{transform: rotate(180deg);color: rgb(34 211 238)}
+    .dd-trigger span.truncate{min-width:0}
+    .dd-panel{
+      @apply absolute z-[100] mt-1.5 min-w-full w-max max-w-[280px] rounded-xl border border-white/[0.12] bg-[#0f1419] py-1 shadow-2xl shadow-black/60 ring-1 ring-white/[0.04];
+    }
+    .dd-panel button{@apply w-full text-left px-3 py-2.5 text-[13px] text-slate-200 transition hover:bg-white/[0.08]}
+    .dd-panel button.dd-opt-active{@apply bg-cyan-500/15 text-cyan-200 font-medium}
+    *{scrollbar-width:thin;scrollbar-color:rgba(148,163,184,0.35) transparent}
+    *::-webkit-scrollbar{width:8px;height:8px}
+    *::-webkit-scrollbar-track{background:rgba(255,255,255,0.03);border-radius:4px}
+    *::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.35);border-radius:4px}
+    *::-webkit-scrollbar-thumb:hover{background:rgba(148,163,184,0.5)}
+    .stream-bar{@apply h-1 rounded-full overflow-hidden bg-white/[0.06]}
+    .stream-fill{@apply h-full rounded-full bg-gradient-to-r from-cyan-500 to-violet-500 transition-all duration-500}
+    .kpi-card{@apply !py-2.5 !px-3}
+    .kpi-row{display:flex;flex-wrap:nowrap;align-items:center;gap:0.2rem;min-width:0;overflow:hidden}
+    .kpi-lbl{flex-shrink:0;font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;line-height:1.15;max-width:5.75rem}
+    .kpi-val{font-family:'JetBrains Mono',ui-monospace,monospace;font-weight:600;font-size:0.9375rem;tabular-nums;flex:1;min-width:0;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .kpi-dot{flex-shrink:0;color:#334155;font-size:10px;font-weight:700;padding:0 1px}
+    .kpi-hint{flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#475569;max-width:4.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .cfg-section-title{font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:rgb(100 116 139);margin-bottom:0.75rem}
+    .cfg-row{display:flex;flex-direction:column;gap:0.35rem;padding:0.75rem 0;border-bottom:1px solid rgba(255,255,255,0.06)}
+    .cfg-row:last-child{border-bottom:none}
+    @media (min-width:640px){
+      .cfg-row{flex-direction:row;align-items:flex-start;gap:1rem}
+    }
+    .cfg-k{font-size:11px;font-weight:600;color:rgb(100 116 139);flex-shrink:0;padding-top:2px}
+    @media (min-width:640px){.cfg-k{width:200px}}
+    .cfg-v{flex:1;min-width:0;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:13px;color:rgb(226 232 240)}
+    .cfg-json{display:block;width:100%;max-height:12rem;overflow:auto;border-radius:0.5rem;background:#05070a;border:1px solid rgba(255,255,255,0.08);padding:0.75rem;font-size:11px;line-height:1.5;color:rgb(203 213 225);white-space:pre-wrap;word-break:break-word}
+  </style>
+</head>
+<body class="h-full text-slate-200 antialiased flex font-sans dark" x-data="app()" x-init="init()">
+
+<aside class="w-[248px] flex flex-col h-screen sticky top-0 border-r border-white/[0.06] bg-[#06080c]/95 backdrop-blur-md z-20">
+  <div class="p-5 border-b border-white/[0.06] flex items-center gap-3">
+    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-violet-600 flex items-center justify-center font-bold text-sm text-slate-950 shadow-glow">CT</div>
+    <div>
+      <div class="font-semibold text-sm tracking-tight text-white">CTE</div>
+      <div class="text-[10px] text-slate-500 font-mono tracking-wide">v0.1.0 · control</div>
+    </div>
+  </div>
+  <nav class="flex-1 p-2.5 space-y-1 overflow-y-auto scroll-smooth" aria-label="Main">
+    <template x-for="p in pages" :key="p.id">
+      <div
+        class="flex flex-row flex-nowrap items-center gap-3 w-full min-h-[42px]"
+        :class="page===p.id ? 'nav-item nav-active' : 'nav-item nav-inactive'"
+        @click="openPage(p.id)"
+        @keydown.enter.prevent="openPage(p.id)"
+        role="button"
+        tabindex="0"
+      >
+        <span class="nav-active-bar" x-show="page===p.id" x-cloak></span>
+        <span class="nav-ic flex shrink-0 items-center justify-center" x-html="p.svg"></span>
+        <span x-text="p.label" class="nav-label"></span>
+      </div>
+    </template>
+  </nav>
+  <div class="p-4 border-t border-white/[0.06] text-[11px] space-y-1.5 text-slate-500">
+    <div class="flex justify-between"><span>Epoch</span><span class="font-mono text-slate-400 truncate max-w-[120px]" x-text="epoch"></span></div>
+    <div class="flex justify-between items-center">
+      <span>Ops</span>
+      <span :class="ops.mode==='active'?'text-emerald-400':ops.mode==='paused'?'text-amber-400':'text-red-400'" class="font-mono font-medium" x-text="ops.mode"></span>
+    </div>
+  </div>
+</aside>
+
+<main class="flex-1 overflow-y-auto h-screen min-w-0">
+  <header class="sticky top-0 z-10 border-b border-white/[0.06] px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 bg-[#030506]/85 backdrop-blur-xl">
+    <div>
+      <h2 class="text-lg font-semibold tracking-tight text-white" x-text="pages.find(p=>p.id===page)?.label || 'Overview'"></h2>
+      <p class="text-[11px] text-slate-500 mt-0.5 font-mono" x-text="'Last sync · ' + relativeAgo"></p>
+    </div>
+    <div class="flex flex-wrap items-center gap-3 text-sm">
+      <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-[#0c1016] border border-white/[0.08]">
+        <span class="live-dot" :class="liveConnected ? 'live-dot-on bg-cyan-400' : 'bg-slate-600'"></span>
+        <span class="text-[11px] font-semibold tracking-wide text-slate-400" x-text="liveConnected ? 'Live stream' : 'Idle'"></span>
+      </div>
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#0c1016] border border-white/[0.1]">
+        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Epoch</span>
+        <span class="font-mono text-[12px] text-cyan-300/95" x-text="epoch"></span>
+      </div>
+      <div class="pill pill-p">TESTNET</div>
+      <div :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'FEED LIVE':'NO FEED'"></div>
+      <div :class="ops.mode==='halted'?'pill pill-r':ops.mode==='paused'?'pill pill-y':'pill pill-g'" x-text="(ops.mode||'').toUpperCase()"></div>
+      <div x-show="paperStatus && paperStatus.runner_active" class="pill pill-b text-[10px] font-mono tracking-tight" :title="'Paper pipeline ticks: '+((paperStatus.ticks_ok)||0)+' · entries '+((paperStatus.entries_total)||0)">
+        PAPER <span x-text="(paperStatus.open_positions!=null?paperStatus.open_positions:0)+' open'"></span>
+      </div>
+      <div x-show="paperStatus && paperStatus.enabled===false" class="pill text-[10px] text-slate-500 border border-white/[0.12]" title="Set CTE_DASHBOARD_PAPER_LOOP=1 (default) to enable">Paper loop off</div>
+    </div>
+  </header>
+
+  <div class="p-6 lg:p-8 max-w-[1600px] mx-auto space-y-8 pb-16">
+
+    <div x-show="page==='overview'" x-cloak>
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2.5 lg:gap-3">
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">PnL</span><span class="kpi-dot">·</span>
+            <span class="kpi-val" :class="m.total_pnl>=0?'text-emerald-400':'text-red-400'" x-text="'$'+fmt(m.total_pnl)"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Realized</span>
+          </div>
+        </div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">Trades</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-white" x-text="m.trade_count||0"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Closed</span>
+          </div>
+        </div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">Win</span><span class="kpi-dot">·</span>
+            <span class="kpi-val" :class="m.win_rate>=0.5?'text-emerald-400':'text-amber-400'" x-text="pct(m.win_rate)"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Hit</span>
+          </div>
+        </div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">Exp</span><span class="kpi-dot">·</span>
+            <span class="kpi-val" :class="m.expectancy>=0?'text-emerald-400':'text-red-400'" x-text="'$'+fmt(m.expectancy)"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">/ trade</span>
+          </div>
+        </div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">PF</span><span class="kpi-dot">·</span>
+            <span class="kpi-val" :class="(m.profit_factor||0)>=1?'text-emerald-400':'text-red-400'" x-text="m.profit_factor?m.profit_factor.toFixed(2):'—'"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">G / L</span>
+          </div>
+        </div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">DD</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-red-400" x-text="pct(m.max_drawdown_pct)"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Peak</span>
+          </div>
+        </div>
+        <div class="card card-hover kpi-card">
+          <div class="kpi-row">
+            <span class="kpi-lbl">Slip</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-slate-200" x-text="fmt(m.avg_slippage_bps)+' bps'"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Model</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-8">
+        <div class="card xl:col-span-1">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-semibold text-white tracking-tight">PnL by tier</h3>
+            <span class="text-[10px] text-slate-500 font-mono">A / B / C</span>
+          </div>
+          <div class="h-[220px]"><canvas id="cTier"></canvas></div>
+        </div>
+        <div class="card xl:col-span-1">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-semibold text-white tracking-tight">PnL by exit</h3>
+            <span class="text-[10px] text-slate-500 font-mono">Reason</span>
+          </div>
+          <div class="h-[220px]"><canvas id="cExit"></canvas></div>
+        </div>
+        <div class="card xl:col-span-1">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-semibold text-white tracking-tight">PnL by symbol</h3>
+            <span class="text-[10px] text-slate-500 font-mono">BTC · ETH</span>
+          </div>
+          <div class="h-[220px]"><canvas id="cSym"></canvas></div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-8">
+        <div class="card card-hover kpi-card border-emerald-500/15">
+          <div class="kpi-row">
+            <span class="kpi-lbl text-emerald-500/90">Saved</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-emerald-400" x-text="m.saved_losers||0"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Losers</span>
+          </div>
+        </div>
+        <div class="card card-hover kpi-card border-amber-500/15">
+          <div class="kpi-row">
+            <span class="kpi-lbl text-amber-500/90">Killed</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-amber-400" x-text="m.killed_winners||0"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Winners</span>
+          </div>
+        </div>
+        <div class="card card-hover kpi-card border-sky-500/15">
+          <div class="kpi-row">
+            <span class="kpi-lbl text-sky-500/90">NProg</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-sky-400" x-text="(m.no_progress_regret||{}).count||0"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Exits</span>
+          </div>
+        </div>
+        <div class="card card-hover kpi-card border-violet-500/15">
+          <div class="kpi-row">
+            <span class="kpi-lbl text-violet-500/90">Runner</span><span class="kpi-dot">·</span>
+            <span class="kpi-val text-violet-400" x-text="(m.runner_outcomes||{}).count||0"></span><span class="kpi-dot">·</span>
+            <span class="kpi-hint">Trades</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="page==='market'" x-cloak>
+      <div class="card mb-6">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <div class="min-w-0 flex-1">
+            <h3 class="text-base font-semibold text-white tracking-tight">Market feeds</h3>
+            <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">
+              Binance USDⓈ-M <span class="text-cyan-500/80">testnet</span> combined stream · poll <span class="font-mono text-slate-400">~0.85s</span>
+            </p>
+            <p class="text-[10px] text-slate-600 font-mono mt-1.5 truncate" x-text="mkt.stream_url || mktHealth.stream_url || ''" title="WebSocket base URL"></p>
+          </div>
+          <div class="flex flex-wrap gap-2 shrink-0">
+            <span :class="mktHealth.connected?'pill pill-g':'pill pill-r'" x-text="mktHealth.connected?'WS LIVE':'OFFLINE'"></span>
+            <span class="pill pill-b" x-text="'src: '+(mkt.source||'—')"></span>
+            <span class="pill pill-p">TESTNET</span>
+          </div>
+        </div>
+        <div class="stream-bar mb-5"><div class="stream-fill" :style="'width:'+streamPct+'%'"></div></div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-sm">
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
+            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Msgs</span>
+            <p class="font-mono text-base text-white mt-1 tabular-nums" x-text="(mktHealth.messages_total||0).toLocaleString()"></p>
+          </div>
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
+            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Last pkt</span>
+            <p class="font-mono text-base mt-1 tabular-nums" :class="(mktHealth.last_message_age_ms||999999)<1500?'text-emerald-400':'text-amber-400'" x-text="mktHealth.last_message_age_ms!=null?mktHealth.last_message_age_ms+' ms':'—'"></p>
+          </div>
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
+            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Venue Δt</span>
+            <p class="font-mono text-base mt-1 tabular-nums" :class="(mktHealth.latency_ms||0)<250?'text-emerald-400':'text-amber-400'" x-text="(mktHealth.latency_ms||0).toFixed(0)+' ms'"></p>
+          </div>
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
+            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Reconnects</span>
+            <p class="font-mono text-base mt-1 tabular-nums" :class="(mktHealth.reconnect_count||0)>2?'text-red-400':'text-white'" x-text="mktHealth.reconnect_count||0"></p>
+          </div>
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
+            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Errors</span>
+            <p class="font-mono text-base mt-1 tabular-nums" :class="(mktHealth.errors_total||0)>0?'text-red-400':'text-white'" x-text="mktHealth.errors_total||0"></p>
+          </div>
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.05]">
+            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Uptime</span>
+            <p class="font-mono text-base text-white mt-1 tabular-nums" x-text="dur(Math.floor(mktHealth.uptime_seconds||0))"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <template x-for="sym in marketSymbols()" :key="sym">
+          <div class="card card-hover overflow-hidden">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-mono font-bold text-lg text-white tracking-tight" x-text="sym"></h3>
+              <span :class="ti(sym).is_stale?'pill pill-r':'pill pill-g'" x-text="ti(sym).is_stale?'STALE':'LIVE'"></span>
+            </div>
+            <div class="rounded-xl bg-[#06080c] p-4 border border-white/[0.05] mb-4">
+              <span class="text-[10px] text-slate-500 uppercase font-semibold tracking-wider">Last trade</span>
+              <p class="text-3xl font-mono font-semibold mt-1 tabular-nums transition-colors min-h-[2.5rem]"
+                 :class="[flashClass(sym), parseFloat(ti(sym).last_price)>0?'text-white':'text-slate-600']"
+                 x-text="fmtUsd(ti(sym).last_price)"></p>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 text-sm">
+              <div>
+                <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Bid</span>
+                <p class="font-mono text-emerald-400/95 font-medium mt-0.5" x-text="fmtUsd(ti(sym).best_bid)"></p>
+                <p class="text-[10px] font-mono text-slate-600 mt-0.5" x-text="'Sz '+fmtQty(ti(sym).bid_qty)"></p>
+              </div>
+              <div>
+                <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Ask</span>
+                <p class="font-mono text-red-400/95 font-medium mt-0.5" x-text="fmtUsd(ti(sym).best_ask)"></p>
+                <p class="text-[10px] font-mono text-slate-600 mt-0.5" x-text="'Sz '+fmtQty(ti(sym).ask_qty)"></p>
+              </div>
+              <div>
+                <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Mark</span>
+                <p class="font-mono text-sky-400 font-medium mt-0.5" x-text="fmtUsd(ti(sym).mark_price)"></p>
+              </div>
+              <div>
+                <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Spread</span>
+                <p class="font-mono text-sm mt-0.5" :class="(ti(sym).spread_bps||0)<3?'text-emerald-400':'text-amber-400'" x-text="(parseFloat(ti(sym).best_bid)>0&&parseFloat(ti(sym).best_ask)>0)?(ti(sym).spread_bps||0).toFixed(2)+' bps':'—'"></p>
+              </div>
+              <div>
+                <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Book age</span>
+                <p class="font-mono text-sm mt-0.5" :class="(ti(sym).age_ms||0)<2000?'text-emerald-400':(ti(sym).age_ms||0)<5000?'text-amber-400':'text-red-400'" x-text="(ti(sym).age_ms||0)<999000?(ti(sym).age_ms||0)+' ms':'—'"></p>
+              </div>
+              <div>
+                <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">60s window</span>
+                <p class="font-mono text-white font-semibold mt-0.5" x-text="ti(sym).trade_count_1m||0"></p>
+                <p class="text-[10px] font-mono text-slate-500 mt-0.5" x-text="'Σq '+fmtBase(ti(sym).volume_1m)+' · rolling'"></p>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div x-show="!liveConnected" x-cloak class="card mt-6 border border-amber-500/25 bg-amber-500/[0.05]">
+        <p class="text-sm font-medium text-amber-200/95">WebSocket offline — prices below are placeholders until the feed connects.</p>
+        <p class="text-xs text-slate-500 mt-2 leading-relaxed max-w-2xl">Set <span class="font-mono text-slate-400">CTE_BINANCE_TESTNET_API_KEY</span> / <span class="font-mono text-slate-400">SECRET</span>, run with <span class="font-mono text-slate-400">CTE_ENGINE_MODE=demo</span>, and allow outbound WSS to <span class="font-mono text-slate-500">stream.binancefuture.com</span>.</p>
+      </div>
+    </div>
+
+    <div x-show="page==='positions'" x-cloak>
+      <div class="card mb-6">
+        <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
+          <div>
+            <h3 class="text-sm font-semibold text-white tracking-tight">Open paper positions</h3>
+            <p class="text-[11px] text-slate-500 mt-1 max-w-2xl leading-relaxed">
+              LONG-only simulated fills from the in-dashboard pipeline: live testnet book → <span class="font-mono text-slate-500">ScoringSignalEngine</span> → risk veto → sizing → paper execution. Rows disappear when the position hits TP/SL/trailing/timeout and move to the journal below. Pause or disable symbols on Operations to stop new entries.
+            </p>
+          </div>
+          <span class="text-[10px] text-slate-600 font-mono" x-show="paperStatus && paperStatus.last_error" x-text="paperStatus.last_error"></span>
+        </div>
+        <div class="overflow-x-auto tbl-scroll">
+          <table class="tbl min-w-[900px]">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Tier</th>
+                <th class="text-right">Entry</th>
+                <th class="text-right">Qty</th>
+                <th class="text-right">uPnL</th>
+                <th>Entry reason (trimmed)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(op, oi) in paperOpen" :key="op.position_id || oi">
+                <tr class="border-b border-white/[0.06]">
+                  <td class="tbl-txt font-mono text-xs font-semibold text-white" x-text="op.symbol"></td>
+                  <td><span class="pill" :class="tc(op.signal_tier)" x-text="op.signal_tier"></span></td>
+                  <td class="text-right tbl-num text-slate-300" x-text="fmtUsd(op.entry_price)"></td>
+                  <td class="text-right tbl-num text-slate-400 font-mono text-[11px]" x-text="op.quantity"></td>
+                  <td class="text-right tbl-num" :class="parseFloat(op.unrealized_pnl)>=0?'text-emerald-400':'text-red-400'" x-text="'$'+parseFloat(op.unrealized_pnl||0).toFixed(2)"></td>
+                  <td class="text-[10px] text-slate-500 font-mono max-w-md truncate" :title="op.entry_reason" x-text="op.entry_reason||'—'"></td>
+                </tr>
+              </template>
+              <tr x-show="!paperOpen.length">
+                <td colspan="6" class="py-8 text-center text-xs text-slate-600">No open paper positions — wait for a scored signal (feed must be live, ops ACTIVE, symbol enabled), or check <span class="font-mono text-slate-500">/api/paper/status</span>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card p-0 overflow-hidden">
+        <div class="p-5 sm:p-6 border-b border-white/[0.06] flex flex-wrap items-start justify-between gap-5">
+          <div>
+            <h3 class="text-base font-semibold text-white tracking-tight">Trade journal</h3>
+            <p class="text-[12px] text-slate-500 mt-1.5 max-w-xl leading-relaxed">
+              Closed trades for active epoch (<span class="font-mono text-slate-400" x-text="epoch"></span>). LONG-only v1 universe; exit reason is the mandatory explainability field. Data from <span class="font-mono text-slate-500">/api/analytics/trades</span>.
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="relative z-[60]">
+              <button type="button" class="dd-trigger min-w-[148px]" :class="ddTier ? 'dd-trigger-open' : ''" @click.stop="ddTier=!ddTier; ddSym=ddExit=ddSource=false" :aria-expanded="ddTier">
+                <span class="truncate text-slate-200" x-text="tierLbl()"></span>
+                <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <div x-show="ddTier" x-cloak x-transition @click.outside="ddTier=false" class="dd-panel left-0">
+                <template x-for="o in tierOpts" :key="o.v || 'all-tier'">
+                  <button type="button" :class="tf.tier===o.v ? 'dd-opt-active' : ''" @click="setTier(o.v)" x-text="o.l"></button>
+                </template>
+              </div>
+            </div>
+            <div class="relative z-[60]">
+              <button type="button" class="dd-trigger min-w-[156px]" :class="ddSym ? 'dd-trigger-open' : ''" @click.stop="ddSym=!ddSym; ddTier=ddExit=ddSource=false" :aria-expanded="ddSym">
+                <span class="truncate text-slate-200" x-text="symLbl()"></span>
+                <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <div x-show="ddSym" x-cloak x-transition @click.outside="ddSym=false" class="dd-panel left-0">
+                <template x-for="o in symOpts" :key="o.v || 'all-sym'">
+                  <button type="button" :class="tf.symbol===o.v ? 'dd-opt-active' : ''" @click="setSym(o.v)" x-text="o.l"></button>
+                </template>
+              </div>
+            </div>
+            <div class="relative z-[60]">
+              <button type="button" class="dd-trigger min-w-[168px]" :class="ddExit ? 'dd-trigger-open' : ''" @click.stop="ddExit=!ddExit; ddTier=ddSym=ddSource=false" :aria-expanded="ddExit">
+                <span class="truncate text-slate-200" x-text="exitLbl()"></span>
+                <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <div x-show="ddExit" x-cloak x-transition @click.outside="ddExit=false" class="dd-panel left-0 max-h-64 overflow-y-auto">
+                <template x-for="o in exitOpts" :key="o.v || 'all-exit'">
+                  <button type="button" :class="tf.exit===o.v ? 'dd-opt-active' : ''" @click="setExit(o.v)" x-text="o.l"></button>
+                </template>
+              </div>
+            </div>
+            <div class="relative z-[60]">
+              <button type="button" class="dd-trigger min-w-[168px]" :class="ddSource ? 'dd-trigger-open' : ''" @click.stop="ddSource=!ddSource; ddTier=ddSym=ddExit=false" :aria-expanded="ddSource">
+                <span class="truncate text-slate-200" x-text="sourceLbl()"></span>
+                <svg class="icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <div x-show="ddSource" x-cloak x-transition @click.outside="ddSource=false" class="dd-panel left-0 max-h-56 overflow-y-auto">
+                <template x-for="o in sourceOpts" :key="o.v || 'all-src'">
+                  <button type="button" :class="tf.source===o.v ? 'dd-opt-active' : ''" @click="setSource(o.v)" x-text="o.l"></button>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="overflow-x-auto max-h-[min(70vh,720px)] overflow-y-auto tbl-scroll">
+          <table class="tbl min-w-[1100px]">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Venue</th>
+                <th>Tier</th>
+                <th class="text-right">PnL</th>
+                <th class="text-right">R</th>
+                <th>Exit</th>
+                <th class="text-right">Hold</th>
+                <th class="text-right">MFE</th>
+                <th class="text-right">MAE</th>
+                <th class="text-right">Slip</th>
+                <th>Mode</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(t,ti) in trades" :key="'j-'+ti+'-'+(t.epoch||'')+'-'+(t.symbol||'')+'-'+(t.pnl||'')+'-'+(t.exit_reason||'')">
+                <tr>
+                  <td class="tbl-txt"><span class="font-mono text-[12px] font-semibold text-white tracking-tight" x-text="t.symbol"></span></td>
+                  <td class="tbl-txt font-mono text-[11px] text-slate-500" x-text="t.venue||'—'"></td>
+                  <td><span class="pill" :class="tc(t.tier)" x-text="t.tier"></span></td>
+                  <td class="text-right tbl-num" :class="parseFloat(t.pnl)>=0?'text-emerald-400':'text-red-400'" :title="t.was_profitable_at_exit!=null?('profitable@exit: '+t.was_profitable_at_exit):''">
+                    <span x-text="'$'+parseFloat(t.pnl).toFixed(2)"></span>
+                  </td>
+                  <td class="text-right tbl-num text-slate-400" x-text="t.r_multiple!=null?t.r_multiple.toFixed(2)+'R':'—'"></td>
+                  <td class="max-w-[160px]"><span class="pill text-[10px] leading-tight" :class="ec(t.exit_reason)" x-text="t.exit_reason"></span></td>
+                  <td class="text-right tbl-txt text-slate-400" x-text="dur(t.hold_seconds)"></td>
+                  <td class="text-right tbl-num text-emerald-400/90" x-text="(t.mfe_pct*100).toFixed(2)+'%'"></td>
+                  <td class="text-right tbl-num text-red-400/90" x-text="(t.mae_pct*100).toFixed(2)+'%'"></td>
+                  <td class="text-right tbl-num text-slate-400" x-text="(t.slippage_bps!=null?t.slippage_bps:0).toFixed(1)"></td>
+                  <td><span class="pill pill-b text-[10px]" x-text="t.position_mode"></span></td>
+                  <td><span class="pill text-[10px]" :class="srcPill(t.source)" x-text="t.source||'—'"></span></td>
+                </tr>
+              </template>
+              <tr x-show="!trades.length">
+                <td colspan="12" class="py-14 px-4 text-center">
+                  <p class="text-slate-500 text-sm mb-4">No trades for this filter</p>
+                  <div class="text-left max-w-xl mx-auto text-[11px] text-slate-600 space-y-2 leading-relaxed">
+                    <p class="font-bold text-slate-500 uppercase tracking-wider text-[10px]">v1 journal (CTE rules)</p>
+                    <ul class="list-disc pl-5 space-y-1.5">
+                      <li>Only <span class="font-mono text-slate-400">BTCUSDT</span> and <span class="font-mono text-slate-400">ETHUSDT</span>, <strong>long</strong> exposure; closed rows appear after the paper loop (or future venue adapter) records a <strong>closed</strong> position. Open legs are listed above.</li>
+                      <li><span class="font-mono text-slate-500">exit_reason</span> is the explainability payload attached to each close (risk may veto before entry).</li>
+                      <li><span class="font-mono text-slate-500">source</span>: <span class="font-mono">paper_simulated</span> / <span class="font-mono">demo_exchange</span>; <span class="font-mono">seed</span> is for dev-only fixtures.</li>
+                    </ul>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="page==='ops'" x-cloak>
+      <div class="card mb-6 border border-cyan-500/15 bg-cyan-500/[0.03]">
+        <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
+          <div>
+            <h3 class="text-sm font-semibold text-cyan-200/95 tracking-tight">V1 operating constraints (PRD)</h3>
+            <p class="text-[11px] text-slate-500 mt-1 max-w-3xl leading-relaxed">Aligned with CTE phased rules: long-only, testnet data plane, risk veto, Redis Streams between services, no v1 live wallet.</p>
+          </div>
+          <span class="pill pill-p text-[10px] shrink-0" x-text="'SYS · '+(ops.system_mode||'—')"></span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.06]">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Execution &amp; capital</p>
+            <ul class="space-y-1.5 text-slate-300 leading-relaxed">
+              <li><span class="text-slate-500">Surface:</span> <span class="font-mono text-slate-200" x-text="v1Policy.execution_surface"></span></li>
+              <li><span class="text-slate-500">Live wallet v1:</span> <span class="text-amber-400/90 font-medium" x-text="v1Policy.live_wallet_v1===false?'No (paper/demo)':'—'"></span></li>
+              <li><span class="text-slate-500">Direction:</span> <span class="font-mono text-emerald-400/90" x-text="v1Policy.direction"></span></li>
+              <li><span class="text-slate-500">Max leverage:</span> <span class="font-mono text-white" x-text="String(v1Policy.max_leverage)+'×'"></span></li>
+            </ul>
+          </div>
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.06]">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Symbols &amp; venues</p>
+            <ul class="space-y-1.5 text-slate-300 leading-relaxed">
+              <li><span class="text-slate-500">Universe:</span> <span class="font-mono text-slate-200" x-text="(v1Policy.symbols||[]).join(', ')"></span></li>
+              <li><span class="text-slate-500">Primary:</span> <span class="font-mono text-slate-200 break-all" x-text="v1Policy.venues.primary"></span></li>
+              <li><span class="text-slate-500">Secondary:</span> <span class="font-mono text-slate-400 break-all" x-text="v1Policy.venues.secondary_context"></span></li>
+            </ul>
+          </div>
+          <div class="rounded-xl bg-[#080b10] p-3 border border-white/[0.06] sm:col-span-2 lg:col-span-1">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Governance &amp; data plane</p>
+            <ul class="space-y-1.5 text-slate-300 leading-relaxed">
+              <li><span class="text-slate-500">Risk manager:</span> <span class="text-sky-400/90" x-text="v1Policy.risk_manager"></span></li>
+              <li><span class="text-slate-500">Signal reasons:</span> <span class="text-slate-200" x-text="v1Policy.signal_reason_payload"></span></li>
+              <li><span class="text-slate-500">Event bus:</span> <span class="font-mono text-slate-400" x-text="v1Policy.inter_service_bus"></span></li>
+              <li><span class="text-slate-500">Context feeds:</span> <span class="text-slate-400" x-text="v1Policy.whale_news_role"></span></li>
+            </ul>
+          </div>
+        </div>
+        <p class="text-[10px] text-slate-600 mt-4 leading-relaxed border-t border-white/[0.06] pt-3" x-text="v1Policy.dashboard_note"></p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="card border-red-500/20 bg-gradient-to-br from-red-950/20 to-transparent">
+          <h3 class="text-sm font-semibold text-red-400 mb-2 tracking-tight">Emergency controls</h3>
+          <p class="text-[11px] text-slate-500 mb-4 leading-relaxed">Kill switch: halt entries and require explicit resume. Pause: block new signals; exit logic may still run. Every action logs a <span class="font-mono text-slate-400">reason</span> (PRD).</p>
+          <div class="space-y-3">
+            <button type="button" class="btn btn-danger w-full" @click="if(!confirm('EMERGENCY STOP — halt trading?'))return; const r=prompt('Reason (audit log)','Emergency stop: operator'); if(r===null)return; doPost('/api/ops/emergency_stop', r||'Emergency stop: operator')">Emergency stop</button>
+            <button type="button" class="btn btn-warn w-full" @click="const r=prompt('Reason (audit log)','Pause: operator'); if(r===null)return; doPost('/api/ops/pause', r||'Pause: operator')">Pause trading</button>
+            <button type="button" class="btn btn-ok w-full" @click="const r=prompt('Reason (audit log)','Resume: operator'); if(r===null)return; doPost('/api/ops/resume', r||'Resume: operator')">Resume trading</button>
+          </div>
+          <p class="mt-4 text-xs text-slate-500">Mode: <span class="font-mono font-medium" :class="ops.mode==='active'?'text-emerald-400':ops.mode==='paused'?'text-amber-400':'text-red-400'" x-text="ops.mode"></span>
+            <span class="text-slate-600"> · entries </span>
+            <span class="font-mono" :class="ops.is_entries_allowed?'text-emerald-400':'text-red-400'" x-text="ops.is_entries_allowed?'allowed':'blocked'"></span>
+          </p>
+        </div>
+        <div class="card">
+          <h3 class="text-sm font-semibold text-white mb-2 tracking-tight">Symbol toggles</h3>
+          <p class="text-[11px] text-slate-500 mb-4 leading-relaxed">v1 universe only. Disabling a symbol blocks new exposure on that leg; combine with pause/halt for full stop.</p>
+          <template x-for="(info,sym) in ops.symbols||{}" :key="sym">
+            <div class="flex items-center justify-between py-3 border-b border-white/[0.05] last:border-0">
+              <div class="min-w-0">
+                <span class="font-mono text-sm text-slate-200" x-text="sym"></span>
+                <p class="text-[10px] text-slate-600 mt-0.5 truncate max-w-[200px]" x-show="info.disabled_reason" x-text="info.disabled_reason"></p>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <span :class="info.enabled?'pill pill-g':'pill pill-r'" x-text="info.enabled?'ON':'OFF'"></span>
+                <button type="button" class="text-xs text-cyan-500/80 hover:text-cyan-400 font-medium" x-show="info.enabled" @click="const r=prompt('Reason (audit log)','Disable '+sym+': operator'); if(r===null)return; doPost('/api/ops/symbol/'+sym+'/disable', r||'Manual disable')">Disable</button>
+                <button type="button" class="text-xs text-cyan-500/80 hover:text-cyan-400 font-medium" x-show="!info.enabled" @click="const r=prompt('Reason (audit log)','Enable '+sym+': operator'); if(r===null)return; doPost('/api/ops/symbol/'+sym+'/enable', r||'Operator enabled symbol')">Enable</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="card mt-6">
+        <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Operations audit log</h3>
+        <p class="text-[11px] text-slate-500 mb-4">Last 30 events · includes operator identity stub and mandatory reason strings.</p>
+        <div class="overflow-x-auto">
+          <table class="tbl min-w-[640px]">
+            <thead>
+              <tr>
+                <th>Time (UTC)</th>
+                <th>Action</th>
+                <th>Symbol</th>
+                <th>Actor</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(ev,i) in (ops.recent_events||[]).slice().reverse()" :key="i">
+                <tr>
+                  <td class="font-mono text-xs text-slate-400 whitespace-nowrap" x-text="ev.timestamp?.replace('T',' ').substring(0,19)"></td>
+                  <td><span class="pill text-[9px]" :class="opsPillCls(ev.action)" x-text="ev.action"></span></td>
+                  <td class="font-mono text-xs text-slate-500" x-text="ev.symbol||'—'"></td>
+                  <td class="font-mono text-xs text-slate-500" x-text="ev.triggered_by"></td>
+                  <td class="text-xs text-slate-300 max-w-md" x-text="ev.reason"></td>
+                </tr>
+              </template>
+              <tr x-show="!(ops.recent_events||[]).length">
+                <td colspan="5" class="py-10 text-center text-slate-600 text-xs">No audit events yet — use controls above (each action records a reason).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card mt-6">
+        <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Trading mode transitions</h3>
+        <p class="text-[11px] text-slate-500 mb-4">State changes for <span class="font-mono">active · paused · halted</span> (event-driven stack should mirror via Redis).</p>
+        <div class="space-y-0 divide-y divide-white/[0.05]">
+          <template x-for="(row,i) in (ops.mode_history||[]).slice().reverse()" :key="i">
+            <div class="text-xs flex flex-wrap items-center gap-3 py-2.5">
+              <span class="font-mono text-slate-500 w-52 shrink-0" x-text="row[2]?.replace('T',' ').substring(0,19)"></span>
+              <span class="font-mono text-slate-400" x-text="row[0]+' → '+row[1]"></span>
+            </div>
+          </template>
+          <div x-show="!(ops.mode_history||[]).length" class="text-slate-600 text-xs py-6">No mode changes yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="page==='readiness'" x-cloak>
+      <p class="text-[11px] text-slate-500 mb-5 max-w-4xl leading-relaxed">Readiness reflects <span class="font-mono text-slate-400">.cursorrules</span> phased plan: v1 is paper/demo/testnet; Phase 5 live is out of scope until explicitly enabled.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="card">
+          <h3 class="text-sm font-semibold text-white mb-2 tracking-tight">Paper / validation → Testnet (v1)</h3>
+          <p class="text-[10px] text-slate-600 mb-4 leading-relaxed" x-text="readinessPaper && readinessPaper.scope_note"></p>
+          <div>
+            <div class="mb-4 flex flex-wrap items-baseline gap-3">
+              <span class="sv" :class="readinessPaper && readinessPaper.ready?'text-emerald-400':'text-red-400'" x-text="readinessPaper && readinessPaper.ready?'GO':'NO-GO'"></span>
+              <span class="text-sm text-slate-500" x-text="readinessPaperScore()"></span>
+            </div>
+            <template x-for="gate in (readinessPaper && readinessPaper.gates) ? readinessPaper.gates : []" :key="gate.name">
+              <div class="flex items-center justify-between gap-3 py-2.5 text-xs border-b border-white/[0.05]">
+                <span class="text-slate-300 pr-2 min-w-0" x-text="gate.description"></span>
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="text-slate-500 font-mono text-[10px] max-w-[140px] truncate" x-text="gate.value" x-show="gate.value && gate.value!=='—'"></span>
+                  <span :class="gateClass(gate)" x-text="gate.status==='skip'?'SKIP':gate.status.toUpperCase()"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="card border border-amber-500/15 bg-amber-500/[0.04]">
+          <h3 class="text-sm font-semibold text-amber-200/95 mb-2 tracking-tight">Phase 5 → Live (reference only)</h3>
+          <p class="text-[10px] text-slate-600 mb-4 leading-relaxed" x-text="readinessLive && readinessLive.scope_note"></p>
+          <div class="mb-4 flex flex-wrap items-baseline gap-3">
+            <span class="sv text-slate-500">N/A</span>
+            <span class="text-sm text-slate-500" x-text="readinessLiveSummary()"></span>
+          </div>
+          <template x-for="gate in (readinessLive && readinessLive.gates) ? readinessLive.gates : []" :key="gate.name">
+            <div class="flex items-start justify-between gap-3 py-2.5 text-xs border-b border-white/[0.05]">
+              <div class="min-w-0">
+                <span class="text-slate-300" x-text="gate.description"></span>
+                <p class="text-[10px] text-slate-600 mt-1" x-show="gate.detail" x-text="gate.detail"></p>
+              </div>
+              <span class="gate-skip text-[10px] shrink-0">SKIP</span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="page==='research'" x-cloak>
+      <p class="text-[11px] text-slate-500 mb-5 max-w-3xl leading-relaxed">Tier cards use <span class="font-mono text-slate-400">/api/analytics/summary?tier=A|B|C</span> for the active epoch. Exit attribution and runner stats use the same epoch-wide summary as Overview (<span class="font-mono text-slate-500">exit_reason</span> is the explainability axis per PRD).</p>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="card card-hover">
+          <h3 class="card-head">Tier A</h3>
+          <div class="sv text-emerald-400" x-text="'$'+fmt(tierM('A').total_pnl)"></div>
+          <div class="text-xs text-slate-500 mt-2">WR <span class="font-mono text-slate-400" x-text="pct(tierM('A').win_rate)"></span> · PF <span class="font-mono text-slate-400" x-text="tierM('A').profit_factor!=null?tierM('A').profit_factor.toFixed(2):'—'"></span> · <span class="font-mono text-slate-400" x-text="tierM('A').trade_count||0"></span> trades</div>
+        </div>
+        <div class="card card-hover">
+          <h3 class="card-head">Tier B</h3>
+          <div class="sv text-sky-400" x-text="'$'+fmt(tierM('B').total_pnl)"></div>
+          <div class="text-xs text-slate-500 mt-2">WR <span class="font-mono text-slate-400" x-text="pct(tierM('B').win_rate)"></span> · PF <span class="font-mono text-slate-400" x-text="tierM('B').profit_factor!=null?tierM('B').profit_factor.toFixed(2):'—'"></span> · <span class="font-mono text-slate-400" x-text="tierM('B').trade_count||0"></span> trades</div>
+        </div>
+        <div class="card card-hover">
+          <h3 class="card-head">Tier C</h3>
+          <div class="sv text-amber-400" x-text="'$'+fmt(tierM('C').total_pnl)"></div>
+          <div class="text-xs text-slate-500 mt-2">WR <span class="font-mono text-slate-400" x-text="pct(tierM('C').win_rate)"></span> · PF <span class="font-mono text-slate-400" x-text="tierM('C').profit_factor!=null?tierM('C').profit_factor.toFixed(2):'—'"></span> · <span class="font-mono text-slate-400" x-text="tierM('C').trade_count||0"></span> trades</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+        <div class="card">
+          <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Exit reason attribution</h3>
+          <p class="text-[10px] text-slate-600 mb-4">Realized PnL by <span class="font-mono">exit_reason</span> (full epoch, all tiers).</p>
+          <div class="space-y-0 divide-y divide-white/[0.05]">
+            <template x-for="(pnl,reason) in m.pnl_by_exit_reason||{}" :key="reason">
+              <div class="flex items-center justify-between text-xs py-3">
+                <span class="font-mono text-slate-400" x-text="reason"></span>
+                <div class="flex items-center gap-4">
+                  <span class="text-slate-500" x-text="(m.count_by_exit_reason||{})[reason]+' trades'"></span>
+                  <span :class="pnl>=0?'text-emerald-400':'text-red-400'" class="font-mono font-semibold" x-text="'$'+pnl.toFixed(2)"></span>
+                </div>
+              </div>
+            </template>
+            <div x-show="!Object.keys(m.pnl_by_exit_reason||{}).length" class="py-12 text-center text-slate-600 text-xs">No exit attribution yet — close trades with documented <span class="font-mono text-slate-500">exit_reason</span> to populate this view.</div>
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Runner mode</h3>
+          <p class="text-[10px] text-slate-600 mb-4">Subset of epoch trades in runner / trailing posture (analytics aggregate).</p>
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Count</span><p class="font-mono text-lg text-violet-400 mt-1" x-text="(m.runner_outcomes||{}).count||0"></p></div>
+            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Avg R</span><p class="font-mono text-lg text-white mt-1" x-text="((m.runner_outcomes||{}).avg_r!=null?(m.runner_outcomes||{}).avg_r:0).toFixed(2)+'R'"></p></div>
+            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Avg PnL</span><p class="font-mono text-lg text-white mt-1" x-text="'$'+((m.runner_outcomes||{}).avg_pnl!=null?(m.runner_outcomes||{}).avg_pnl:0).toFixed(2)"></p></div>
+            <div class="rounded-xl bg-[#080b10] p-4 border border-white/[0.05]"><span class="text-[10px] uppercase text-slate-500 font-semibold">Win rate</span><p class="font-mono text-lg text-white mt-1" x-text="pct((m.runner_outcomes||{}).win_rate)"></p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="page==='config'" x-cloak>
+      <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
+        <div>
+          <h3 class="text-sm font-semibold text-white tracking-tight">Configuration</h3>
+          <p class="text-[11px] text-slate-500 mt-1 max-w-xl leading-relaxed" x-text="(configSnap.meta && configSnap.meta.hint) || ''"></p>
+          <p class="text-[10px] text-slate-600 font-mono mt-2" x-show="configSnap.meta && configSnap.meta.utc" x-text="'Snapshot · ' + configSnap.meta.utc"></p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span x-show="configLoading" class="text-[11px] text-slate-500">Loading…</span>
+          <button type="button" class="btn btn-ok !py-2 !px-3 !text-xs" @click="loadConfig()">Refresh</button>
+          <button type="button" class="btn !py-2 !px-3 !text-xs border border-white/[0.12] bg-[#0c1016] text-slate-200 hover:bg-white/[0.06]" @click="copyConfigJson()">Copy JSON</button>
+        </div>
+      </div>
+      <div x-show="configSnap.error" class="card border-red-500/30 mb-4">
+        <p class="text-sm text-red-400 font-medium">Config snapshot failed</p>
+        <p class="text-xs text-slate-500 font-mono mt-2 break-all" x-text="configSnap.error"></p>
+      </div>
+      <div x-show="!configLoading && !configSnap.error && configSectionsForTemplate().length===0" class="card border border-white/[0.08] mb-4">
+        <p class="text-sm text-slate-400">No configuration sections in the response.</p>
+        <p class="text-[11px] text-slate-600 mt-2">Use <span class="font-mono text-slate-500">Refresh</span> or open <span class="font-mono text-slate-500">/api/config</span> in this origin — if you see JSON but not here, hard-refresh the page (cache).</p>
+      </div>
+      <div class="space-y-4">
+        <div class="card" x-for="sec in configSectionsForTemplate()" :key="sec.id || sec.title">
+          <h4 class="cfg-section-title" x-text="sec.title"></h4>
+          <div class="cfg-row" x-for="row in (sec.rows || [])" :key="(sec.id||sec.title)+'-'+row.key">
+            <span class="cfg-k" x-text="row.label"></span>
+            <div class="cfg-v">
+              <pre class="cfg-json" x-show="isCfgStructured(row.value)" x-text="prettyJson(row.value)"></pre>
+              <span x-show="!isCfgStructured(row.value)" class="block pt-0.5" :class="cfgScalarClass(row)" x-text="formatCfgScalar(row.value)"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="page==='alerts'" x-cloak>
+      <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
+        <div>
+          <h3 class="text-sm font-semibold text-white tracking-tight">Alerts</h3>
+          <p class="text-[11px] text-slate-500 mt-1 max-w-2xl leading-relaxed" x-text="(alertsSnap.meta && alertsSnap.meta.legend) || ''"></p>
+          <p class="text-[10px] text-slate-600 font-mono mt-2" x-show="alertsSnap.meta && alertsSnap.meta.utc" x-text="alertsEvaluatedLine()"></p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span x-show="alertsLoading" class="text-[11px] text-slate-500">Loading…</span>
+          <button type="button" class="btn btn-ok !py-2 !px-3 !text-xs" @click="loadAlerts()">Refresh</button>
+        </div>
+      </div>
+      <div x-show="alertsSnap.error" class="card border-red-500/30 mb-4">
+        <p class="text-sm text-red-400 font-medium">Alerts status failed</p>
+        <p class="text-xs text-slate-500 font-mono mt-2 break-all" x-text="alertsSnap.error"></p>
+      </div>
+      <div class="card">
+        <h4 class="cfg-section-title">Rules &amp; live state</h4>
+        <div x-show="!alertsLoading && !alertsSnap.error && alertsRulesForTemplate().length===0" class="py-10 text-center text-xs text-slate-500">
+          No alert rules in the response. Try <span class="font-mono text-slate-400">Refresh</span> or open <span class="font-mono text-slate-400">/api/alerts/status</span> in this origin.
+        </div>
+        <div class="space-y-0 divide-y divide-white/[0.06] text-xs">
+          <div class="py-3.5" x-for="(rule, idx) in alertsRulesForTemplate()" :key="rule.id || rule.title || idx">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <span class="text-slate-200 font-medium" x-text="rule.title"></span>
+                <p class="text-[10px] text-slate-500 mt-1 font-mono leading-relaxed" x-text="rule.condition"></p>
+                <p class="text-[10px] text-slate-600 mt-1.5 font-mono break-all" x-show="rule.detail" x-text="rule.detail"></p>
+              </div>
+              <span class="pill shrink-0 text-[10px]" :class="alertStatePill(rule)" x-text="alertStateLabel(rule)"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+const ICON = {
+  overview: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v2a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zM14 13a1 1 0 011-1h4a1 1 0 011 1v6a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6z"/></svg>',
+  market: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M8.25 3v2.25M17.75 3v2.25M3 8.25h18M5.25 8.25v10.5a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25V8.25"/></svg>',
+  positions: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>',
+  ops: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>',
+  readiness: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+  research: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5"/></svg>',
+  config: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>',
+  alerts: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.102V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>',
+};
+function app(){return{
+  page:'overview',
+  pageIds:['overview','market','positions','ops','readiness','research','config','alerts'],
+  epoch:'crypto_v1_demo',
+  pages:[
+    {id:'overview',label:'Overview',svg:ICON.overview},
+    {id:'market',label:'Market feeds',svg:ICON.market},
+    {id:'positions',label:'Positions',svg:ICON.positions},
+    {id:'ops',label:'Operations',svg:ICON.ops},
+    {id:'readiness',label:'Readiness',svg:ICON.readiness},
+    {id:'research',label:'Research',svg:ICON.research},
+    {id:'config',label:'Config',svg:ICON.config},
+    {id:'alerts',label:'Alerts',svg:ICON.alerts},
+  ],
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:{meta:{hint:'',utc:''},sections:[]},configLoading:false,alertsSnap:{meta:{legend:'',utc:'',firing_count:0},rules:[]},alertsLoading:false,researchTiers:{},paperStatus:{},paperOpen:[],tf:{tier:'',symbol:'',exit:'',source:''},
+  mkt:{},mktHealth:{},
+  ddTier:false,ddSym:false,ddExit:false,ddSource:false,
+  tierOpts:[
+    {v:'',l:'All tiers'},{v:'A',l:'Tier A'},{v:'B',l:'Tier B'},{v:'C',l:'Tier C'},
+  ],
+  symOpts:[
+    {v:'',l:'All symbols'},{v:'BTCUSDT',l:'BTCUSDT'},{v:'ETHUSDT',l:'ETHUSDT'},
+  ],
+  exitOpts:[
+    {v:'',l:'All exits'},{v:'hard_stop',l:'hard_stop'},{v:'thesis_failure',l:'thesis_failure'},
+    {v:'no_progress',l:'no_progress'},{v:'winner_trailing',l:'winner_trailing'},{v:'runner_trailing',l:'runner_trailing'},
+  ],
+  sourceOpts:[
+    {v:'',l:'All sources'},
+    {v:'paper_simulated',l:'Paper simulated'},
+    {v:'demo_exchange',l:'Demo exchange'},
+    {v:'seed',l:'Seed (dev only)'},
+  ],
+  _charts:{},_lastPrice:{},_flash:{},lastSync:0,_tickTimer:null,_slowTimer:null,_clockTick:0,
+  setTier(v){this.tf.tier=v;this.ddTier=false;this.loadTrades()},
+  setSym(v){this.tf.symbol=v;this.ddSym=false;this.loadTrades()},
+  setExit(v){this.tf.exit=v;this.ddExit=false;this.loadTrades()},
+  setSource(v){this.tf.source=v;this.ddSource=false;this.loadTrades()},
+  pageFromHash(){
+    const raw=(location.hash||'').replace(/^#/,'').replace(/^\//,'').split('/')[0]||'overview';
+    return this.pageIds.includes(raw)?raw:'overview';
+  },
+  openPage(p){
+    if(!this.pageIds.includes(p))return;
+    const full='/'+p;
+    const want='#'+full;
+    if(location.hash!==want){
+      this.page=p;
+      location.hash=want;
+    }else{
+      this.page=p;
+      if(this.page==='overview')this.updateCharts();
+      this.refresh();
+    }
+  },
+  tierLbl(){const o=this.tierOpts.find(x=>x.v===this.tf.tier);return o?o.l:'All tiers'},
+  symLbl(){const o=this.symOpts.find(x=>x.v===this.tf.symbol);return o?o.l:'All symbols'},
+  exitLbl(){const o=this.exitOpts.find(x=>x.v===this.tf.exit);return o?o.l:'All exits'},
+  sourceLbl(){const o=this.sourceOpts.find(x=>x.v===this.tf.source);return o?o.l:'All sources'},
+  get liveConnected(){return !!(this.mktHealth&&this.mktHealth.connected);},
+  get streamPct(){
+    const m=this.mktHealth.messages_total||0;
+    const age=this.mktHealth.last_message_age_ms;
+    const fresh=age!=null&&age<1200?1.15:1;
+    return Math.min(100,fresh*(12+Math.log10(10+m)*18));
+  },
+  marketSymbols(){
+    return Object.keys(this.mkt.tickers||{}).sort();
+  },
+  ti(sym){
+    return (this.mkt.tickers||{})[sym]||{};
+  },
+  fmtUsd(v){
+    const x=parseFloat(String(v??'0'));
+    if(!isFinite(x)||x<=0)return '—';
+    return '$'+x.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  },
+  fmtQty(v){
+    const x=parseFloat(String(v??'0'));
+    if(!isFinite(x)||x<=0)return '—';
+    if(x>=1000)return x.toLocaleString(undefined,{maximumFractionDigits:3});
+    const s=x.toFixed(6).replace(/\.?0+$/,'');
+    return s||'0';
+  },
+  fmtBase(v){
+    const x=parseFloat(String(v??'0'));
+    if(!isFinite(x)||x<=0)return '—';
+    return x>=1?x.toFixed(4):x.toFixed(6);
+  },
+  get relativeAgo(){
+    void this._clockTick;
+    if(!this.lastSync)return '—';
+    const s=Math.floor((Date.now()-this.lastSync)/1000);
+    if(s<2)return 'just now';
+    if(s<60)return s+'s ago';
+    if(s<3600)return Math.floor(s/60)+'m ago';
+    return Math.floor(s/3600)+'h ago';
+  },
+  _defaultV1Policy(){
+    return{
+      direction:'long_only',
+      symbols:['BTCUSDT','ETHUSDT'],
+      venues:{
+        primary:'binance_usdm_futures_testnet',
+        secondary_context:'bybit_v5_public_testnet',
+      },
+      max_leverage:3,
+      live_wallet_v1:false,
+      execution_surface:'paper_demo_testnet',
+      risk_manager:'absolute_veto_over_signals',
+      signal_reason_payload:'required_per_trade_decision',
+      inter_service_bus:'redis_streams_cte_prefix',
+      whale_news_role:'context_only_not_primary_trigger',
+      dashboard_note:'This UI drives the in-process ops controller. Distributed services must mirror state via Redis Streams (cte:{module}:{event_type}).',
+    };
+  },
+  get v1Policy(){
+    const o=this.ops;
+    const d=this._defaultV1Policy();
+    if(!o||!o.v1_policy)return d;
+    const p=o.v1_policy;
+    return{...d,...p,venues:{...d.venues,...(p.venues||{})}};
+  },
+  readinessPaperScore(){
+    const P=this.readinessPaper;
+    if(!P)return '0 / 0 applicable gates';
+    const app=P.applicable!=null?P.applicable:P.total||0;
+    return (P.passed||0)+' / '+app+' applicable gates';
+  },
+  readinessLiveSummary(){
+    const L=this.readinessLive;
+    if(!L)return '—';
+    if(L.not_applicable)return '10 headings · all SKIP (not scored in v1)';
+    return (L.passed||0)+' / '+(L.applicable||L.total||0);
+  },
+  gateClass(g){
+    if(!g)return 'gate-fail';
+    if(g.status==='pass')return 'gate-pass';
+    if(g.status==='skip')return 'gate-skip';
+    return 'gate-fail';
+  },
+  async loadReadiness(){
+    try{this.readinessPaper=await(await fetch('/api/readiness/paper_to_demo')).json()}catch(e){this.readinessPaper={gates:[],passed:0,failed:0,total:0,applicable:0,ready:false,scope_note:''}}
+    try{this.readinessLive=await(await fetch('/api/readiness/demo_to_live')).json()}catch(e){this.readinessLive={gates:[],passed:0,failed:0,total:0,applicable:0,ready:false,not_applicable:true,scope_note:''}}
+  },
+  isCfgStructured(v){
+    return v!==null&&typeof v==='object';
+  },
+  prettyJson(v){
+    try{return JSON.stringify(v,null,2)}catch(e){return String(v)}
+  },
+  formatCfgScalar(v){
+    if(v===null||v===undefined)return '—';
+    return String(v);
+  },
+  cfgScalarClass(row){
+    if(!row)return'';
+    if(row.key==='testnet_keys'&&row.value==='missing')return 'text-amber-400 font-semibold';
+    if(row.key==='testnet_keys'&&row.value==='configured')return 'text-emerald-400 font-semibold';
+    return '';
+  },
+  configSectionsForTemplate(){
+    const s=this.configSnap;
+    if(!s||!Array.isArray(s.sections))return[];
+    return s.sections;
+  },
+  async loadConfig(){
+    this.configLoading=true;
+    try{
+      const r=await fetch('/api/config');
+      const j=await r.json();
+      const sections=Array.isArray(j.sections)?j.sections:[];
+      this.configSnap={
+        meta:j.meta&&typeof j.meta==='object'?j.meta:{hint:'',utc:''},
+        sections,
+        error:j.error,
+      };
+    }catch(e){
+      this.configSnap={
+        meta:{hint:'Could not reach /api/config',utc:''},
+        error:String(e),
+        sections:[],
+      };
+    }
+    this.configLoading=false;
+  },
+  async copyConfigJson(){
+    try{
+      await navigator.clipboard.writeText(JSON.stringify(this.configSnap,null,2));
+    }catch(e){}
+  },
+  alertStatePill(rule){
+    if(!rule)return'pill pill-b';
+    if(rule.state==='unknown')return'pill pill-b';
+    if(rule.state==='ok')return'pill pill-g';
+    if(rule.severity==='critical')return'pill pill-r';
+    return'pill pill-y';
+  },
+  alertStateLabel(rule){
+    if(!rule)return'—';
+    if(rule.state==='ok')return'OK';
+    if(rule.state==='unknown')return'N/A';
+    return'FIRING';
+  },
+  alertsRulesForTemplate(){
+    const s=this.alertsSnap;
+    if(!s||!Array.isArray(s.rules))return[];
+    return s.rules;
+  },
+  async loadPaperOpen(){
+    try{
+      const p=await(await fetch('/api/paper/positions')).json();
+      this.paperOpen=Array.isArray(p.positions)?p.positions:[];
+    }catch(e){this.paperOpen=[]}
+  },
+  async loadAlerts(){
+    this.alertsLoading=true;
+    try{
+      const r=await fetch('/api/alerts/status');
+      const j=await r.json();
+      if(!r.ok){
+        const detail=j&&j.detail;
+        const msg=typeof detail==='string'?detail:(detail?JSON.stringify(detail):'HTTP '+r.status);
+        this.alertsSnap={
+          meta:{legend:'',utc:'',firing_count:0},
+          rules:[],
+          error:msg,
+        };
+      }else{
+        const rules=Array.isArray(j.rules)?j.rules:[];
+        this.alertsSnap={
+          meta:j.meta&&typeof j.meta==='object'?j.meta:{legend:'',utc:'',firing_count:0},
+          rules,
+          error:j.error,
+        };
+      }
+    }catch(e){
+      this.alertsSnap={
+        meta:{legend:'',utc:'',firing_count:0},
+        rules:[],
+        error:String(e),
+      };
+    }
+    this.alertsLoading=false;
+  },
+  alertsEvaluatedLine(){
+    const m=this.alertsSnap.meta;
+    if(!m||!m.utc)return'';
+    const n=Number(m.firing_count)||0;
+    return'Evaluated · '+m.utc+(n>0?' · '+n+' firing':' · all quiet');
+  },
+  _blankTierMetrics(){
+    return{total_pnl:0,win_rate:0,profit_factor:null,trade_count:0};
+  },
+  tierM(t){
+    const x=this.researchTiers&&this.researchTiers[t];
+    if(x&&typeof x==='object'&&!x.error)return x;
+    return this._blankTierMetrics();
+  },
+  async loadResearch(){
+    const ep=encodeURIComponent(this.epoch);
+    const out={};
+    for(const tier of ['A','B','C']){
+      try{
+        const j=await(await fetch('/api/analytics/summary?tier='+tier+'&epoch='+ep)).json();
+        out[tier]=j&&j.error?this._blankTierMetrics():j;
+      }catch(e){
+        out[tier]=this._blankTierMetrics();
+      }
+    }
+    this.researchTiers=out;
+  },
+  async init(){
+    if(!location.hash||location.hash==='#'){
+      history.replaceState(null,'','#/overview');
+    }
+    this.page=this.pageFromHash();
+    window.addEventListener('hashchange',()=>{
+      this.page=this.pageFromHash();
+      if(this.page==='overview')this.updateCharts();
+      this.refresh();
+    });
+    if(typeof Chart!=='undefined'){
+      Chart.defaults.color='#8b9cae';
+      Chart.defaults.borderColor='rgba(255,255,255,0.06)';
+      Chart.defaults.font.family="'DM Sans',system-ui,sans-serif";
+      Chart.defaults.font.size=11;
+    }
+    await this.pollMarket();
+    await this.refresh();
+    this._slowTimer=setInterval(()=>this.refresh(),7000);
+    this._mktTimer=setInterval(()=>this.pollMarket(),850);
+    setInterval(()=>{this._clockTick++;},1000);
+    document.addEventListener('keydown',(e)=>{
+      if(e.key==='Escape'){
+        this.ddTier=this.ddSym=this.ddExit=this.ddSource=false;
+      }
+    });
+  },
+  async refresh(){
+    try{this.m=await(await fetch(`/api/analytics/summary?epoch=${encodeURIComponent(this.epoch)}`)).json()}catch(e){this.m={}}
+    try{this.ops=await(await fetch('/api/ops/status')).json()}catch(e){this.ops={}}
+    try{this.paperStatus=await(await fetch('/api/paper/status')).json()}catch(e){this.paperStatus={enabled:false,runner_active:false}}
+    if(this.page==='positions')await this.loadPaperOpen();
+    if(this.page==='readiness')await this.loadReadiness();
+    if(this.page==='config')await this.loadConfig();
+    if(this.page==='alerts')await this.loadAlerts();
+    if(this.page==='research')await this.loadResearch();
+    await this.loadTrades();
+    if(this.page==='overview')this.updateCharts();
+    this.lastSync=Date.now();
+  },
+  _skelTicker(){
+    return{
+      last_price:'0',best_bid:'0',best_ask:'0',mark_price:'0',
+      bid_qty:'0',ask_qty:'0',spread_bps:0,age_ms:999999,is_stale:true,
+      trade_count_1m:0,volume_1m:'0',
+    };
+  },
+  async pollMarket(){
+    try{
+      const j=await(await fetch('/api/market/tickers')).json();
+      const tickers={...(j.tickers||{})};
+      for(const sym of ['BTCUSDT','ETHUSDT']){
+        if(!tickers[sym])tickers[sym]=this._skelTicker();
+      }
+      this.mkt={
+        source:j.source,
+        mode:j.mode||'testnet',
+        stream_url:j.stream_url||'',
+        feed_ready:j.feed_ready!==false,
+        tickers,
+      };
+    }catch(e){
+      this.mkt={
+        source:'error',
+        mode:'testnet',
+        stream_url:'',
+        feed_ready:false,
+        tickers:{BTCUSDT:this._skelTicker(),ETHUSDT:this._skelTicker()},
+      };
+    }
+    try{this.mktHealth=await(await fetch('/api/market/health')).json()}catch(e){this.mktHealth={};}
+    if(this.page==='market'){
+      const tickers=this.mkt.tickers||{};
+      for(const sym of Object.keys(tickers)){
+        const lp=String(tickers[sym].last_price||'');
+        const prev=this._lastPrice[sym];
+        if(prev!==undefined&&lp!==prev&&parseFloat(lp)>0){
+          const dir=parseFloat(lp)>parseFloat(prev)?'up':'down';
+          this._flash[sym]=dir;
+          setTimeout(()=>{delete this._flash[sym];},650);
+        }
+        this._lastPrice[sym]=lp;
+      }
+    }
+    this.lastSync=Date.now();
+  },
+  flashClass(sym){
+    const d=this._flash[sym];
+    if(d==='up')return 'flash-up';
+    if(d==='down')return 'flash-down';
+    return '';
+  },
+  async loadTrades(){
+    let u=`/api/analytics/trades?epoch=${encodeURIComponent(this.epoch)}&limit=80`;
+    if(this.tf.tier)u+=`&tier=${encodeURIComponent(this.tf.tier)}`;
+    if(this.tf.symbol)u+=`&symbol=${encodeURIComponent(this.tf.symbol)}`;
+    if(this.tf.exit)u+=`&exit_reason=${encodeURIComponent(this.tf.exit)}`;
+    if(this.tf.source)u+=`&source=${encodeURIComponent(this.tf.source)}`;
+    try{this.trades=await(await fetch(u)).json()}catch(e){this.trades=[]}
+  },
+  updateCharts(){
+    this.bar('cTier',this.m.pnl_by_tier||{});
+    this.bar('cExit',this.m.pnl_by_exit_reason||{});
+    this.hbar('cSym',this.m.pnl_by_symbol||{});
+  },
+  bar(id,data){
+    const c=document.getElementById(id);if(!c)return;
+    if(this._charts[id] instanceof Chart)this._charts[id].destroy();
+    const labels=Object.keys(data),values=Object.values(data);
+    const colors=values.map(x=>{
+      if(x>=0)return 'rgba(52,211,153,0.85)';
+      return 'rgba(248,113,113,0.8)';
+    });
+    this._charts[id]=new Chart(c,{
+      type:'bar',
+      data:{labels,datasets:[{
+        data:values,
+        backgroundColor:colors,
+        borderRadius:6,
+        borderSkipped:false,
+      }]},
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        animation:{duration:600,easing:'easeOutQuart'},
+        plugins:{legend:{display:false},tooltip:{
+          backgroundColor:'rgba(15,20,28,0.95)',
+          titleColor:'#e2e8f0',bodyColor:'#94a3b8',borderColor:'rgba(255,255,255,0.08)',borderWidth:1,padding:10,cornerRadius:8,
+        }},
+        scales:{
+          x:{ticks:{color:'#64748b',font:{size:10},maxRotation:45,minRotation:0},grid:{display:false}},
+          y:{ticks:{color:'#64748b',callback:v=>'$'+Number(v).toFixed(0)},grid:{color:'rgba(255,255,255,0.04)'}},
+        },
+      },
+    });
+  },
+  hbar(id,data){
+    const c=document.getElementById(id);if(!c)return;
+    if(this._charts[id] instanceof Chart)this._charts[id].destroy();
+    const labels=Object.keys(data),values=Object.values(data);
+    this._charts[id]=new Chart(c,{
+      type:'bar',
+      data:{labels,datasets:[{
+        data:values,
+        backgroundColor:labels.map((_,i)=>i===0?'rgba(245,158,11,0.85)':'rgba(99,102,241,0.8)'),
+        borderRadius:5,
+        borderSkipped:false,
+      }]},
+      options:{
+        indexAxis:'y',
+        responsive:true,maintainAspectRatio:false,
+        animation:{duration:600},
+        plugins:{legend:{display:false},tooltip:{
+          backgroundColor:'rgba(15,20,28,0.95)',borderColor:'rgba(255,255,255,0.08)',borderWidth:1,cornerRadius:8,
+        }},
+        scales:{
+          x:{ticks:{color:'#64748b',callback:v=>'$'+Number(v).toFixed(0)},grid:{color:'rgba(255,255,255,0.04)'}},
+          y:{ticks:{color:'#94a3b8',font:{weight:'600'}},grid:{display:false}},
+        },
+      },
+    });
+  },
+  fmt(v){return(v??0).toFixed(2)},
+  pct(v){return((v||0)*100).toFixed(1)+'%'},
+  dur(s){if(!s)return'—';if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'},
+  tc(t){return{A:'pill-g',B:'pill-b',C:'pill-y'}[t]||'pill-y'},
+  ec(r){return{hard_stop:'pill-r',stale_data:'pill-r',spread_blowout:'pill-r',thesis_failure:'pill-y',no_progress:'pill-y',winner_trailing:'pill-g',runner_trailing:'pill-p'}[r]||'pill-b'},
+  srcPill(s){
+    if(!s)return'pill pill-b';
+    if(s==='seed')return'pill pill-y';
+    if(s==='demo_exchange')return'pill pill-p';
+    return'pill pill-b';
+  },
+  opsPillCls(action){
+    const m={emergency_stop:'pill-r',pause:'pill-y',resume:'pill-g',symbol_disable:'pill-r',symbol_enable:'pill-g'};
+    return m[action]||'pill-b';
+  },
+  async doPost(url, reason){
+    try{
+      let u=url;
+      if(reason!=null&&String(reason).length){
+        u+=(url.includes('?')?'&':'?')+'reason='+encodeURIComponent(String(reason));
+      }
+      await fetch(u,{method:'POST'});
+      await this.refresh();
+    }catch(e){}
+  },
+}}
+</script>
+</body>
+</html>

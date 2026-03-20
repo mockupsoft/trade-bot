@@ -1,33 +1,23 @@
 """Tests for canonical event models."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
 from cte.core.events import (
     BaseEvent,
-    ExitEvent,
-    ExitReason,
     FeatureVector,
-    OrderbookLevel,
-    OrderbookSnapshotEvent,
-    OrderEvent,
-    OrderStatus,
-    OrderType,
     RawTradeEvent,
     RiskAssessmentEvent,
     RiskCheckResult,
     RiskDecision,
-    Side,
     SignalAction,
     SignalEvent,
     SignalReason,
-    SizedOrderEvent,
     Symbol,
     TradeEvent,
-    Venue,
 )
 
 
@@ -40,7 +30,7 @@ class TestBaseEvent:
 
     def test_base_event_is_frozen(self):
         event = BaseEvent()
-        with pytest.raises(Exception):
+        with pytest.raises((TypeError, ValueError)):
             event.source = "modified"
 
 
@@ -93,7 +83,7 @@ class TestSignalEvent:
         assert sample_signal.confidence == 0.75
 
     def test_signal_confidence_bounds(self):
-        with pytest.raises(Exception):
+        with pytest.raises((TypeError, ValueError)):
             SignalEvent(
                 symbol=Symbol.BTCUSDT,
                 action=SignalAction.OPEN_LONG,
@@ -115,8 +105,8 @@ class TestFeatureVector:
     def test_feature_vector_optional_fields(self):
         vector = FeatureVector(
             symbol=Symbol.BTCUSDT,
-            window_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            window_end=datetime(2024, 1, 1, 1, tzinfo=timezone.utc),
+            window_start=datetime(2024, 1, 1, tzinfo=UTC),
+            window_end=datetime(2024, 1, 1, 1, tzinfo=UTC),
         )
         assert vector.rsi is None
         assert vector.ema_fast is None
