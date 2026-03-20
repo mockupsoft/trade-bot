@@ -46,6 +46,9 @@ from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
 from cte.ops.readiness import (
+    CampaignValidationMetrics,
+    DashboardPaperToTestnetMetrics,
+    EdgeProofMetrics,
     build_dashboard_paper_to_testnet_gates,
     build_phase5_live_gates_skipped,
     evaluate_readiness,
@@ -473,14 +476,16 @@ async def paper_to_demo_checklist():
     trades = _analytics_engine.total_trades if _analytics_engine else 0
     feed_ok = bool(_market_feed and _market_feed.health.connected)
     gates = build_dashboard_paper_to_testnet_gates(
-        testnet_keys=_testnet_keys_configured(),
-        market_connected=feed_ok,
-        v1_safe_not_live=_system_mode != SystemMode.LIVE,
-        paper_trades=trades,
-        paper_days=_readiness_int("CTE_READINESS_PAPER_DAYS", 0),
-        crash_free_days=_readiness_int("CTE_READINESS_CRASH_FREE_DAYS", 0),
-        all_tests_pass=_env_truthy("CTE_READINESS_TESTS_PASS", False),
-        fsm_violations=_readiness_int("CTE_READINESS_FSM_VIOLATIONS", 0),
+        DashboardPaperToTestnetMetrics(
+            testnet_keys=_testnet_keys_configured(),
+            market_connected=feed_ok,
+            v1_safe_not_live=_system_mode != SystemMode.LIVE,
+            paper_trades=trades,
+            paper_days=_readiness_int("CTE_READINESS_PAPER_DAYS", 0),
+            crash_free_days=_readiness_int("CTE_READINESS_CRASH_FREE_DAYS", 0),
+            all_tests_pass=_env_truthy("CTE_READINESS_TESTS_PASS", False),
+            fsm_violations=_readiness_int("CTE_READINESS_FSM_VIOLATIONS", 0),
+        )
     )
     out = evaluate_readiness(gates)
     out["scope_note"] = (
@@ -506,7 +511,7 @@ async def demo_to_live_checklist():
 @app.get("/api/readiness/edge_proof")
 async def edge_proof_checklist():
     from cte.ops.readiness import build_edge_proof_checklist
-    gates = build_edge_proof_checklist()
+    gates = build_edge_proof_checklist(EdgeProofMetrics())
     return evaluate_readiness(gates)
 
 
@@ -781,19 +786,21 @@ async def campaign_readiness():
     promo_n = int(pm["trade_count"])
     return evaluate_readiness(
         build_campaign_validation_checklist(
-            campaign_days=collector.campaign_days,
-            total_trades=len(trades),
-            all_recon_clean=collector.all_recon_clean,
-            max_dd_observed=collector.max_dd_observed,
-            avg_latency_p95_ms=collector.avg_latency_p95,
-            stale_ratio=0.0,
-            reject_ratio=latest.reject_rate if latest else 0.0,
-            error_count=latest.error_count if latest else 0,
-            expectancy=latest.expectancy if latest else 0.0,
-            seed_trade_count=seed_count,
-            promotion_trade_count=promo_n,
-            promotion_expectancy=promo_exp,
-            promotion_max_dd_observed=promo_dd,
+            CampaignValidationMetrics(
+                campaign_days=collector.campaign_days,
+                total_trades=len(trades),
+                all_recon_clean=collector.all_recon_clean,
+                max_dd_observed=collector.max_dd_observed,
+                avg_latency_p95_ms=collector.avg_latency_p95,
+                stale_ratio=0.0,
+                reject_ratio=latest.reject_rate if latest else 0.0,
+                error_count=latest.error_count if latest else 0,
+                expectancy=latest.expectancy if latest else 0.0,
+                seed_trade_count=seed_count,
+                promotion_trade_count=promo_n,
+                promotion_expectancy=promo_exp,
+                promotion_max_dd_observed=promo_dd,
+            )
         )
     )
 
@@ -802,13 +809,15 @@ async def campaign_readiness():
 
 @app.get("/api/report/go_no_go")
 async def go_no_go_report():
-    from cte.ops.go_no_go import build_go_no_go_report
+    from cte.ops.go_no_go import GoNoGoMetrics, build_go_no_go_report
     collector = _campaign_collector
     return build_go_no_go_report(
-        campaign_days=collector.campaign_days,
-        total_trades=collector.total_trades or (
-            _analytics_engine.total_trades if _analytics_engine else 0
-        ),
+        GoNoGoMetrics(
+            campaign_days=collector.campaign_days,
+            total_trades=collector.total_trades or (
+                _analytics_engine.total_trades if _analytics_engine else 0
+            ),
+        )
     )
 
 
