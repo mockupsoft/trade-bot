@@ -8,8 +8,8 @@ V1 targets **Binance USDⓈ-M futures testnet** end-to-end for operator UI and p
 |-------|-------------|
 | **Dashboard process** | Always `SystemMode.DEMO`: `enforce_safety` requires `CTE_BINANCE_TESTNET_API_KEY` / `CTE_BINANCE_TESTNET_API_SECRET`. No `inject_seed_data`. |
 | **Epoch** | Single active epoch: `crypto_v1_demo`. |
-| **Market WebSocket** | Defaults to `wss://stream.binancefuture.com/stream` (`BinanceSettings.ws_combined_url` / `CTE_BINANCE_WS_COMBINED_URL`). |
-| **Paper loop (dashboard)** | Optional background task (default **on**, `CTE_DASHBOARD_PAPER_LOOP=1`): rolling mids from the feed → `StreamingFeatureVector` → `ScoringSignalEngine` → `RiskManager` → `SizingEngine` → `ExecutionEngine` (paper) → `AnalyticsEngine` when positions close. Respects Operations mode and per-symbol toggles. Not a substitute for Redis Streams in the distributed architecture. |
+| **Market WebSocket** | Defaults to `wss://stream.binancefuture.com/stream` (`BinanceSettings.ws_combined_url` / `CTE_BINANCE_WS_COMBINED_URL`). If depth lags trades, the feed **synthesizes tight bid/ask** from the last trade or mark (overwritten when book data arrives) so spread gates and paper fills always see a two-sided quote. |
+| **Paper loop (dashboard)** | Optional background task (default **on**, `CTE_DASHBOARD_PAPER_LOOP=1`): rolling mids from the feed → `StreamingFeatureVector` → `ScoringSignalEngine` → `RiskManager` → `SizingEngine` → `ExecutionEngine` (paper) → `AnalyticsEngine` when positions close. Respects Operations mode and per-symbol toggles. Not a substitute for Redis Streams in the distributed architecture. **Why no positions?** You need a live book (bid/ask), enough mids for warmup (`CTE_DASHBOARD_PAPER_WARMUP_MIDS`, default **50** when `CTE_DASHBOARD_PAPER_DEMO_ENTRIES=1`), and a composite at or above tier C (`CTE_DASHBOARD_PAPER_TIER_C_THRESHOLD` or demo floor **0.36**). `/api/paper/status` returns `mids_buffered`, `last_skip_by_symbol`, and thresholds. |
 | **Other Python services** | Default `CTE_ENGINE_MODE=paper`, `CTE_EXECUTION_MODE=paper` — simulated fills while consuming **testnet-priced** streams from settings. |
 
 ## Local

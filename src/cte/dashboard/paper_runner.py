@@ -11,11 +11,13 @@ context while respecting ops toggles and risk veto.
 
 Disable with ``CTE_DASHBOARD_PAPER_LOOP=0`` (used in pytest dashboard suite).
 """
+
 from __future__ import annotations
 
 import asyncio
 import os
 import statistics
+import time
 from collections import deque
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -67,6 +69,21 @@ _SYMBOL_MAP: dict[str, Symbol] = {
 def paper_loop_enabled() -> bool:
     raw = (os.environ.get("CTE_DASHBOARD_PAPER_LOOP") or "1").strip().lower()
     return raw not in ("0", "false", "no", "off")
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    raw = (os.environ.get(key) or "").strip().lower()
+    if raw == "":
+        return default
+    return raw not in ("0", "false", "no", "off")
+
+
+def _event_time_utc(t: TickerState) -> datetime:
+    """Decision time from venue/trade clock; wall clock only if feed timestamps missing."""
+    ms = t.last_trade_time_ms or t.last_update_ms
+    if ms <= 0:
+        ms = int(time.time() * 1000)
+    return datetime.fromtimestamp(ms / 1000.0, tz=UTC)
 
 
 def _mid_price(t: TickerState) -> Decimal | None:
@@ -128,6 +145,8 @@ def build_streaming_vector_from_ticker(
     mids: deque[Decimal],
     t: TickerState,
     signal_settings: SignalSettings,
+    *,
+    warmup_mid_samples: int = 80,
 ) -> StreamingFeatureVector | None:
     """Build a feature vector from rolling mids + latest ticker (LONG-only adapter)."""
     mid = _mid_price(t)
@@ -149,7 +168,7 @@ def build_streaming_vector_from_ticker(
     z = _compute_momentum_z(mlist, lb60)
     z10 = _compute_momentum_z(mlist, max(3, min(10, len(mlist) // 6 or 3)))
 
-    warmup_ok = len(mlist) >= 80
+    warmup_ok = len(mlist) >= warmup_mid_samples
     feas = 0.92 if spread < 12.0 and fresh >= 0.55 else 0.35
     if feas < signal_settings.gate_min_feasibility:
         return None
@@ -217,7 +236,6 @@ class DashboardPaperRunner:
         self._publisher = AsyncMock()
         self._publisher.publish = AsyncMock(return_value="ok")
 
-        self._signal_engine = ScoringSignalEngine(settings.signals, self._publisher)
         self._portfolio = PortfolioState(initial_capital=Decimal("10000"))
         self._risk = RiskManager(settings.risk, self._publisher, self._portfolio)
 
@@ -229,15 +247,34 @@ class DashboardPaperRunner:
             self._publisher,
             adapter=None,
         )
-        self._mid_history: dict[str, deque[Decimal]] = {
-            s: deque(maxlen=400) for s in symbols
-        }
+        self._mid_history: dict[str, deque[Decimal]] = {s: deque(maxlen=400) for s in symbols}
+
+        # Dashboard-only: more permissive thresholds so Positions can populate under real
+        # testnet liquidity (narrow spreads are rare; composite often sits just below 0.40).
+        self._demo_entries = _env_bool("CTE_DASHBOARD_PAPER_DEMO_ENTRIES", True)
+        raw_warm = (os.environ.get("CTE_DASHBOARD_PAPER_WARMUP_MIDS") or "").strip()
+        if raw_warm:
+            self._warmup_mid_samples = max(15, int(raw_warm))
+        else:
+            self._warmup_mid_samples = 50 if self._demo_entries else 80
+
+        sig = settings.signals.model_copy()
+        raw_tier = (os.environ.get("CTE_DASHBOARD_PAPER_TIER_C_THRESHOLD") or "").strip()
+        if raw_tier:
+            sig = sig.model_copy(update={"tier_c_threshold": float(raw_tier)})
+        elif self._demo_entries:
+            sig = sig.model_copy(
+                update={"tier_c_threshold": min(sig.tier_c_threshold, 0.36)},
+            )
+        self._signal_settings = sig
+        self._signal_engine = ScoringSignalEngine(sig, self._publisher)
 
         self._running = False
         self._last_error: str | None = None
         self._ticks_ok = 0
         self._entries_total = 0
         self._exits_recorded = 0
+        self._last_skip: dict[str, str] = {}
 
     def stop(self) -> None:
         self._running = False
@@ -257,6 +294,11 @@ class DashboardPaperRunner:
             "exits_recorded": self._exits_recorded,
             "open_positions": open_n,
             "last_error": self._last_error,
+            "demo_entries": self._demo_entries,
+            "warmup_mid_samples": self._warmup_mid_samples,
+            "tier_c_threshold": self._signal_settings.tier_c_threshold,
+            "mids_buffered": {s: len(self._mid_history[s]) for s in self._symbols},
+            "last_skip_by_symbol": dict(self._last_skip),
         }
 
     def open_positions_payload(self) -> list[dict[str, Any]]:
@@ -316,19 +358,20 @@ class DashboardPaperRunner:
         if not paper:
             return
 
-        now = datetime.now(UTC)
-        sig_settings = self._settings.signals
-
         for sym in self._symbols:
             sym_enum = _SYMBOL_MAP.get(sym)
             if not sym_enum:
                 continue
             t = feed.get_ticker(sym)
             if not t:
+                self._last_skip[sym] = "no_ticker"
                 continue
             mid = _mid_price(t)
             if mid is None or mid <= 0:
+                self._last_skip[sym] = "no_mid_or_book"
                 continue
+
+            event_now = _event_time_utc(t)
 
             self._mid_history[sym].append(mid)
             bid, ask = t.best_bid, t.best_ask
@@ -336,25 +379,38 @@ class DashboardPaperRunner:
                 self._execution.update_book(sym, bid, ask)
 
             mark = t.mark_price if t.mark_price > 0 else mid
-            closed = self._execution.update_price_and_evaluate(sym, mark, now)
+            closed = self._execution.update_price_and_evaluate(sym, mark, event_now)
             for pos in closed:
                 await self._on_position_closed(pos, analytics)
 
             if not ops.is_entries_allowed:
+                self._last_skip[sym] = "ops_not_active"
                 continue
             if not ops.is_symbol_enabled(sym):
+                self._last_skip[sym] = "symbol_disabled"
                 continue
             if _has_open_long(paper, sym):
+                self._last_skip[sym] = "already_long"
                 continue
 
             vec = build_streaming_vector_from_ticker(
-                sym_enum, self._mid_history[sym], t, sig_settings
+                sym_enum,
+                self._mid_history[sym],
+                t,
+                self._signal_settings,
+                warmup_mid_samples=self._warmup_mid_samples,
             )
             if vec is None:
+                n_mids = len(self._mid_history[sym])
+                if n_mids < self._warmup_mid_samples:
+                    self._last_skip[sym] = f"warmup_{n_mids}/{self._warmup_mid_samples}_mids"
+                else:
+                    self._last_skip[sym] = "no_feature_vector"
                 continue
 
             scored = await self._signal_engine.evaluate(vec)
             if scored is None:
+                self._last_skip[sym] = "signal_gated_or_below_tier"
                 continue
 
             legacy = SignalEvent(
@@ -371,31 +427,35 @@ class DashboardPaperRunner:
                 self._portfolio.portfolio_value * Decimal(str(risk_settings.max_position_pct)),
             )
             if est < Decimal(str(sizing_settings.min_order_usd)):
+                self._last_skip[sym] = "sizing_below_min_order"
                 continue
 
             assessment = await self._risk.assess_signal(legacy, est)
             if assessment.decision != RiskDecision.APPROVED:
+                self._last_skip[sym] = "risk_veto"
                 continue
 
-            sizer = SizingEngine(
-                sizing_settings, self._publisher, self._portfolio.portfolio_value
-            )
+            sizer = SizingEngine(sizing_settings, self._publisher, self._portfolio.portfolio_value)
             sized = await sizer.size_order(legacy, assessment, mark)
             if sized is None:
+                self._last_skip[sym] = "sizing_failed"
                 continue
 
             opened = await self._execution.execute_signal(
-                scored, sized.quantity, sized.notional_usd, now
+                scored, sized.quantity, sized.notional_usd, event_now
             )
             if opened is not None:
                 self._portfolio.update_exposure(sym, sized.notional_usd)
                 self._entries_total += 1
+                self._last_skip[sym] = "ok_opened"
                 await logger.ainfo(
                     "paper_position_opened",
                     symbol=sym,
                     tier=scored.tier.value,
                     notional=str(sized.notional_usd),
                 )
+            else:
+                self._last_skip[sym] = "paper_fill_rejected_no_book"
 
     async def _on_position_closed(
         self,

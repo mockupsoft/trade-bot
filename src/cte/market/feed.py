@@ -7,6 +7,7 @@ message rates, and staleness.
 This feeds the dashboard and feature engine with REAL market data
 instead of seed/fake data.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -73,6 +74,25 @@ class TickerState:
     @property
     def is_stale(self) -> bool:
         return self.age_ms > 5000
+
+    def ensure_quote_from_reference(
+        self,
+        *,
+        half_spread_bps: Decimal = Decimal("0.5"),
+    ) -> None:
+        """Fill missing bid/ask from last trade or mark so spread gates can pass.
+
+        Real depth/markPrice messages overwrite these as soon as they arrive. Paper
+        execution still uses bid vs ask (never mid-only fills).
+        """
+        ref = self.last_price if self.last_price > 0 else self.mark_price
+        if ref <= 0:
+            return
+        half = ref * half_spread_bps / Decimal("10000")
+        if self.best_bid <= 0:
+            self.best_bid = ref - half
+        if self.best_ask <= 0:
+            self.best_ask = ref + half
 
 
 @dataclass
@@ -159,7 +179,10 @@ class MarketDataFeed:
                 await logger.ainfo("market_feed_connecting", url=url[:60])
 
                 async with websockets.connect(
-                    url, ping_interval=180, ping_timeout=10, close_timeout=5,
+                    url,
+                    ping_interval=180,
+                    ping_timeout=10,
+                    close_timeout=5,
                 ) as ws:
                     self._ws = ws
                     self._health.connected = True
@@ -178,7 +201,7 @@ class MarketDataFeed:
                 self._health.errors_total += 1
                 await logger.aexception("market_feed_error", reconnect=self._health.reconnect_count)
                 if self._running:
-                    await asyncio.sleep(min(2 ** self._health.reconnect_count, 30))
+                    await asyncio.sleep(min(2**self._health.reconnect_count, 30))
 
         self._health.connected = False
 
@@ -233,6 +256,8 @@ class MarketDataFeed:
         while ticker._recv_trades and ticker._recv_trades[0][0] < cutoff:
             ticker._recv_trades.popleft()
 
+        ticker.ensure_quote_from_reference()
+
     def _handle_depth(self, ticker: TickerState, d: dict, now_ms: int) -> None:
         bids = d.get("b", d.get("bids", []))
         asks = d.get("a", d.get("asks", []))
@@ -247,3 +272,6 @@ class MarketDataFeed:
     def _handle_mark_price(self, ticker: TickerState, d: dict, now_ms: int) -> None:
         ticker.mark_price = Decimal(str(d.get("p", "0")))
         ticker.last_update_ms = now_ms
+        if ticker.last_price <= 0 and ticker.mark_price > 0:
+            ticker.last_price = ticker.mark_price
+        ticker.ensure_quote_from_reference()
