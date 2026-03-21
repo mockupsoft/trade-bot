@@ -12,6 +12,45 @@ from datetime import UTC, datetime
 
 
 @dataclass(frozen=True)
+class GoNoGoMetrics:
+    # System health
+    uptime_pct: float = 0.0
+    crash_count: int = 0
+    stale_feed_events: int = 0
+    reconnect_events: int = 0
+    # Execution reality
+    paper_pnl: float = 0.0
+    demo_pnl: float = 0.0
+    pnl_drift_pct: float = 0.0
+    avg_slippage_paper: float = 0.0
+    avg_slippage_demo: float = 0.0
+    reconciliation_clean_pct: float = 0.0
+    # Signal quality
+    overall_expectancy: float = 0.0
+    win_rate: float = 0.0
+    profit_factor: float | None = None
+    tier_a_expectancy: float = 0.0
+    tier_b_expectancy: float = 0.0
+    tier_c_expectancy: float = 0.0
+    # Exit effectiveness
+    smart_exit_value_add_pct: float = 0.0
+    saved_losers: int = 0
+    killed_winners: int = 0
+    no_progress_regret_rate: float = 0.0
+    runner_avg_r: float = 0.0
+    # Risk behavior
+    max_drawdown_pct: float = 0.0
+    worst_case_dd: float = 0.0
+    dd_recovery_hours: float = 0.0
+    # Edge stability
+    positive_regime_count: int = 0
+    worst_case_expectancy: float = 0.0
+    # Campaign stats
+    campaign_days: int = 0
+    total_trades: int = 0
+
+
+@dataclass(frozen=True)
 class ReportSection:
     name: str
     verdict: str       # "pass" | "fail" | "warning" | "insufficient_data"
@@ -21,41 +60,7 @@ class ReportSection:
 
 
 def build_go_no_go_report(
-    # System health
-    uptime_pct: float = 0.0,
-    crash_count: int = 0,
-    stale_feed_events: int = 0,
-    reconnect_events: int = 0,
-    # Execution reality
-    paper_pnl: float = 0.0,
-    demo_pnl: float = 0.0,
-    pnl_drift_pct: float = 0.0,
-    avg_slippage_paper: float = 0.0,
-    avg_slippage_demo: float = 0.0,
-    reconciliation_clean_pct: float = 0.0,
-    # Signal quality
-    overall_expectancy: float = 0.0,
-    win_rate: float = 0.0,
-    profit_factor: float | None = None,
-    tier_a_expectancy: float = 0.0,
-    tier_b_expectancy: float = 0.0,
-    tier_c_expectancy: float = 0.0,
-    # Exit effectiveness
-    smart_exit_value_add_pct: float = 0.0,
-    saved_losers: int = 0,
-    killed_winners: int = 0,
-    no_progress_regret_rate: float = 0.0,
-    runner_avg_r: float = 0.0,
-    # Risk behavior
-    max_drawdown_pct: float = 0.0,
-    worst_case_dd: float = 0.0,
-    dd_recovery_hours: float = 0.0,
-    # Edge stability
-    positive_regime_count: int = 0,
-    worst_case_expectancy: float = 0.0,
-    # Campaign stats
-    campaign_days: int = 0,
-    total_trades: int = 0,
+    metrics: GoNoGoMetrics,
 ) -> dict:
     """Build the complete GO/NO-GO report."""
 
@@ -64,15 +69,15 @@ def build_go_no_go_report(
     # ── 1. System Health ──────────────────────────────────────
     health_findings = []
     health_score = 100
-    if uptime_pct < 99.0:
+    if metrics.uptime_pct < 99.0:
         health_score -= 30
-        health_findings.append(f"Uptime {uptime_pct:.1f}% below 99% target")
-    if crash_count > 0:
-        health_score -= 20 * crash_count
-        health_findings.append(f"{crash_count} crashes during validation")
-    if stale_feed_events > 5:
+        health_findings.append(f"Uptime {metrics.uptime_pct:.1f}% below 99% target")
+    if metrics.crash_count > 0:
+        health_score -= 20 * metrics.crash_count
+        health_findings.append(f"{metrics.crash_count} crashes during validation")
+    if metrics.stale_feed_events > 5:
         health_score -= 10
-        health_findings.append(f"{stale_feed_events} stale feed events")
+        health_findings.append(f"{metrics.stale_feed_events} stale feed events")
     if not health_findings:
         health_findings.append("All systems healthy during validation period")
 
@@ -86,16 +91,16 @@ def build_go_no_go_report(
     # ── 2. Execution Reality ──────────────────────────────────
     exec_findings = []
     exec_score = 100
-    slip_drift = avg_slippage_demo - avg_slippage_paper
-    if abs(pnl_drift_pct) > 5:
+    slip_drift = metrics.avg_slippage_demo - metrics.avg_slippage_paper
+    if abs(metrics.pnl_drift_pct) > 5:
         exec_score -= 40
-        exec_findings.append(f"PnL drift {pnl_drift_pct:.1f}% exceeds ±5% tolerance")
+        exec_findings.append(f"PnL drift {metrics.pnl_drift_pct:.1f}% exceeds ±5% tolerance")
     if slip_drift > 3:
         exec_score -= 30
         exec_findings.append(f"Slippage drift {slip_drift:.1f} bps above paper model")
-    if reconciliation_clean_pct < 100:
+    if metrics.reconciliation_clean_pct < 100:
         exec_score -= 30
-        exec_findings.append(f"Reconciliation clean rate {reconciliation_clean_pct:.0f}%")
+        exec_findings.append(f"Reconciliation clean rate {metrics.reconciliation_clean_pct:.0f}%")
     if not exec_findings:
         exec_findings.append("Paper and demo execution closely aligned")
 
@@ -109,21 +114,21 @@ def build_go_no_go_report(
     # ── 3. Signal Quality ─────────────────────────────────────
     sig_findings = []
     sig_score = 50  # start neutral
-    if overall_expectancy > 0:
+    if metrics.overall_expectancy > 0:
         sig_score += 25
-        sig_findings.append(f"Positive expectancy: ${overall_expectancy:.2f}/trade")
+        sig_findings.append(f"Positive expectancy: ${metrics.overall_expectancy:.2f}/trade")
     else:
         sig_score -= 50
-        sig_findings.append(f"NEGATIVE expectancy: ${overall_expectancy:.2f}/trade")
+        sig_findings.append(f"NEGATIVE expectancy: ${metrics.overall_expectancy:.2f}/trade")
 
-    if profit_factor and profit_factor > 1.5:
+    if metrics.profit_factor and metrics.profit_factor > 1.5:
         sig_score += 15
-        sig_findings.append(f"Strong profit factor: {profit_factor:.2f}")
-    elif profit_factor and profit_factor > 1.0:
+        sig_findings.append(f"Strong profit factor: {metrics.profit_factor:.2f}")
+    elif metrics.profit_factor and metrics.profit_factor > 1.0:
         sig_score += 5
-        sig_findings.append(f"Marginal profit factor: {profit_factor:.2f}")
+        sig_findings.append(f"Marginal profit factor: {metrics.profit_factor:.2f}")
 
-    if tier_a_expectancy > tier_b_expectancy > tier_c_expectancy:
+    if metrics.tier_a_expectancy > metrics.tier_b_expectancy > metrics.tier_c_expectancy:
         sig_score += 10
         sig_findings.append("Tier separation correct: A > B > C")
     else:
@@ -139,22 +144,22 @@ def build_go_no_go_report(
     # ── 4. Exit Effectiveness ─────────────────────────────────
     exit_findings = []
     exit_score = 50
-    if smart_exit_value_add_pct > 0:
+    if metrics.smart_exit_value_add_pct > 0:
         exit_score += 25
-        exit_findings.append(f"Smart exit adds {smart_exit_value_add_pct:.1f}% vs flat SL/TP")
+        exit_findings.append(f"Smart exit adds {metrics.smart_exit_value_add_pct:.1f}% vs flat SL/TP")
     else:
         exit_findings.append("Smart exit underperforms flat SL/TP")
 
-    if no_progress_regret_rate < 0.3:
+    if metrics.no_progress_regret_rate < 0.3:
         exit_score += 15
-        exit_findings.append(f"Low no-progress regret: {no_progress_regret_rate:.0%}")
-    elif no_progress_regret_rate > 0.5:
+        exit_findings.append(f"Low no-progress regret: {metrics.no_progress_regret_rate:.0%}")
+    elif metrics.no_progress_regret_rate > 0.5:
         exit_score -= 10
-        exit_findings.append(f"High no-progress regret: {no_progress_regret_rate:.0%} — timer too aggressive")
+        exit_findings.append(f"High no-progress regret: {metrics.no_progress_regret_rate:.0%} — timer too aggressive")
 
-    if runner_avg_r > 2.0:
+    if metrics.runner_avg_r > 2.0:
         exit_score += 10
-        exit_findings.append(f"Runner mode effective: avg {runner_avg_r:.1f}R")
+        exit_findings.append(f"Runner mode effective: avg {metrics.runner_avg_r:.1f}R")
 
     sections.append(ReportSection(
         name="exit_effectiveness", score=max(0, min(100, exit_score)),
@@ -166,18 +171,18 @@ def build_go_no_go_report(
     # ── 5. Risk Behavior ──────────────────────────────────────
     risk_findings = []
     risk_score = 100
-    if max_drawdown_pct > 0.05:
+    if metrics.max_drawdown_pct > 0.05:
         risk_score -= 40
-        risk_findings.append(f"Max drawdown {max_drawdown_pct:.1%} exceeds 5%")
-    elif max_drawdown_pct > 0.03:
+        risk_findings.append(f"Max drawdown {metrics.max_drawdown_pct:.1%} exceeds 5%")
+    elif metrics.max_drawdown_pct > 0.03:
         risk_score -= 15
-        risk_findings.append(f"Max drawdown {max_drawdown_pct:.1%} near 3% warning")
+        risk_findings.append(f"Max drawdown {metrics.max_drawdown_pct:.1%} near 3% warning")
     else:
-        risk_findings.append(f"Max drawdown controlled at {max_drawdown_pct:.1%}")
+        risk_findings.append(f"Max drawdown controlled at {metrics.max_drawdown_pct:.1%}")
 
-    if worst_case_dd > 0.10:
+    if metrics.worst_case_dd > 0.10:
         risk_score -= 30
-        risk_findings.append(f"Worst-case DD {worst_case_dd:.1%} exceeds 10%")
+        risk_findings.append(f"Worst-case DD {metrics.worst_case_dd:.1%} exceeds 10%")
 
     sections.append(ReportSection(
         name="risk_behavior", score=max(0, risk_score),
@@ -189,20 +194,20 @@ def build_go_no_go_report(
     # ── 6. Edge Stability ─────────────────────────────────────
     edge_findings = []
     edge_score = 0
-    if positive_regime_count >= 3:
+    if metrics.positive_regime_count >= 3:
         edge_score += 60
-        edge_findings.append(f"Edge positive in {positive_regime_count} regimes")
-    elif positive_regime_count >= 2:
+        edge_findings.append(f"Edge positive in {metrics.positive_regime_count} regimes")
+    elif metrics.positive_regime_count >= 2:
         edge_score += 30
-        edge_findings.append(f"Edge positive in only {positive_regime_count} regimes (need 3+)")
+        edge_findings.append(f"Edge positive in only {metrics.positive_regime_count} regimes (need 3+)")
     else:
-        edge_findings.append(f"Edge fragile: positive in only {positive_regime_count} regime(s)")
+        edge_findings.append(f"Edge fragile: positive in only {metrics.positive_regime_count} regime(s)")
 
-    if worst_case_expectancy > 0:
+    if metrics.worst_case_expectancy > 0:
         edge_score += 40
-        edge_findings.append(f"Worst-case expectancy positive: ${worst_case_expectancy:.2f}")
+        edge_findings.append(f"Worst-case expectancy positive: ${metrics.worst_case_expectancy:.2f}")
     else:
-        edge_findings.append(f"Worst-case expectancy NEGATIVE: ${worst_case_expectancy:.2f}")
+        edge_findings.append(f"Worst-case expectancy NEGATIVE: ${metrics.worst_case_expectancy:.2f}")
 
     sections.append(ReportSection(
         name="edge_stability", score=max(0, min(100, edge_score)),
@@ -227,8 +232,8 @@ def build_go_no_go_report(
     return {
         "report_title": "CTE GO/NO-GO Decision Report",
         "generated_at": datetime.now(UTC).isoformat(),
-        "campaign_days": campaign_days,
-        "total_trades": total_trades,
+        "campaign_days": metrics.campaign_days,
+        "total_trades": metrics.total_trades,
         "final_verdict": final_verdict,
         "overall_score": round(avg_score, 1),
         "sections": [

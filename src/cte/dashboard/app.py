@@ -46,6 +46,7 @@ from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
 from cte.ops.readiness import (
+    CampaignValidationMetrics,
     DashboardPaperToTestnetMetrics,
     EdgeProofMetrics,
     build_dashboard_paper_to_testnet_gates,
@@ -782,37 +783,38 @@ async def campaign_readiness():
     promo_dd = float(pm["max_drawdown_pct"])
     promo_exp = float(pm["expectancy"])
     promo_n = int(pm["trade_count"])
-    return evaluate_readiness(
-        build_campaign_validation_checklist(
-            campaign_days=collector.campaign_days,
-            total_trades=len(trades),
-            all_recon_clean=collector.all_recon_clean,
-            max_dd_observed=collector.max_dd_observed,
-            avg_latency_p95_ms=collector.avg_latency_p95,
-            stale_ratio=0.0,
-            reject_ratio=latest.reject_rate if latest else 0.0,
-            error_count=latest.error_count if latest else 0,
-            expectancy=latest.expectancy if latest else 0.0,
-            seed_trade_count=seed_count,
-            promotion_trade_count=promo_n,
-            promotion_expectancy=promo_exp,
-            promotion_max_dd_observed=promo_dd,
-        )
+
+    metrics = CampaignValidationMetrics(
+        campaign_days=collector.campaign_days,
+        total_trades=len(trades),
+        all_recon_clean=collector.all_recon_clean,
+        max_dd_observed=collector.max_dd_observed,
+        avg_latency_p95_ms=collector.avg_latency_p95,
+        stale_ratio=0.0,
+        reject_ratio=latest.reject_rate if latest else 0.0,
+        error_count=latest.error_count if latest else 0,
+        expectancy=latest.expectancy if latest else 0.0,
+        seed_trade_count=seed_count,
+        promotion_trade_count=promo_n,
+        promotion_expectancy=promo_exp,
+        promotion_max_dd_observed=promo_dd,
     )
+    return evaluate_readiness(build_campaign_validation_checklist(metrics))
 
 
 # ── Reports ───────────────────────────────────────────────────
 
 @app.get("/api/report/go_no_go")
 async def go_no_go_report():
-    from cte.ops.go_no_go import build_go_no_go_report
+    from cte.ops.go_no_go import GoNoGoMetrics, build_go_no_go_report
     collector = _campaign_collector
-    return build_go_no_go_report(
+    metrics = GoNoGoMetrics(
         campaign_days=collector.campaign_days,
         total_trades=collector.total_trades or (
             _analytics_engine.total_trades if _analytics_engine else 0
         ),
     )
+    return build_go_no_go_report(metrics)
 
 
 # ── Config API ────────────────────────────────────────────────

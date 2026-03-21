@@ -57,6 +57,23 @@ class DashboardPaperToTestnetMetrics:
 
 
 @dataclass(frozen=True)
+class CampaignValidationMetrics:
+    campaign_days: int = 0
+    total_trades: int = 0
+    all_recon_clean: bool = False
+    max_dd_observed: float = 0.0
+    avg_latency_p95_ms: float = 0.0
+    stale_ratio: float = 0.0
+    reject_ratio: float = 0.0
+    error_count: int = 0
+    expectancy: float = 0.0
+    seed_trade_count: int = 0
+    promotion_trade_count: int | None = None
+    promotion_expectancy: float | None = None
+    promotion_max_dd_observed: float | None = None
+
+
+@dataclass(frozen=True)
 class EdgeProofMetrics:
     # Edge stability
     expectancy_overall: float = 0.0
@@ -503,20 +520,7 @@ def build_phase5_live_gates_skipped() -> list[ReadinessGate]:
 
 
 def build_campaign_validation_checklist(
-    campaign_days: int = 0,
-    total_trades: int = 0,
-    all_recon_clean: bool = False,
-    max_dd_observed: float = 0.0,
-    avg_latency_p95_ms: float = 0.0,
-    stale_ratio: float = 0.0,
-    reject_ratio: float = 0.0,
-    error_count: int = 0,
-    expectancy: float = 0.0,
-    seed_trade_count: int = 0,
-    *,
-    promotion_trade_count: int | None = None,
-    promotion_expectancy: float | None = None,
-    promotion_max_dd_observed: float | None = None,
+    metrics: CampaignValidationMetrics,
 ) -> list[ReadinessGate]:
     """Build gates from REAL campaign metrics (not placeholders).
 
@@ -524,35 +528,35 @@ def build_campaign_validation_checklist(
     trades only (excludes ``warmup_phase=early``). Otherwise falls back to legacy
     ``total_trades`` / ``expectancy`` / ``max_dd_observed`` for backward compatibility.
     """
-    promo_n = promotion_trade_count if promotion_trade_count is not None else total_trades
-    promo_exp = promotion_expectancy if promotion_expectancy is not None else expectancy
-    promo_dd = promotion_max_dd_observed if promotion_max_dd_observed is not None else max_dd_observed
+    promo_n = metrics.promotion_trade_count if metrics.promotion_trade_count is not None else metrics.total_trades
+    promo_exp = metrics.promotion_expectancy if metrics.promotion_expectancy is not None else metrics.expectancy
+    promo_dd = metrics.promotion_max_dd_observed if metrics.promotion_max_dd_observed is not None else metrics.max_dd_observed
     return [
         ReadinessGate(
             name="campaign_duration", category="campaign",
             description="Campaign ran for >=7 days",
-            status=GateStatus.PASS if campaign_days >= 7 else GateStatus.FAIL,
-            value=str(campaign_days), threshold="7",
+            status=GateStatus.PASS if metrics.campaign_days >= 7 else GateStatus.FAIL,
+            value=str(metrics.campaign_days), threshold="7",
         ),
         ReadinessGate(
             name="trade_count", category="campaign",
             description=">=100 promotion-evidence trades (excludes early warmup by default)",
             status=GateStatus.PASS if promo_n >= 100 else GateStatus.FAIL,
             value=str(promo_n), threshold="100",
-            detail=f"all_trades={total_trades} promotion_only={promotion_trade_count is not None}",
+            detail=f"all_trades={metrics.total_trades} promotion_only={metrics.promotion_trade_count is not None}",
         ),
         ReadinessGate(
             name="no_seed_data", category="data_integrity",
             description="Zero seed trades in campaign data",
-            status=GateStatus.PASS if seed_trade_count == 0 else GateStatus.FAIL,
-            value=str(seed_trade_count), threshold="0",
+            status=GateStatus.PASS if metrics.seed_trade_count == 0 else GateStatus.FAIL,
+            value=str(metrics.seed_trade_count), threshold="0",
             detail="Seed data must never mix with real validation data",
         ),
         ReadinessGate(
             name="recon_integrity", category="reconciliation",
             description="100% reconciliation clean throughout campaign",
-            status=GateStatus.PASS if all_recon_clean else GateStatus.FAIL,
-            value="clean" if all_recon_clean else "mismatches found",
+            status=GateStatus.PASS if metrics.all_recon_clean else GateStatus.FAIL,
+            value="clean" if metrics.all_recon_clean else "mismatches found",
         ),
         ReadinessGate(
             name="max_drawdown", category="risk",
@@ -563,26 +567,26 @@ def build_campaign_validation_checklist(
         ReadinessGate(
             name="latency_p95", category="performance",
             description="Latency p95 < 5000ms",
-            status=GateStatus.PASS if 0 < avg_latency_p95_ms < 5000 else GateStatus.FAIL,
-            value=f"{avg_latency_p95_ms:.0f}ms", threshold="< 5000ms",
+            status=GateStatus.PASS if 0 < metrics.avg_latency_p95_ms < 5000 else GateStatus.FAIL,
+            value=f"{metrics.avg_latency_p95_ms:.0f}ms", threshold="< 5000ms",
         ),
         ReadinessGate(
             name="stale_ratio", category="data_quality",
             description="Stale data ratio < 1%",
-            status=GateStatus.PASS if stale_ratio < 0.01 else GateStatus.FAIL,
-            value=f"{stale_ratio:.2%}", threshold="< 1%",
+            status=GateStatus.PASS if metrics.stale_ratio < 0.01 else GateStatus.FAIL,
+            value=f"{metrics.stale_ratio:.2%}", threshold="< 1%",
         ),
         ReadinessGate(
             name="reject_ratio", category="execution",
             description="Order reject ratio < 5%",
-            status=GateStatus.PASS if reject_ratio < 0.05 else GateStatus.FAIL,
-            value=f"{reject_ratio:.2%}", threshold="< 5%",
+            status=GateStatus.PASS if metrics.reject_ratio < 0.05 else GateStatus.FAIL,
+            value=f"{metrics.reject_ratio:.2%}", threshold="< 5%",
         ),
         ReadinessGate(
             name="no_critical_errors", category="stability",
             description="Zero critical errors during campaign",
-            status=GateStatus.PASS if error_count == 0 else GateStatus.FAIL,
-            value=str(error_count), threshold="0",
+            status=GateStatus.PASS if metrics.error_count == 0 else GateStatus.FAIL,
+            value=str(metrics.error_count), threshold="0",
         ),
         ReadinessGate(
             name="positive_expectancy", category="edge",
