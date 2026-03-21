@@ -136,6 +136,10 @@ CTE_ENGINE_MODE=demo cte-dashboard
 
 → **http://localhost:8080** (listens on all interfaces; dual-stack IPv4+IPv6 so `localhost` → `::1` works). Market stream defaults to `wss://stream.binancefuture.com/stream`.
 
+**Local `.env` (recommended):** copy `.env.example` → `.env` in the **repo root** and set `CTE_BINANCE_TESTNET_*` there. The dashboard loads it on startup (and it overrides stale exports in your shell). **Do not commit `.env`** — it is gitignored. **Do not put API secrets in GitHub** (use [Actions secrets](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions) for CI only).
+
+**If http://localhost:8080 does not load:** the server must be running (`python -m cte.dashboard` or `cte-dashboard` from repo root). Check port: `ss -tlnp | grep 8080` or `lsof -i :8080` — stop any other process on 8080. Verify: `curl -s http://127.0.0.1:8080/api/dashboard/meta` should return JSON with `"service": "cte.dashboard"`.
+
 **Docker** (`analytics` on **8080**) — compose sets `CTE_ENGINE_MODE=demo`; pass the same env vars or `.env`:
 
 ```bash
