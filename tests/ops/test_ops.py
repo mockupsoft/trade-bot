@@ -7,10 +7,10 @@ from datetime import date
 from cte.ops.go_no_go import GoNoGoMetrics, build_go_no_go_report
 from cte.ops.kill_switch import OperationsController, TradingMode
 from cte.ops.readiness import (
-    PerformanceMetrics,
-    PaperToDemoMetrics,
-    DemoToLiveMetrics,
     DashboardPaperToTestnetMetrics,
+    DemoToLiveMetrics,
+    PaperToDemoMetrics,
+    PerformanceMetrics,
     build_dashboard_paper_to_testnet_gates,
     build_demo_to_live_checklist,
     build_edge_proof_checklist,
