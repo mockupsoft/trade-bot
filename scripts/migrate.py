@@ -6,7 +6,6 @@ Usage: python scripts/migrate.py [--seed]
 from __future__ import annotations
 
 import asyncio
-import sys
 
 import asyncpg
 import click

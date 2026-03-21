@@ -1,7 +1,12 @@
 """Staged warmup thresholds for dashboard paper loop."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from cte.dashboard.paper_runner import _dashboard_warmup_thresholds
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_warmup_full_gt_early(monkeypatch: pytest.MonkeyPatch) -> None:
