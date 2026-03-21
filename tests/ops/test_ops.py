@@ -216,7 +216,8 @@ class TestEdgeProofGates:
 
 class TestGoNoGoReport:
     def test_go_report(self):
-        report = build_go_no_go_report(
+        from cte.ops.go_no_go import GoNoGoMetrics
+        metrics = GoNoGoMetrics(
             uptime_pct=99.9, crash_count=0, stale_feed_events=1, reconnect_events=2,
             paper_pnl=500, demo_pnl=480, pnl_drift_pct=4.0,
             avg_slippage_paper=4.0, avg_slippage_demo=5.5,
@@ -229,22 +230,26 @@ class TestGoNoGoReport:
             positive_regime_count=3, worst_case_expectancy=8.0,
             campaign_days=7, total_trades=120,
         )
+        report = build_go_no_go_report(metrics)
         assert report["final_verdict"] == "GO"
         assert report["overall_score"] > 60
         assert len(report["critical_blockers"]) == 0
 
     def test_no_go_negative_expectancy(self):
-        report = build_go_no_go_report(
+        from cte.ops.go_no_go import GoNoGoMetrics
+        metrics = GoNoGoMetrics(
             overall_expectancy=-10.0, win_rate=0.35, profit_factor=0.6,
             tier_a_expectancy=-5, tier_b_expectancy=-8, tier_c_expectancy=-15,
             max_drawdown_pct=0.08, worst_case_dd=0.15,
             positive_regime_count=0, worst_case_expectancy=-20.0,
         )
+        report = build_go_no_go_report(metrics)
         assert report["final_verdict"] == "NO-GO"
         assert len(report["critical_blockers"]) > 0
 
     def test_conditional_go(self):
-        report = build_go_no_go_report(
+        from cte.ops.go_no_go import GoNoGoMetrics
+        metrics = GoNoGoMetrics(
             uptime_pct=99.5, overall_expectancy=8.0, win_rate=0.52,
             profit_factor=1.3,
             tier_a_expectancy=12.0, tier_b_expectancy=5.0, tier_c_expectancy=2.0,
@@ -253,10 +258,12 @@ class TestGoNoGoReport:
             positive_regime_count=3, worst_case_expectancy=3.0,
             reconciliation_clean_pct=100,
         )
+        report = build_go_no_go_report(metrics)
         assert report["final_verdict"] in ("CONDITIONAL-GO", "GO")
 
     def test_report_has_all_sections(self):
-        report = build_go_no_go_report()
+        from cte.ops.go_no_go import GoNoGoMetrics
+        report = build_go_no_go_report(GoNoGoMetrics())
         section_names = [s["name"] for s in report["sections"]]
         assert "system_health" in section_names
         assert "execution_reality" in section_names
