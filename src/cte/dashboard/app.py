@@ -473,39 +473,59 @@ def _testnet_keys_configured() -> bool:
 @app.get("/api/readiness/paper_to_demo")
 async def paper_to_demo_checklist():
     """v1 path: validation + testnet infra (keys, WS, safety) with declared metrics via env."""
-    trades = _analytics_engine.total_trades if _analytics_engine else 0
-    feed_ok = bool(_market_feed and _market_feed.health.connected)
-    gates = build_dashboard_paper_to_testnet_gates(
-        DashboardPaperToTestnetMetrics(
-            testnet_keys=_testnet_keys_configured(),
-            market_connected=feed_ok,
-            v1_safe_not_live=_system_mode != SystemMode.LIVE,
-            paper_trades=trades,
-            paper_days=_readiness_int("CTE_READINESS_PAPER_DAYS", 0),
-            crash_free_days=_readiness_int("CTE_READINESS_CRASH_FREE_DAYS", 0),
-            all_tests_pass=_env_truthy("CTE_READINESS_TESTS_PASS", False),
-            fsm_violations=_readiness_int("CTE_READINESS_FSM_VIOLATIONS", 0),
+    try:
+        trades = _analytics_engine.total_trades if _analytics_engine else 0
+        feed_ok = bool(_market_feed and _market_feed.health.connected)
+        gates = build_dashboard_paper_to_testnet_gates(
+            DashboardPaperToTestnetMetrics(
+                testnet_keys=_testnet_keys_configured(),
+                market_connected=feed_ok,
+                v1_safe_not_live=_system_mode != SystemMode.LIVE,
+                paper_trades=trades,
+                paper_days=_readiness_int("CTE_READINESS_PAPER_DAYS", 0),
+                crash_free_days=_readiness_int("CTE_READINESS_CRASH_FREE_DAYS", 0),
+                all_tests_pass=_env_truthy("CTE_READINESS_TESTS_PASS", False),
+                fsm_violations=_readiness_int("CTE_READINESS_FSM_VIOLATIONS", 0),
+            )
         )
-    )
-    out = evaluate_readiness(gates)
-    out["scope_note"] = (
-        "Paper / validation → testnet (demo). Keys and WebSocket are live checks; "
-        "paper days, crash-free streak, tests, and FSM counts are attested via env "
-        "(see .env.example)."
-    )
-    return out
+        out = evaluate_readiness(gates)
+        out["scope_note"] = (
+            "Paper / validation → testnet (demo). Keys and WebSocket are live checks; "
+            "paper days, crash-free streak, tests, and FSM counts are attested via env "
+            "(see .env.example)."
+        )
+        return out
+    except ValueError as exc:
+        return {
+            "ready": False,
+            "completion_pct": 0.0,
+            "failed": 1,
+            "blockers": [{"name": "validation_error", "reason": str(exc)}],
+            "gates": [],
+            "scope_note": "Failed to evaluate readiness due to missing required metrics."
+        }
 
 
 @app.get("/api/readiness/demo_to_live")
 async def demo_to_live_checklist():
     """Phase 5 live gates — all SKIP in v1 (not scored; informational)."""
-    gates = build_phase5_live_gates_skipped()
-    out = evaluate_readiness(gates)
-    out["scope_note"] = (
-        "Phase 5 — live mainnet is out of v1 scope (enforce_safety). "
-        "Gates remain as a future checklist; none apply until Phase 5."
-    )
-    return out
+    try:
+        gates = build_phase5_live_gates_skipped()
+        out = evaluate_readiness(gates)
+        out["scope_note"] = (
+            "Phase 5 — live mainnet is out of v1 scope (enforce_safety). "
+            "Gates remain as a future checklist; none apply until Phase 5."
+        )
+        return out
+    except ValueError as exc:
+        return {
+            "ready": False,
+            "completion_pct": 0.0,
+            "failed": 1,
+            "blockers": [{"name": "validation_error", "reason": str(exc)}],
+            "gates": [],
+            "scope_note": "Failed to evaluate readiness due to missing required metrics."
+        }
 
 
 @app.get("/api/readiness/edge_proof")
@@ -774,35 +794,45 @@ async def campaign_readiness():
     from cte.analytics.metrics import compute_phase_metrics_slice, trades_for_promotion_evidence
     from cte.ops.readiness import build_campaign_validation_checklist
 
-    collector = _campaign_collector
-    latest = collector.latest
-    trades = _analytics_engine._filter_trades() if _analytics_engine else []
-    seed_count = sum(1 for t in trades if t.source == "seed")
-    ic = float(_analytics_engine._initial_capital) if _analytics_engine else 10000.0
-    promo = trades_for_promotion_evidence(trades)
-    pm = compute_phase_metrics_slice(promo, ic)
-    promo_dd = float(pm["max_drawdown_pct"])
-    promo_exp = float(pm["expectancy"])
-    promo_n = int(pm["trade_count"])
-    return evaluate_readiness(
-        build_campaign_validation_checklist(
-            CampaignValidationMetrics(
-                campaign_days=collector.campaign_days,
-                total_trades=len(trades),
-                all_recon_clean=collector.all_recon_clean,
-                max_dd_observed=collector.max_dd_observed,
-                avg_latency_p95_ms=collector.avg_latency_p95,
-                stale_ratio=0.0,
-                reject_ratio=latest.reject_rate if latest else 0.0,
-                error_count=latest.error_count if latest else 0,
-                expectancy=latest.expectancy if latest else 0.0,
-                seed_trade_count=seed_count,
-                promotion_trade_count=promo_n,
-                promotion_expectancy=promo_exp,
-                promotion_max_dd_observed=promo_dd,
+    try:
+        collector = _campaign_collector
+        latest = collector.latest
+        trades = _analytics_engine._filter_trades() if _analytics_engine else []
+        seed_count = sum(1 for t in trades if t.source == "seed")
+        ic = float(_analytics_engine._initial_capital) if _analytics_engine else 10000.0
+        promo = trades_for_promotion_evidence(trades)
+        pm = compute_phase_metrics_slice(promo, ic)
+        promo_dd = float(pm["max_drawdown_pct"])
+        promo_exp = float(pm["expectancy"])
+        promo_n = int(pm["trade_count"])
+        return evaluate_readiness(
+            build_campaign_validation_checklist(
+                CampaignValidationMetrics(
+                    campaign_days=collector.campaign_days,
+                    total_trades=len(trades),
+                    all_recon_clean=collector.all_recon_clean,
+                    max_dd_observed=collector.max_dd_observed,
+                    avg_latency_p95_ms=collector.avg_latency_p95,
+                    stale_ratio=0.0,
+                    reject_ratio=latest.reject_rate if latest else 0.0,
+                    error_count=latest.error_count if latest else 0,
+                    expectancy=latest.expectancy if latest else 0.0,
+                    seed_trade_count=seed_count,
+                    promotion_trade_count=promo_n,
+                    promotion_expectancy=promo_exp,
+                    promotion_max_dd_observed=promo_dd,
+                )
             )
         )
-    )
+    except ValueError as exc:
+        return {
+            "ready": False,
+            "completion_pct": 0.0,
+            "failed": 1,
+            "blockers": [{"name": "validation_error", "reason": str(exc)}],
+            "gates": [],
+            "scope_note": "Failed to evaluate readiness due to missing required metrics."
+        }
 
 
 # ── Reports ───────────────────────────────────────────────────
