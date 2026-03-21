@@ -128,7 +128,7 @@ class TestReadinessGate:
 
     def test_paper_to_demo_fails(self):
         gates = build_paper_to_demo_checklist(
-            PaperToDemoMetrics(paper_days=3, paper_trades=10)
+            PaperToDemoMetrics(paper_days=3, paper_trades=10, crash_free_days=0, reconciliation_clean=False, all_tests_pass=False, state_machine_violations=0, api_keys_configured=False)
         )
 
         result = evaluate_readiness(gates)
