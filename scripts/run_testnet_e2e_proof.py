@@ -28,6 +28,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 BASE = os.environ.get("E2E_BASE_URL", "http://127.0.0.1:8080")
@@ -41,6 +43,7 @@ def _get(path: str) -> dict:
 
 
 def main() -> int:
+    load_dotenv(REPO_ROOT / ".env", override=True)
     v = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "verify_binance_testnet_auth.py")],
         cwd=REPO_ROOT,

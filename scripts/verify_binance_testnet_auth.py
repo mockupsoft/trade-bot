@@ -14,11 +14,20 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from cte.execution.binance_adapter import BinanceTestnetAdapter
 
 
+def _load_dotenv() -> None:
+    repo = Path(__file__).resolve().parent.parent
+    load_dotenv(repo / ".env", override=True)
+
+
 async def main() -> int:
+    _load_dotenv()
     key = (os.environ.get("CTE_BINANCE_TESTNET_API_KEY") or "").strip()
     secret = (os.environ.get("CTE_BINANCE_TESTNET_API_SECRET") or "").strip()
     base = (os.environ.get("CTE_BINANCE_TESTNET_REST_URL") or "").strip() or (

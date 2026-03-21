@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse, urlunparse
 
 import structlog
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
@@ -93,6 +94,8 @@ def _resolve_mode() -> SystemMode:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _active_dashboard_symbols, _analytics_engine, _market_feed, _feed_task, _system_mode, _paper_runner, _paper_task
+    # Repo-root ``.env`` overrides stale shell exports (e.g. old testnet key placeholders).
+    load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / ".env", override=True)
     setup_logging(level="INFO", service_name="dashboard")
 
     _system_mode = _resolve_mode()

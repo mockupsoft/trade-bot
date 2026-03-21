@@ -15,7 +15,8 @@ def _load_repo_dotenv() -> None:
     from dotenv import load_dotenv
 
     repo_root = Path(__file__).resolve().parent.parent.parent.parent
-    load_dotenv(repo_root / ".env")
+    # Override stale shell exports so repo-root ``.env`` is authoritative for local dev.
+    load_dotenv(repo_root / ".env", override=True)
 
 
 def _bind_dual_stack_http(port: int, backlog: int) -> socket.socket:
