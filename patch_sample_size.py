@@ -1,19 +1,34 @@
-with open("src/cte/ops/readiness.py") as f:
-    content = f.read()
+import re
 
-# Add total_trades to EdgeProofMetrics
-content = content.replace("class EdgeProofMetrics:\n    expectancy_overall", "class EdgeProofMetrics:\n    total_trades: int = 0\n    expectancy_overall")
+def process_file(filepath):
+    with open(filepath, 'r') as f:
+        content = f.read()
 
-# Add sample_size gate to build_edge_proof_checklist
-gate_str = """    return [
-        ReadinessGate(
-            name="sample_size", category="edge_stability",
-            description="Minimum number of trades completed",
-            status=GateStatus.PASS if m.total_trades >= 50 else GateStatus.FAIL,
-            value=str(m.total_trades), threshold="50",
-        ),
-        # ── Edge Stability ────────────────────────────────────"""
-content = content.replace("    return [\n        # ── Edge Stability ────────────────────────────────────", gate_str)
+    # Find dataclass declarations
+    blocks = re.findall(r'@dataclass\(frozen=True\)\nclass \w+Metrics:.*?((?=\n@dataclass|\n\ndef |\Z))', content, re.DOTALL)
 
-with open("src/cte/ops/readiness.py", "w") as f:
-    f.write(content)
+    for block in blocks:
+        new_block = block
+
+        # Replace types with unsafe defaults with required ones
+        lines = new_block.split('\n')
+        new_lines = []
+        for line in lines:
+            if re.match(r'^\s+\w+: \w+ = 0\.0$', line):
+                new_lines.append(line.replace(' = 0.0', ''))
+            elif re.match(r'^\s+\w+: \w+ = 0$', line):
+                new_lines.append(line.replace(' = 0', ''))
+            elif re.match(r'^\s+\w+: \w+ = False$', line):
+                new_lines.append(line.replace(' = False', ''))
+            elif re.match(r'^\s+\w+: \w+ = True$', line):
+                new_lines.append(line.replace(' = True', ''))
+            else:
+                new_lines.append(line)
+
+        content = content.replace(block, '\n'.join(new_lines))
+
+    with open(filepath, 'w') as f:
+        f.write(content)
+
+process_file('src/cte/ops/readiness.py')
+process_file('src/cte/ops/go_no_go.py')

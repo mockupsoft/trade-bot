@@ -131,15 +131,17 @@ class TestCampaignCollector:
         assert s["latest"] is not None
 
 
+base_campaign_metrics = dict(campaign_days=7, total_trades=100, all_recon_clean=True, max_dd_observed=0.01, avg_latency_p95_ms=100, stale_ratio=0.0, reject_ratio=0.0, error_count=0, expectancy=1.0, seed_trade_count=0)
+
 class TestCampaignValidationGates:
     def test_all_pass(self):
         gates = build_campaign_validation_checklist(
-            CampaignValidationMetrics(
+            CampaignValidationMetrics(**{**base_campaign_metrics, **dict(
                 campaign_days=10, total_trades=150, all_recon_clean=True,
                 max_dd_observed=0.03, avg_latency_p95_ms=2000,
                 stale_ratio=0.005, reject_ratio=0.02, error_count=0,
                 expectancy=15.0, seed_trade_count=0,
-            )
+            )})
 
         )
         result = evaluate_readiness(gates)
@@ -147,10 +149,10 @@ class TestCampaignValidationGates:
 
     def test_seed_data_blocks(self):
         gates = build_campaign_validation_checklist(
-            CampaignValidationMetrics(
+            CampaignValidationMetrics(**{**base_campaign_metrics, **dict(
                 campaign_days=10, total_trades=150, all_recon_clean=True,
                 seed_trade_count=5,  # seed data mixed in!
-            )
+            )})
 
         )
         result = evaluate_readiness(gates)
@@ -160,9 +162,9 @@ class TestCampaignValidationGates:
 
     def test_recon_failure_blocks(self):
         gates = build_campaign_validation_checklist(
-            CampaignValidationMetrics(
+            CampaignValidationMetrics(**{**base_campaign_metrics, **dict(
                 campaign_days=10, total_trades=150, all_recon_clean=False,
-            )
+            )})
 
         )
         result = evaluate_readiness(gates)
@@ -171,9 +173,9 @@ class TestCampaignValidationGates:
 
     def test_high_drawdown_blocks(self):
         gates = build_campaign_validation_checklist(
-            CampaignValidationMetrics(
+            CampaignValidationMetrics(**{**base_campaign_metrics, **dict(
                 campaign_days=10, total_trades=150, max_dd_observed=0.08,
-            )
+            )})
 
         )
         result = evaluate_readiness(gates)
@@ -182,9 +184,9 @@ class TestCampaignValidationGates:
 
     def test_negative_expectancy_blocks(self):
         gates = build_campaign_validation_checklist(
-            CampaignValidationMetrics(
+            CampaignValidationMetrics(**{**base_campaign_metrics, **dict(
                 campaign_days=10, total_trades=150, expectancy=-5.0,
-            )
+            )})
 
         )
         result = evaluate_readiness(gates)
@@ -194,7 +196,7 @@ class TestCampaignValidationGates:
     def test_promotion_trade_count_can_fail_while_total_high(self):
         """Readiness uses promotion-only count when provided (early warmup excluded)."""
         gates = build_campaign_validation_checklist(
-            CampaignValidationMetrics(
+            CampaignValidationMetrics(**{**base_campaign_metrics, **dict(
                 campaign_days=10,
                 total_trades=120,
                 all_recon_clean=True,
@@ -202,7 +204,7 @@ class TestCampaignValidationGates:
                 promotion_trade_count=40,
                 promotion_expectancy=5.0,
                 promotion_max_dd_observed=0.02,
-            )
+            )})
 
         )
         result = evaluate_readiness(gates)

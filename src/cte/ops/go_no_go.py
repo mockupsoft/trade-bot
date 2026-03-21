@@ -11,6 +11,27 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 
+
+from typing import Any
+
+def validate_metrics(metrics: Any) -> None:
+    """Ensure metrics have no missing or silent default values."""
+    if metrics is None:
+        raise ValueError("Metrics object cannot be None")
+
+    for field_name, field_type in metrics.__annotations__.items():
+        val = getattr(metrics, field_name, None)
+
+        # Check required fields (those without Optional/| None)
+        if "None" not in str(field_type) and val is None:
+            raise ValueError(f"Missing required metric: {field_name}")
+
+        if field_name == "uptime_pct" and val == 0:
+            raise ValueError(f"Suspicious metric value: {field_name}={val}")
+        if "latency" in field_name and val == 0:
+            raise ValueError(f"Suspicious metric value: {field_name}={val}")
+
+
 @dataclass(frozen=True)
 class ReportSection:
     name: str
@@ -23,40 +44,40 @@ class ReportSection:
 @dataclass(frozen=True)
 class GoNoGoMetrics:
     # System health
-    uptime_pct: float = 0.0
-    crash_count: int = 0
-    stale_feed_events: int = 0
-    reconnect_events: int = 0
+    uptime_pct: float
+    crash_count: int
+    stale_feed_events: int
+    reconnect_events: int
     # Execution reality
-    paper_pnl: float = 0.0
-    demo_pnl: float = 0.0
-    pnl_drift_pct: float = 0.0
-    avg_slippage_paper: float = 0.0
-    avg_slippage_demo: float = 0.0
-    reconciliation_clean_pct: float = 0.0
+    paper_pnl: float
+    demo_pnl: float
+    pnl_drift_pct: float
+    avg_slippage_paper: float
+    avg_slippage_demo: float
+    reconciliation_clean_pct: float
     # Signal quality
-    overall_expectancy: float = 0.0
-    win_rate: float = 0.0
-    profit_factor: float | None = None
-    tier_a_expectancy: float = 0.0
-    tier_b_expectancy: float = 0.0
-    tier_c_expectancy: float = 0.0
+    overall_expectancy: float
+    win_rate: float
+    profit_factor: float | None
+    tier_a_expectancy: float
+    tier_b_expectancy: float
+    tier_c_expectancy: float
     # Exit effectiveness
-    smart_exit_value_add_pct: float = 0.0
-    saved_losers: int = 0
-    killed_winners: int = 0
-    no_progress_regret_rate: float = 0.0
-    runner_avg_r: float = 0.0
+    smart_exit_value_add_pct: float
+    saved_losers: int
+    killed_winners: int
+    no_progress_regret_rate: float
+    runner_avg_r: float
     # Risk behavior
-    max_drawdown_pct: float = 0.0
-    worst_case_dd: float = 0.0
-    dd_recovery_hours: float = 0.0
+    max_drawdown_pct: float
+    worst_case_dd: float
+    dd_recovery_hours: float
     # Edge stability
-    positive_regime_count: int = 0
-    worst_case_expectancy: float = 0.0
+    positive_regime_count: int
+    worst_case_expectancy: float
     # Campaign stats
-    campaign_days: int = 0
-    total_trades: int = 0
+    campaign_days: int
+    total_trades: int
 
 
 def build_go_no_go_report(
@@ -67,7 +88,10 @@ def build_go_no_go_report(
 
     sections = []
 
-    m = metrics or GoNoGoMetrics()
+    if metrics is None:
+        raise ValueError("Metrics object cannot be None")
+    validate_metrics(metrics)
+    m = metrics
     # ── 1. System Health ──────────────────────────────────────
     health_findings = []
     health_score = 100
