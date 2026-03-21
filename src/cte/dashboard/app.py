@@ -7,6 +7,7 @@
 - No seed trade injection; closed rows come from recorded executions (paper simulated / future demo fills).
 - ``CTE_ENGINE_MODE=live`` is still blocked by ``enforce_safety``; any other value runs the testnet profile.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,7 +49,6 @@ from cte.ops.kill_switch import OperationsController
 from cte.ops.readiness import (
     CampaignValidationMetrics,
     DashboardPaperToTestnetMetrics,
-    EdgeProofMetrics,
     build_dashboard_paper_to_testnet_gates,
     build_phase5_live_gates_skipped,
     evaluate_readiness,
@@ -91,7 +91,14 @@ def _resolve_mode() -> SystemMode:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _active_dashboard_symbols, _analytics_engine, _market_feed, _feed_task, _system_mode, _paper_runner, _paper_task
+    global \
+        _active_dashboard_symbols, \
+        _analytics_engine, \
+        _market_feed, \
+        _feed_task, \
+        _system_mode, \
+        _paper_runner, \
+        _paper_task
     setup_logging(level="INFO", service_name="dashboard")
 
     _system_mode = _resolve_mode()
@@ -103,7 +110,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if _system_mode == SystemMode.DEMO:
         enforce_safety(
             "demo",
-            binance_rest_url=os.environ.get("CTE_BINANCE_TESTNET_REST_URL", "https://testnet.binancefuture.com"),
+            binance_rest_url=os.environ.get(
+                "CTE_BINANCE_TESTNET_REST_URL", "https://testnet.binancefuture.com"
+            ),
             binance_api_key=os.environ.get("CTE_BINANCE_TESTNET_API_KEY", ""),
             binance_api_secret=os.environ.get("CTE_BINANCE_TESTNET_API_SECRET", ""),
         )
@@ -202,6 +211,7 @@ app.include_router(analytics_router)
 
 
 # ── Pages ─────────────────────────────────────────────────────
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -383,6 +393,7 @@ async def market_health():
 
 # ── Ops API ───────────────────────────────────────────────────
 
+
 def _v1_operations_policy() -> dict[str, object]:
     """Static PRD alignment for the Operations UI (matches .cursorrules / phased plan)."""
     s = get_settings()
@@ -511,11 +522,13 @@ async def demo_to_live_checklist():
 @app.get("/api/readiness/edge_proof")
 async def edge_proof_checklist():
     from cte.ops.readiness import PerformanceMetrics, build_edge_proof_checklist
+
     gates = build_edge_proof_checklist(PerformanceMetrics())
     return evaluate_readiness(gates)
 
 
 # ── Validation API ────────────────────────────────────────────
+
 
 @app.post("/api/validation/start")
 async def start_validation(name: str = "campaign_1", mode: str = "paper", days: int = 7):
@@ -528,7 +541,12 @@ async def start_validation(name: str = "campaign_1", mode: str = "paper", days: 
 @app.get("/api/validation/campaigns")
 async def list_campaigns():
     return [
-        {"name": c.name, "status": c.status.value, "days": c.days_completed, "target": c.target_days}
+        {
+            "name": c.name,
+            "status": c.status.value,
+            "days": c.days_completed,
+            "target": c.target_days,
+        }
         for c in _validation_campaigns.values()
     ]
 
@@ -542,6 +560,7 @@ async def campaign_report(name: str):
 
 
 # ── Campaign Metrics API ──────────────────────────────────────
+
 
 @app.post("/api/campaign/snapshot")
 async def take_snapshot(period: str = "hourly"):
@@ -577,6 +596,7 @@ async def campaign_snapshots(period: str | None = None):
 
 
 # ── Reconciliation API ────────────────────────────────────────
+
 
 @app.get("/api/reconciliation/status")
 async def reconciliation_status():
@@ -700,9 +720,7 @@ def _build_alerts_status() -> dict[str, Any]:
             "condition": "reject_rate > 5% (last campaign snapshot)",
             "severity": "warning",
             "state": (
-                "unknown"
-                if reject_rate is None
-                else ("firing" if reject_rate > 0.05 else "ok")
+                "unknown" if reject_rate is None else ("firing" if reject_rate > 0.05 else "ok")
             ),
             "detail": (
                 "no snapshot yet — POST /api/campaign/snapshot"
@@ -726,7 +744,9 @@ def _build_alerts_status() -> dict[str, Any]:
     if trade_count > 0:
         drift = abs(avg_slip - model_slip)
         slip_state = "firing" if drift > 3.0 else "ok"
-        slip_detail = f"avg_slippage_bps={avg_slip:.1f} vs model={model_slip:.0f} (Δ{drift:.1f} bps)"
+        slip_detail = (
+            f"avg_slippage_bps={avg_slip:.1f} vs model={model_slip:.0f} (Δ{drift:.1f} bps)"
+        )
     rules.append(
         {
             "id": "slippage_drift",
@@ -807,16 +827,17 @@ async def campaign_readiness():
 
 # ── Reports ───────────────────────────────────────────────────
 
+
 @app.get("/api/report/go_no_go")
 async def go_no_go_report():
     from cte.ops.go_no_go import GoNoGoMetrics, build_go_no_go_report
+
     collector = _campaign_collector
     return build_go_no_go_report(
         GoNoGoMetrics(
             campaign_days=collector.campaign_days,
-            total_trades=collector.total_trades or (
-                _analytics_engine.total_trades if _analytics_engine else 0
-            ),
+            total_trades=collector.total_trades
+            or (_analytics_engine.total_trades if _analytics_engine else 0),
         )
     )
 
@@ -859,10 +880,22 @@ def _build_config_snapshot() -> dict[str, object]:
             "id": "runtime",
             "title": "Runtime & modes",
             "rows": [
-                {"key": "system_mode", "label": "System mode (dashboard)", "value": _system_mode.value},
+                {
+                    "key": "system_mode",
+                    "label": "System mode (dashboard)",
+                    "value": _system_mode.value,
+                },
                 {"key": "engine_mode", "label": "Engine mode", "value": s.engine.mode.value},
-                {"key": "execution_mode", "label": "Execution mode", "value": s.execution.mode.value},
-                {"key": "testnet_keys", "label": "Testnet API credentials", "value": "configured" if _testnet_keys_configured() else "missing"},
+                {
+                    "key": "execution_mode",
+                    "label": "Execution mode",
+                    "value": s.execution.mode.value,
+                },
+                {
+                    "key": "testnet_keys",
+                    "label": "Testnet API credentials",
+                    "value": "configured" if _testnet_keys_configured() else "missing",
+                },
                 {
                     "key": "dashboard_paper_loop",
                     "label": "In-process paper loop (tick→signal→risk→journal)",
@@ -880,23 +913,39 @@ def _build_config_snapshot() -> dict[str, object]:
                     "value": expand_legacy_engine_symbols(list(s.engine.symbols)),
                 },
                 {"key": "direction", "label": "Direction", "value": s.engine.direction.value},
-                {"key": "max_leverage", "label": "Max leverage (cap)", "value": s.engine.max_leverage},
+                {
+                    "key": "max_leverage",
+                    "label": "Max leverage (cap)",
+                    "value": s.engine.max_leverage,
+                },
             ],
         },
         {
             "id": "binance",
             "title": "Binance (resolved URLs)",
             "rows": [
-                {"key": "ws_combined", "label": "Combined WebSocket", "value": s.binance.ws_combined_url},
+                {
+                    "key": "ws_combined",
+                    "label": "Combined WebSocket",
+                    "value": s.binance.ws_combined_url,
+                },
                 {"key": "rest_base", "label": "REST base", "value": s.binance.rest_base_url},
-                {"key": "stream_count", "label": "Default stream templates", "value": len(s.binance.streams)},
+                {
+                    "key": "stream_count",
+                    "label": "Default stream templates",
+                    "value": len(s.binance.streams),
+                },
             ],
         },
         {
             "id": "execution",
             "title": "Execution (paper / simulated)",
             "rows": [
-                {"key": "slippage_bps", "label": "Slippage model (bps)", "value": s.execution.slippage_bps},
+                {
+                    "key": "slippage_bps",
+                    "label": "Slippage model (bps)",
+                    "value": s.execution.slippage_bps,
+                },
                 {"key": "fee_bps", "label": "Taker fee (bps)", "value": s.execution.fee_bps},
                 {"key": "fill_model", "label": "Fill model", "value": s.execution.fill_model},
             ],
@@ -906,17 +955,37 @@ def _build_config_snapshot() -> dict[str, object]:
             "title": "Exit defaults",
             "rows": [
                 {"key": "stop_loss_pct", "label": "Stop loss", "value": s.exits.stop_loss_pct},
-                {"key": "take_profit_pct", "label": "Take profit", "value": s.exits.take_profit_pct},
-                {"key": "trailing_stop_pct", "label": "Trailing stop", "value": s.exits.trailing_stop_pct},
+                {
+                    "key": "take_profit_pct",
+                    "label": "Take profit",
+                    "value": s.exits.take_profit_pct,
+                },
+                {
+                    "key": "trailing_stop_pct",
+                    "label": "Trailing stop",
+                    "value": s.exits.trailing_stop_pct,
+                },
             ],
         },
         {
             "id": "risk",
             "title": "Risk caps",
             "rows": [
-                {"key": "max_position_pct", "label": "Max position %", "value": s.risk.max_position_pct},
-                {"key": "max_exposure_pct", "label": "Max total exposure %", "value": s.risk.max_total_exposure_pct},
-                {"key": "max_daily_drawdown_pct", "label": "Max daily drawdown %", "value": s.risk.max_daily_drawdown_pct},
+                {
+                    "key": "max_position_pct",
+                    "label": "Max position %",
+                    "value": s.risk.max_position_pct,
+                },
+                {
+                    "key": "max_exposure_pct",
+                    "label": "Max total exposure %",
+                    "value": s.risk.max_total_exposure_pct,
+                },
+                {
+                    "key": "max_daily_drawdown_pct",
+                    "label": "Max daily drawdown %",
+                    "value": s.risk.max_daily_drawdown_pct,
+                },
             ],
         },
         {
@@ -931,9 +1000,17 @@ def _build_config_snapshot() -> dict[str, object]:
             "id": "infra",
             "title": "Infrastructure (redacted)",
             "rows": [
-                {"key": "redis_url", "label": "Redis URL", "value": _redacted_redis_url(s.redis.url)},
+                {
+                    "key": "redis_url",
+                    "label": "Redis URL",
+                    "value": _redacted_redis_url(s.redis.url),
+                },
                 {"key": "redis_group", "label": "Consumer group", "value": s.redis.consumer_group},
-                {"key": "db_host", "label": "Postgres", "value": f"{s.database.user}@{s.database.host}:{s.database.port}/{s.database.name}"},
+                {
+                    "key": "db_host",
+                    "label": "Postgres",
+                    "value": f"{s.database.user}@{s.database.host}:{s.database.port}/{s.database.name}",
+                },
             ],
         },
     ]

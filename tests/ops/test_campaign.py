@@ -1,4 +1,5 @@
 """Tests for campaign metric collection and validation gates."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -22,11 +23,22 @@ def _trade(
     warmup_phase="none",
 ):
     return CompletedTrade(
-        symbol="BTCUSDT", venue="binance", tier="A", epoch="paper",
-        source=source, pnl=Decimal(str(pnl)), exit_reason="winner_trailing",
-        exit_layer=4, hold_seconds=300, r_multiple=1.0, entry_latency_ms=latency,
-        modeled_slippage_bps=slip, mfe_pct=0.02, mae_pct=0.005,
-        was_profitable_at_exit=pnl > 0, position_mode="normal",
+        symbol="BTCUSDT",
+        venue="binance",
+        tier="A",
+        epoch="paper",
+        source=source,
+        pnl=Decimal(str(pnl)),
+        exit_reason="winner_trailing",
+        exit_layer=4,
+        hold_seconds=300,
+        r_multiple=1.0,
+        entry_latency_ms=latency,
+        modeled_slippage_bps=slip,
+        mfe_pct=0.02,
+        mae_pct=0.005,
+        was_profitable_at_exit=pnl > 0,
+        position_mode="normal",
         warmup_phase=warmup_phase,
     )
 
@@ -66,8 +78,9 @@ class TestComputeSnapshot:
 
     def test_operational_metrics(self):
         trades = [_trade()]
-        snap = compute_snapshot(trades, stale_event_count=5, reconnect_count=2,
-                                recon_mismatch_count=1)
+        snap = compute_snapshot(
+            trades, stale_event_count=5, reconnect_count=2, recon_mismatch_count=1
+        )
         assert snap.stale_event_count == 5
         assert snap.reconnect_count == 2
         assert snap.recon_mismatch_count == 1
@@ -124,7 +137,9 @@ class TestCampaignCollector:
 
     def test_summary(self):
         collector = CampaignCollector()
-        collector.add_snapshot(MetricSnapshot(period="daily", trade_count=10, max_drawdown_pct=0.02))
+        collector.add_snapshot(
+            MetricSnapshot(period="daily", trade_count=10, max_drawdown_pct=0.02)
+        )
         s = collector.summary()
         assert s["campaign_days"] == 1
         assert s["total_trades"] == 10
@@ -135,12 +150,17 @@ class TestCampaignValidationGates:
     def test_all_pass(self):
         gates = build_campaign_validation_checklist(
             CampaignValidationMetrics(
-                campaign_days=10, total_trades=150, all_recon_clean=True,
-                max_dd_observed=0.03, avg_latency_p95_ms=2000,
-                stale_ratio=0.005, reject_ratio=0.02, error_count=0,
-                expectancy=15.0, seed_trade_count=0,
+                campaign_days=10,
+                total_trades=150,
+                all_recon_clean=True,
+                max_dd_observed=0.03,
+                avg_latency_p95_ms=2000,
+                stale_ratio=0.005,
+                reject_ratio=0.02,
+                error_count=0,
+                expectancy=15.0,
+                seed_trade_count=0,
             )
-
         )
         result = evaluate_readiness(gates)
         assert result["ready"]
@@ -148,10 +168,17 @@ class TestCampaignValidationGates:
     def test_seed_data_blocks(self):
         gates = build_campaign_validation_checklist(
             CampaignValidationMetrics(
-                campaign_days=10, total_trades=150, all_recon_clean=True,
-                seed_trade_count=5,  # seed data mixed in!
+                campaign_days=10,
+                total_trades=150,
+                all_recon_clean=True,
+                max_dd_observed=0.03,
+                avg_latency_p95_ms=2000,
+                stale_ratio=0.005,
+                reject_ratio=0.02,
+                error_count=0,
+                expectancy=15.0,
+                seed_trade_count=5,
             )
-
         )
         result = evaluate_readiness(gates)
         assert not result["ready"]
@@ -161,9 +188,17 @@ class TestCampaignValidationGates:
     def test_recon_failure_blocks(self):
         gates = build_campaign_validation_checklist(
             CampaignValidationMetrics(
-                campaign_days=10, total_trades=150, all_recon_clean=False,
+                campaign_days=10,
+                total_trades=150,
+                all_recon_clean=False,
+                max_dd_observed=0.03,
+                avg_latency_p95_ms=2000,
+                stale_ratio=0.005,
+                reject_ratio=0.02,
+                error_count=0,
+                expectancy=15.0,
+                seed_trade_count=0,
             )
-
         )
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
@@ -172,9 +207,17 @@ class TestCampaignValidationGates:
     def test_high_drawdown_blocks(self):
         gates = build_campaign_validation_checklist(
             CampaignValidationMetrics(
-                campaign_days=10, total_trades=150, max_dd_observed=0.08,
+                campaign_days=10,
+                total_trades=150,
+                all_recon_clean=True,
+                max_dd_observed=0.08,
+                avg_latency_p95_ms=2000,
+                stale_ratio=0.005,
+                reject_ratio=0.02,
+                error_count=0,
+                expectancy=15.0,
+                seed_trade_count=0,
             )
-
         )
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
@@ -183,9 +226,17 @@ class TestCampaignValidationGates:
     def test_negative_expectancy_blocks(self):
         gates = build_campaign_validation_checklist(
             CampaignValidationMetrics(
-                campaign_days=10, total_trades=150, expectancy=-5.0,
+                campaign_days=10,
+                total_trades=150,
+                all_recon_clean=True,
+                max_dd_observed=0.03,
+                avg_latency_p95_ms=2000,
+                stale_ratio=0.005,
+                reject_ratio=0.02,
+                error_count=0,
+                expectancy=-5.0,
+                seed_trade_count=0,
             )
-
         )
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
@@ -199,11 +250,16 @@ class TestCampaignValidationGates:
                 total_trades=120,
                 all_recon_clean=True,
                 max_dd_observed=0.02,
+                avg_latency_p95_ms=2000,
+                stale_ratio=0.005,
+                reject_ratio=0.02,
+                error_count=0,
+                expectancy=15.0,
+                seed_trade_count=0,
                 promotion_trade_count=40,
                 promotion_expectancy=5.0,
                 promotion_max_dd_observed=0.02,
             )
-
         )
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
