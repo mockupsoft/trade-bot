@@ -3,10 +3,13 @@ from __future__ import annotations
 
 from datetime import date
 
-from cte.ops.go_no_go import GoNoGoMetrics, build_go_no_go_report
+from cte.ops.go_no_go import build_go_no_go_report
 from cte.ops.kill_switch import OperationsController, TradingMode
 from cte.ops.readiness import (
-    PerformanceMetrics,
+    DashboardPaperToTestnetMetrics,
+    DemoToLiveMetrics,
+    EdgeProofMetrics,
+    PaperToDemoMetrics,
     build_dashboard_paper_to_testnet_gates,
     build_demo_to_live_checklist,
     build_edge_proof_checklist,
@@ -90,19 +93,17 @@ class TestDashboardReadinessGates:
         assert r["failed"] == 0
 
     def test_dashboard_paper_to_testnet_all_pass(self) -> None:
-        gates = build_dashboard_paper_to_testnet_gates(
-            DashboardPaperToTestnetMetrics(
-                testnet_keys=True,
-                market_connected=True,
-                v1_safe_not_live=True,
-                paper_trades=100,
-                paper_days=10,
-                crash_free_days=10,
-                all_tests_pass=True,
-                fsm_violations=0,
-            )
-
+        metrics = DashboardPaperToTestnetMetrics(
+            testnet_keys=True,
+            market_connected=True,
+            v1_safe_not_live=True,
+            paper_trades=100,
+            paper_days=10,
+            crash_free_days=10,
+            all_tests_pass=True,
+            fsm_violations=0,
         )
+        gates = build_dashboard_paper_to_testnet_gates(metrics)
         r = evaluate_readiness(gates)
         assert r["ready"]
         assert r["applicable"] == 8
@@ -111,56 +112,48 @@ class TestDashboardReadinessGates:
 
 class TestReadinessGate:
     def test_paper_to_demo_all_pass(self):
-        gates = build_paper_to_demo_checklist(
-            PaperToDemoMetrics(
-                paper_days=10, paper_trades=100, crash_free_days=10,
-                all_tests_pass=True, state_machine_violations=0,
-                api_keys_configured=True,
-            )
-
+        metrics = PaperToDemoMetrics(
+            paper_days=10, paper_trades=100, crash_free_days=10,
+            all_tests_pass=True, state_machine_violations=0,
+            api_keys_configured=True,
         )
+        gates = build_paper_to_demo_checklist(metrics)
         result = evaluate_readiness(gates)
         assert result["ready"]
         assert result["failed"] == 0
 
     def test_paper_to_demo_fails(self):
-        gates = build_paper_to_demo_checklist(
-            PaperToDemoMetrics(paper_days=3, paper_trades=10, crash_free_days=0, reconciliation_clean=False, all_tests_pass=False, state_machine_violations=0, api_keys_configured=False)
-        )
-
+        metrics = PaperToDemoMetrics(paper_days=3, paper_trades=10)
+        gates = build_paper_to_demo_checklist(metrics)
         result = evaluate_readiness(gates)
         assert not result["ready"]
         assert result["failed"] > 0
         assert len(result["blockers"]) > 0
 
     def test_demo_to_live_all_pass(self):
-        gates = build_demo_to_live_checklist(
-            DemoToLiveMetrics(
-                demo_days=10, demo_trades=60,
-                reconciliation_clean_rate=1.0,
-                fill_latency_p99_ms=2000,
-                paper_demo_pnl_drift_pct=2.0,
-                slippage_drift_bps=1.5,
-                emergency_stop_tested=True,
-                manual_review_signed=True,
-                max_capital_configured=True,
-                monitoring_alerts_configured=True,
-            )
-
+        metrics = DemoToLiveMetrics(
+            demo_days=10, demo_trades=60,
+            reconciliation_clean_rate=1.0,
+            fill_latency_p99_ms=2000,
+            paper_demo_pnl_drift_pct=2.0,
+            slippage_drift_bps=1.5,
+            emergency_stop_tested=True,
+            manual_review_signed=True,
+            max_capital_configured=True,
+            monitoring_alerts_configured=True,
         )
+        gates = build_demo_to_live_checklist(metrics)
         result = evaluate_readiness(gates)
         assert result["ready"]
         assert result["completion_pct"] == 100.0
 
     def test_demo_to_live_blocks_on_latency(self):
-        gates = build_demo_to_live_checklist(
-            DemoToLiveMetrics(
-                demo_days=10, demo_trades=60,
-                reconciliation_clean_rate=1.0,
-                fill_latency_p99_ms=8000,  # > 5000ms threshold
-            )
-
+        metrics = DemoToLiveMetrics(
+            demo_days=10, demo_trades=60,
+            reconciliation_clean_rate=1.0,
+            fill_latency_p99_ms=8000,  # > 5000ms threshold
         )
+        gates = build_demo_to_live_checklist(metrics)
         result = evaluate_readiness(gates)
         assert not result["ready"]
         blocker_names = [b["name"] for b in result["blockers"]]
@@ -169,7 +162,7 @@ class TestReadinessGate:
 
 class TestEdgeProofGates:
     def test_all_pass(self):
-        metrics = PerformanceMetrics(
+        metrics = EdgeProofMetrics(
             expectancy_overall=15.0,
             expectancy_low_vol=5.0, expectancy_high_vol=10.0, expectancy_trending=20.0,
             positive_regime_count=3,
@@ -185,7 +178,7 @@ class TestEdgeProofGates:
         assert result["ready"]
 
     def test_tier_separation_fail(self):
-        metrics = PerformanceMetrics(
+        metrics = EdgeProofMetrics(
             expectancy_overall=10.0, positive_regime_count=3,
             tier_a_expectancy=5.0, tier_b_expectancy=15.0,  # B > A = wrong
             tier_a_better_than_b=False, tier_b_better_than_c=True,
@@ -198,7 +191,7 @@ class TestEdgeProofGates:
         assert "tier_a_gt_b" in blocker_names
 
     def test_worst_case_survival_fail(self):
-        metrics = PerformanceMetrics(
+        metrics = EdgeProofMetrics(
             expectancy_overall=10.0, positive_regime_count=3,
             worst_case_expectancy=-5.0,  # collapses under worst-case fills
             worst_case_max_dd=0.15,      # 15% > 10% threshold
@@ -211,7 +204,7 @@ class TestEdgeProofGates:
         assert "worst_case_dd" in blocker_names
 
     def test_edge_regime_count(self):
-        metrics = PerformanceMetrics(
+        metrics = EdgeProofMetrics(
             expectancy_overall=10.0, positive_regime_count=1,
             total_trades=100,
         )
@@ -224,20 +217,17 @@ class TestEdgeProofGates:
 class TestGoNoGoReport:
     def test_go_report(self):
         report = build_go_no_go_report(
-            GoNoGoMetrics(
-                uptime_pct=99.9, crash_count=0, stale_feed_events=1, reconnect_events=2,
-                paper_pnl=500, demo_pnl=480, pnl_drift_pct=4.0,
-                avg_slippage_paper=4.0, avg_slippage_demo=5.5,
-                reconciliation_clean_pct=100,
-                overall_expectancy=15.0, win_rate=0.58, profit_factor=1.8,
-                tier_a_expectancy=25.0, tier_b_expectancy=10.0, tier_c_expectancy=3.0,
-                smart_exit_value_add_pct=15.0, saved_losers=12, killed_winners=3,
-                no_progress_regret_rate=0.2, runner_avg_r=2.5,
-                max_drawdown_pct=0.025, worst_case_dd=0.06, dd_recovery_hours=4,
-                positive_regime_count=3, worst_case_expectancy=8.0,
-                campaign_days=7, total_trades=120,
-            )
-
+            uptime_pct=99.9, crash_count=0, stale_feed_events=1, reconnect_events=2,
+            paper_pnl=500, demo_pnl=480, pnl_drift_pct=4.0,
+            avg_slippage_paper=4.0, avg_slippage_demo=5.5,
+            reconciliation_clean_pct=100,
+            overall_expectancy=15.0, win_rate=0.58, profit_factor=1.8,
+            tier_a_expectancy=25.0, tier_b_expectancy=10.0, tier_c_expectancy=3.0,
+            smart_exit_value_add_pct=15.0, saved_losers=12, killed_winners=3,
+            no_progress_regret_rate=0.2, runner_avg_r=2.5,
+            max_drawdown_pct=0.025, worst_case_dd=0.06, dd_recovery_hours=4,
+            positive_regime_count=3, worst_case_expectancy=8.0,
+            campaign_days=7, total_trades=120,
         )
         assert report["final_verdict"] == "GO"
         assert report["overall_score"] > 60
@@ -245,29 +235,23 @@ class TestGoNoGoReport:
 
     def test_no_go_negative_expectancy(self):
         report = build_go_no_go_report(
-            GoNoGoMetrics(
-                overall_expectancy=-10.0, win_rate=0.35, profit_factor=0.6,
-                tier_a_expectancy=-5, tier_b_expectancy=-8, tier_c_expectancy=-15,
-                max_drawdown_pct=0.08, worst_case_dd=0.15,
-                positive_regime_count=0, worst_case_expectancy=-20.0,
-            )
-
+            overall_expectancy=-10.0, win_rate=0.35, profit_factor=0.6,
+            tier_a_expectancy=-5, tier_b_expectancy=-8, tier_c_expectancy=-15,
+            max_drawdown_pct=0.08, worst_case_dd=0.15,
+            positive_regime_count=0, worst_case_expectancy=-20.0,
         )
         assert report["final_verdict"] == "NO-GO"
         assert len(report["critical_blockers"]) > 0
 
     def test_conditional_go(self):
         report = build_go_no_go_report(
-            GoNoGoMetrics(
-                uptime_pct=99.5, overall_expectancy=8.0, win_rate=0.52,
-                profit_factor=1.3,
-                tier_a_expectancy=12.0, tier_b_expectancy=5.0, tier_c_expectancy=2.0,
-                smart_exit_value_add_pct=-2.0,  # exit underperforms → warning
-                max_drawdown_pct=0.02, worst_case_dd=0.05,
-                positive_regime_count=3, worst_case_expectancy=3.0,
-                reconciliation_clean_pct=100,
-            )
-
+            uptime_pct=99.5, overall_expectancy=8.0, win_rate=0.52,
+            profit_factor=1.3,
+            tier_a_expectancy=12.0, tier_b_expectancy=5.0, tier_c_expectancy=2.0,
+            smart_exit_value_add_pct=-2.0,  # exit underperforms → warning
+            max_drawdown_pct=0.02, worst_case_dd=0.05,
+            positive_regime_count=3, worst_case_expectancy=3.0,
+            reconciliation_clean_pct=100,
         )
         assert report["final_verdict"] in ("CONDITIONAL-GO", "GO")
 
