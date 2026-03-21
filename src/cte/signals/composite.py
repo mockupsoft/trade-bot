@@ -93,6 +93,7 @@ def compute_composite(
         "microstructure": microstructure.score,
         "cross_venue": cross_venue.score,
     }
+
     primary = round(primary, 4)
 
     context_mult = max(0.0, min(1.0, context.score))

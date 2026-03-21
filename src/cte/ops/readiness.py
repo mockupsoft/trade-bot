@@ -20,6 +20,7 @@ class GateStatus(StrEnum):
 
 
 @dataclass(frozen=True)
+
 class ReadinessGate:
     name: str
     category: str
@@ -57,6 +58,7 @@ class DemoToLiveMetrics:
 
 @dataclass(frozen=True)
 class EdgeProofMetrics:
+    total_trades: int = 0
     expectancy_overall: float = 0.0
     expectancy_low_vol: float = 0.0
     expectancy_high_vol: float = 0.0
@@ -109,40 +111,47 @@ def build_paper_to_demo_checklist(
     metrics: PaperToDemoMetrics | None = None,
 ) -> list[ReadinessGate]:
     m = metrics or PaperToDemoMetrics()
+
     return [
         ReadinessGate(
             name="paper_duration", category="validation",
             description="Paper trading ran for ≥7 consecutive days",
             status=GateStatus.PASS if m.paper_days >= 7 else GateStatus.FAIL,
             value=str(m.paper_days), threshold="7",
+
         ),
         ReadinessGate(
             name="paper_trade_count", category="validation",
             description="At least 50 paper trades completed",
             status=GateStatus.PASS if m.paper_trades >= 50 else GateStatus.FAIL,
-            value=str(m.paper_trades), threshold="50",
+            value=str(m.paper_trades), threshold="100",
+
         ),
         ReadinessGate(
             name="crash_free", category="stability",
             description="No unhandled exceptions for ≥7 days",
             status=GateStatus.PASS if m.crash_free_days >= 7 else GateStatus.FAIL,
             value=str(m.crash_free_days), threshold="7",
+
         ),
         ReadinessGate(
             name="tests_pass", category="quality",
             description="All unit and integration tests pass",
             status=GateStatus.PASS if m.all_tests_pass else GateStatus.FAIL,
+
         ),
         ReadinessGate(
             name="fsm_violations", category="quality",
             description="Zero order state machine violations",
             status=GateStatus.PASS if m.state_machine_violations == 0 else GateStatus.FAIL,
             value=str(m.state_machine_violations), threshold="0",
+
         ),
         ReadinessGate(
             name="api_keys", category="infrastructure",
             description="Testnet API keys configured",
             status=GateStatus.PASS if m.api_keys_configured else GateStatus.FAIL,
+
         ),
     ]
 
@@ -151,24 +160,28 @@ def build_demo_to_live_checklist(
     metrics: DemoToLiveMetrics | None = None,
 ) -> list[ReadinessGate]:
     m = metrics or DemoToLiveMetrics()
+
     return [
         ReadinessGate(
             name="demo_duration", category="validation",
             description="Demo trading ran for ≥7 consecutive days",
             status=GateStatus.PASS if m.demo_days >= 7 else GateStatus.FAIL,
             value=str(m.demo_days), threshold="7",
+
         ),
         ReadinessGate(
             name="demo_trade_count", category="validation",
             description="50-trade acceptance test passed on testnet",
             status=GateStatus.PASS if m.demo_trades >= 50 else GateStatus.FAIL,
-            value=str(m.demo_trades), threshold="50",
+            value=str(m.demo_trades), threshold="100",
+
         ),
         ReadinessGate(
             name="reconciliation", category="validation",
             description="100% clean reconciliation for 7 days",
             status=GateStatus.PASS if m.reconciliation_clean_rate >= 1.0 else GateStatus.FAIL,
             value=f"{m.reconciliation_clean_rate:.0%}", threshold="100%",
+
         ),
         ReadinessGate(
             name="fill_latency", category="performance",
@@ -177,38 +190,45 @@ def build_demo_to_live_checklist(
             if m.fill_latency_p99_ms > 0 and m.fill_latency_p99_ms < 5000
             else GateStatus.FAIL,
             value=f"{m.fill_latency_p99_ms:.0f}ms", threshold="<5000ms",
+
         ),
         ReadinessGate(
             name="pnl_parity", category="validation",
             description="Paper-demo PnL within 5% for same signals",
             status=GateStatus.PASS if abs(m.paper_demo_pnl_drift_pct) < 5 else GateStatus.FAIL,
             value=f"{m.paper_demo_pnl_drift_pct:.1f}%", threshold="±5%",
+
         ),
         ReadinessGate(
             name="slippage_drift", category="validation",
             description="Slippage drift < 3 bps vs paper model",
             status=GateStatus.PASS if 0 <= m.slippage_drift_bps < 3.0 else GateStatus.FAIL,
             value=f"{m.slippage_drift_bps:.1f}bps", threshold="3.0bps",
+
         ),
         ReadinessGate(
             name="emergency_stop", category="ops",
             description="Emergency stop tested and functional",
             status=GateStatus.PASS if m.emergency_stop_tested else GateStatus.FAIL,
+
         ),
         ReadinessGate(
             name="manual_review", category="ops",
             description="Team review and sign-off complete",
             status=GateStatus.PASS if m.manual_review_signed else GateStatus.FAIL,
+
         ),
         ReadinessGate(
             name="capital_limits", category="risk",
             description="Max capital ($100) and position ($50) configured",
             status=GateStatus.PASS if m.max_capital_configured else GateStatus.FAIL,
+
         ),
         ReadinessGate(
             name="monitoring", category="ops",
             description="24/7 monitoring alerts configured",
             status=GateStatus.PASS if m.monitoring_alerts_configured else GateStatus.FAIL,
+
         ),
     ]
 
@@ -222,13 +242,21 @@ def build_edge_proof_checklist(
 ) -> list[ReadinessGate]:
     """Edge proof gates — must pass before any real capital is risked."""
     m = metrics or EdgeProofMetrics()
+
     return [
+        ReadinessGate(
+            name="sample_size", category="edge_stability",
+            description="Minimum number of trades completed",
+            status=GateStatus.PASS if m.total_trades >= 100 else GateStatus.FAIL,
+            value=str(m.total_trades), threshold="100",
+        ),
         # ── Edge Stability ────────────────────────────────────
         ReadinessGate(
             name="edge_overall", category="edge_stability",
             description="Overall expectancy is positive",
             status=GateStatus.PASS if m.expectancy_overall > 0 else GateStatus.FAIL,
             value=f"${m.expectancy_overall:.2f}", threshold="> $0",
+
         ),
         ReadinessGate(
             name="edge_regime_count", category="edge_stability",
@@ -239,6 +267,7 @@ def build_edge_proof_checklist(
                 f"Low-vol: ${m.expectancy_low_vol:.2f}, "
                 f"High-vol: ${m.expectancy_high_vol:.2f}, "
                 f"Trending: ${m.expectancy_trending:.2f}"
+
             ),
         ),
         # ── Tier Separation ───────────────────────────────────
@@ -247,6 +276,7 @@ def build_edge_proof_checklist(
             description="Tier A expectancy > Tier B (directionally)",
             status=GateStatus.PASS if m.tier_a_better_than_b else GateStatus.FAIL,
             value=f"A=${m.tier_a_expectancy:.2f} B=${m.tier_b_expectancy:.2f}",
+
             detail="Scoring model must rank signals correctly",
         ),
         ReadinessGate(
@@ -254,6 +284,7 @@ def build_edge_proof_checklist(
             description="Tier B expectancy > Tier C (directionally)",
             status=GateStatus.PASS if m.tier_b_better_than_c else GateStatus.FAIL,
             value=f"B=${m.tier_b_expectancy:.2f} C=${m.tier_c_expectancy:.2f}",
+
             detail="If tiers don't separate, scoring model is noise",
         ),
         # ── Exit Value-Add ────────────────────────────────────
@@ -263,6 +294,7 @@ def build_edge_proof_checklist(
             status=GateStatus.PASS if m.exit_value_add_pct > 0 else GateStatus.FAIL,
             value=f"+{m.exit_value_add_pct:.1f}%",
             detail=f"Smart: ${m.smart_exit_pnl:.2f} vs Flat: ${m.flat_exit_pnl:.2f}",
+
         ),
         # ── Worst-Case Survival ───────────────────────────────
         ReadinessGate(
@@ -270,6 +302,7 @@ def build_edge_proof_checklist(
             description="Expectancy stays positive under worst-case fills",
             status=GateStatus.PASS if m.worst_case_expectancy > 0 else GateStatus.FAIL,
             value=f"${m.worst_case_expectancy:.2f}",
+
             detail="2x slippage model must not collapse the edge",
         ),
         ReadinessGate(
@@ -277,6 +310,7 @@ def build_edge_proof_checklist(
             description="Worst-case max drawdown < 10%",
             status=GateStatus.PASS if m.worst_case_max_dd < 0.10 else GateStatus.FAIL,
             value=f"{m.worst_case_max_dd:.1%}", threshold="< 10%",
+
         ),
         # ── Kill Switch Accuracy ──────────────────────────────
         ReadinessGate(
@@ -284,6 +318,7 @@ def build_edge_proof_checklist(
             description="Kill switch false positive rate < 20%",
             status=GateStatus.PASS if m.kill_switch_false_positive_rate < 0.20 else GateStatus.FAIL,
             value=f"{m.kill_switch_false_positive_rate:.0%}", threshold="< 20%",
+
             detail="Too many false positives = lost alpha from unnecessary stops",
         ),
         ReadinessGate(
@@ -291,6 +326,7 @@ def build_edge_proof_checklist(
             description="Kill switch response time < 2 seconds",
             status=GateStatus.PASS if 0 < m.kill_switch_response_ms < 2000 else GateStatus.FAIL,
             value=f"{m.kill_switch_response_ms:.0f}ms", threshold="< 2000ms",
+
         ),
     ]
 
@@ -336,6 +372,7 @@ def evaluate_readiness(gates: list[ReadinessGate]) -> dict:
 
 def build_dashboard_paper_to_testnet_gates(
     metrics: DashboardPaperToTestnetMetrics,
+
 ) -> list[ReadinessGate]:
     """Gates for the v1 dashboard: infrastructure truth + declared validation metrics (env)."""
     return [
@@ -345,6 +382,7 @@ def build_dashboard_paper_to_testnet_gates(
             description="Binance USDⓈ-M futures testnet API key + secret configured",
             status=GateStatus.PASS if metrics.testnet_keys else GateStatus.FAIL,
             value="configured" if metrics.testnet_keys else "missing",
+
             threshold="non-empty",
         ),
         ReadinessGate(
@@ -353,6 +391,7 @@ def build_dashboard_paper_to_testnet_gates(
             description="Combined testnet WebSocket feed connected (this dashboard process)",
             status=GateStatus.PASS if metrics.market_connected else GateStatus.FAIL,
             value="connected" if metrics.market_connected else "offline",
+
             threshold="WS healthy",
         ),
         ReadinessGate(
@@ -361,6 +400,7 @@ def build_dashboard_paper_to_testnet_gates(
             description="v1 safety: process not in LIVE mainnet mode (paper/demo/testnet only)",
             status=GateStatus.PASS if metrics.v1_safe_not_live else GateStatus.FAIL,
             value="ok" if metrics.v1_safe_not_live else "LIVE",
+
             threshold="not LIVE",
         ),
         ReadinessGate(
@@ -369,6 +409,7 @@ def build_dashboard_paper_to_testnet_gates(
             description="Paper validation window ≥7 days (set CTE_READINESS_PAPER_DAYS after ops sign-off)",
             status=GateStatus.PASS if metrics.paper_days >= 7 else GateStatus.FAIL,
             value=str(metrics.paper_days),
+
             threshold="7",
         ),
         ReadinessGate(
@@ -377,7 +418,8 @@ def build_dashboard_paper_to_testnet_gates(
             description="≥50 paper / simulated trades in active epoch (analytics journal)",
             status=GateStatus.PASS if metrics.paper_trades >= 50 else GateStatus.FAIL,
             value=str(metrics.paper_trades),
-            threshold="50",
+
+            threshold="100",
         ),
         ReadinessGate(
             name="crash_free",
@@ -385,6 +427,7 @@ def build_dashboard_paper_to_testnet_gates(
             description="No unhandled exceptions ≥7 days (set CTE_READINESS_CRASH_FREE_DAYS)",
             status=GateStatus.PASS if metrics.crash_free_days >= 7 else GateStatus.FAIL,
             value=str(metrics.crash_free_days),
+
             threshold="7",
         ),
         ReadinessGate(
@@ -393,6 +436,7 @@ def build_dashboard_paper_to_testnet_gates(
             description="Automated test suite green (set CTE_READINESS_TESTS_PASS=1 after pytest in CI/local)",
             status=GateStatus.PASS if metrics.all_tests_pass else GateStatus.FAIL,
             value="pass" if metrics.all_tests_pass else "not attested",
+
             threshold="true",
         ),
         ReadinessGate(
@@ -401,6 +445,7 @@ def build_dashboard_paper_to_testnet_gates(
             description="Zero order state machine violations (set CTE_READINESS_FSM_VIOLATIONS)",
             status=GateStatus.PASS if metrics.fsm_violations == 0 else GateStatus.FAIL,
             value=str(metrics.fsm_violations),
+
             threshold="0",
         ),
     ]
@@ -429,7 +474,7 @@ def build_phase5_live_gates_skipped() -> list[ReadinessGate]:
             description="50-trade acceptance test passed on testnet",
             status=GateStatus.SKIP,
             value="—",
-            threshold="50",
+            threshold="100",
             detail=_PHASE5_SKIP_DETAIL,
         ),
         ReadinessGate(
@@ -509,6 +554,7 @@ def build_phase5_live_gates_skipped() -> list[ReadinessGate]:
 
 def build_campaign_validation_checklist(
     metrics: CampaignValidationMetrics | None = None,
+
 ) -> list[ReadinessGate]:
     """Build gates from REAL campaign metrics (not placeholders).
 
@@ -524,12 +570,14 @@ def build_campaign_validation_checklist(
         if m.promotion_max_dd_observed is not None
         else m.max_dd_observed
     )
+
     return [
         ReadinessGate(
             name="campaign_duration", category="campaign",
             description="Campaign ran for >=7 days",
             status=GateStatus.PASS if m.campaign_days >= 7 else GateStatus.FAIL,
             value=str(m.campaign_days), threshold="7",
+
         ),
         ReadinessGate(
             name="trade_count", category="campaign",
@@ -537,12 +585,14 @@ def build_campaign_validation_checklist(
             status=GateStatus.PASS if promo_n >= 100 else GateStatus.FAIL,
             value=str(promo_n), threshold="100",
             detail=f"all_trades={m.total_trades} promotion_only={m.promotion_trade_count is not None}",
+
         ),
         ReadinessGate(
             name="no_seed_data", category="data_integrity",
             description="Zero seed trades in campaign data",
             status=GateStatus.PASS if m.seed_trade_count == 0 else GateStatus.FAIL,
             value=str(m.seed_trade_count), threshold="0",
+
             detail="Seed data must never mix with real validation data",
         ),
         ReadinessGate(
@@ -550,6 +600,7 @@ def build_campaign_validation_checklist(
             description="100% reconciliation clean throughout campaign",
             status=GateStatus.PASS if m.all_recon_clean else GateStatus.FAIL,
             value="clean" if m.all_recon_clean else "mismatches found",
+
         ),
         ReadinessGate(
             name="max_drawdown", category="risk",
@@ -562,24 +613,28 @@ def build_campaign_validation_checklist(
             description="Latency p95 < 5000ms",
             status=GateStatus.PASS if 0 < m.avg_latency_p95_ms < 5000 else GateStatus.FAIL,
             value=f"{m.avg_latency_p95_ms:.0f}ms", threshold="< 5000ms",
+
         ),
         ReadinessGate(
             name="stale_ratio", category="data_quality",
             description="Stale data ratio < 1%",
             status=GateStatus.PASS if m.stale_ratio < 0.01 else GateStatus.FAIL,
             value=f"{m.stale_ratio:.2%}", threshold="< 1%",
+
         ),
         ReadinessGate(
             name="reject_ratio", category="execution",
             description="Order reject ratio < 5%",
             status=GateStatus.PASS if m.reject_ratio < 0.05 else GateStatus.FAIL,
             value=f"{m.reject_ratio:.2%}", threshold="< 5%",
+
         ),
         ReadinessGate(
             name="no_critical_errors", category="stability",
             description="Zero critical errors during campaign",
             status=GateStatus.PASS if m.error_count == 0 else GateStatus.FAIL,
             value=str(m.error_count), threshold="0",
+
         ),
         ReadinessGate(
             name="positive_expectancy", category="edge",
