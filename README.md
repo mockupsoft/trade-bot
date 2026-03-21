@@ -21,6 +21,7 @@ Production-grade, event-driven crypto trading engine for Binance USDⓈ-M Future
 | Phase 5: Analytics & Monitoring | **Complete** | Epoch-aware, 15+ metrics, 52 tests |
 | Operations Platform | **Complete** | Kill switch, readiness gates, GO/NO-GO |
 | Dashboard UI | **Complete** | 7-page ops + research platform |
+| Phase 6: Bi-directional Support Upgrade | **Complete** | Explicit mapping mappings, directional splits, parity evaluations over 535 tests |
 | **Validation Campaign** | **Next** | 7-day paper/demo parallel run |
 
 ## Architecture
