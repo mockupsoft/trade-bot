@@ -34,7 +34,7 @@ from cte.dashboard.paper_runner import (
     _dashboard_warmup_thresholds,
     _env_bool,
     _event_time_utc,
-    _has_open_long,
+    _has_open_position,
     _iso_utc,
     _mid_price,
     try_build_streaming_vector_from_ticker,
@@ -646,7 +646,7 @@ class DashboardTestnetRunner:
             if not ops.is_symbol_enabled(sym):
                 self._diag.record(sym, "rejected_symbol_disabled", "")
                 continue
-            if _has_open_long(mirror, sym):
+            if _has_open_position(mirror, sym):
                 self._diag.record(sym, "rejected_existing_position", "")
                 continue
 
@@ -675,7 +675,7 @@ class DashboardTestnetRunner:
 
             legacy = SignalEvent(
                 symbol=scored.symbol,
-                action=SignalAction.OPEN_LONG,
+                action=scored.action,
                 confidence=scored.composite_score,
                 reason=scored.reason,
             )

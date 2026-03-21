@@ -20,10 +20,11 @@ def _trade(
     latency=100,
     slip=5.0,
     warmup_phase="none",
+    direction="long",
 ):
     return CompletedTrade(
         symbol="BTCUSDT", venue="binance", tier="A", epoch="paper",
-        source=source, pnl=Decimal(str(pnl)), exit_reason="winner_trailing",
+        direction=direction, source=source, pnl=Decimal(str(pnl)), exit_reason="winner_trailing",
         exit_layer=4, hold_seconds=300, r_multiple=1.0, entry_latency_ms=latency,
         modeled_slippage_bps=slip, mfe_pct=0.02, mae_pct=0.005,
         was_profitable_at_exit=pnl > 0, position_mode="normal",
@@ -138,6 +139,8 @@ class TestCampaignValidationGates:
             max_dd_observed=0.03, avg_latency_p95_ms=2000,
             stale_ratio=0.005, reject_ratio=0.02, error_count=0,
             expectancy=15.0, seed_trade_count=0,
+            long_trade_count=75, short_trade_count=75,
+            long_expectancy=15.0, short_expectancy=15.0,
         )
         gates = build_campaign_validation_checklist(metrics)
         result = evaluate_readiness(gates)

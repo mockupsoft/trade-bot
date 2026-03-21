@@ -31,6 +31,18 @@ class TestPositionLifecycle:
         assert pos.exit_price == Decimal("51000")
         assert pos.exit_reason == "take_profit"
 
+    def test_short_position_lifecycle(self):
+        pos = PaperPosition(symbol="BTCUSDT", direction="short", quantity=Decimal("1"))
+        assert pos.status == PositionStatus.PENDING
+
+        pos.open(Decimal("50000"), _utc())
+        assert pos.status == PositionStatus.OPEN
+        assert pos.entry_price == Decimal("50000")
+
+        pos.close(Decimal("49000"), _utc(second=30), "take_profit", "Gain 2%")
+        assert pos.status == PositionStatus.CLOSED
+        assert pos.realized_pnl == Decimal("1000")
+
     def test_cannot_open_twice(self):
         pos = PaperPosition(symbol="BTCUSDT", direction="long")
         pos.open(Decimal("50000"), _utc())
@@ -72,6 +84,21 @@ class TestPnL:
         pos.update_price(Decimal("50500"))
         assert pos.unrealized_pnl == Decimal("500")
 
+    def test_short_unrealized_pnl_updates(self):
+        pos = PaperPosition(symbol="BTCUSDT", direction="short", quantity=Decimal("2"))
+        pos.open(Decimal("50000"), _utc())
+        pos.update_price(Decimal("49000"))
+        assert pos.unrealized_pnl == Decimal("2000")  # (50000 - 49000) * 2
+        pos.update_price(Decimal("51000"))
+        assert pos.unrealized_pnl == Decimal("-2000")
+
+    def test_short_realized_pnl_at_close(self):
+        pos = PaperPosition(symbol="BTCUSDT", direction="short", quantity=Decimal("1"))
+        pos.open(Decimal("50000"), _utc())
+        # close at 49000 -> gross 1000
+        pos.close(Decimal("49000"), _utc(), "tp")
+        assert pos.realized_pnl == Decimal("1000")
+
     def test_fees_deducted(self):
         pos = PaperPosition(
             symbol="BTCUSDT", direction="long", quantity=Decimal("1"),
@@ -111,6 +138,23 @@ class TestMFEMAE:
 
         pos.update_price(Decimal("52000"))  # +4% → mfe_usd = 0.04 * 50000 * 0.1 = 200
         assert pos.mfe_usd == Decimal("200.0")
+
+    def test_short_mfe_mae_tracking(self):
+        pos = PaperPosition(symbol="BTCUSDT", direction="short", quantity=Decimal("1"))
+        pos.open(Decimal("50000"), _utc())
+
+        # Move to 49000 (+2% MFE, 0 MAE for short)
+        pos.update_price(Decimal("49000"))
+        assert pos.mfe_pct == pytest.approx(0.02)
+        assert pos.mae_pct == 0.0
+
+        # Move to 52000 (MFE stays 2%, MAE hits 4% for short)
+        pos.update_price(Decimal("52000"))
+        assert pos.mfe_pct == pytest.approx(0.02)
+        assert pos.mae_pct == pytest.approx(0.04)
+
+        assert pos.mfe_usd == Decimal("1000")
+        assert pos.mae_usd == Decimal("2000")
 
     def test_no_updates_when_closed(self):
         pos = PaperPosition(symbol="BTCUSDT", direction="long", quantity=Decimal("1"))

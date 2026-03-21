@@ -22,6 +22,7 @@ class EngineMode(StrEnum):
 
 class Direction(StrEnum):
     LONG_ONLY = "long_only"
+    BI_DIRECTIONAL = "bi_directional"
 
 
 class SizingMethod(StrEnum):
@@ -44,7 +45,7 @@ def _default_engine_symbols() -> list[str]:
 class EngineSettings(BaseSettings):
     mode: EngineMode = EngineMode.PAPER
     symbols: list[str] = Field(default_factory=_default_engine_symbols)
-    direction: Direction = Direction.LONG_ONLY
+    direction: Direction = Direction.BI_DIRECTIONAL
     max_leverage: int = Field(default=3, ge=1, le=5)
     log_level: str = "INFO"
 

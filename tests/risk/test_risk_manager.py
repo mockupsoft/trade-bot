@@ -70,7 +70,7 @@ class TestRejection:
 
     @pytest.mark.asyncio
     async def test_exposure_limit_rejected(self, manager, portfolio):
-        portfolio.update_exposure("BTCUSDT", Decimal("1200"))
+        portfolio.update_exposure("BTCUSDT", Decimal("1200"), "long")
         result = await manager.assess_signal(_signal("ETHUSDT"), Decimal("400"))
         assert result.decision == RiskDecision.REJECTED
         failed = [c for c in result.checks_performed if not c.passed]
@@ -78,7 +78,7 @@ class TestRejection:
 
     @pytest.mark.asyncio
     async def test_correlation_rejected(self, manager, portfolio):
-        portfolio.update_exposure("BTCUSDT", Decimal("400"))
+        portfolio.update_exposure("BTCUSDT", Decimal("400"), "short")
         result = await manager.assess_signal(
             _signal("ETHUSDT"), Decimal("400")
         )
@@ -93,12 +93,14 @@ class TestPortfolioState:
         assert portfolio.daily_drawdown == pytest.approx(0.03)
 
     def test_update_exposure(self, portfolio):
-        portfolio.update_exposure("BTCUSDT", Decimal("500"))
+        portfolio.update_exposure("BTCUSDT", Decimal("500"), "long")
         assert portfolio.current_exposure == Decimal("500")
         assert "BTCUSDT" in portfolio.open_symbols
+        portfolio.update_exposure("ETHUSDT", Decimal("200"), "short")
+        assert portfolio.current_exposure == Decimal("700")
 
     def test_remove_position(self, portfolio):
-        portfolio.update_exposure("BTCUSDT", Decimal("500"))
+        portfolio.update_exposure("BTCUSDT", Decimal("500"), "long")
         portfolio.remove_position("BTCUSDT")
         assert portfolio.current_exposure == Decimal("0")
 

@@ -47,7 +47,7 @@ class PortfolioState:
         self.current_exposure = Decimal("0")
         self.daily_pnl = Decimal("0")
         self.daily_high_water = initial_capital
-        self.open_positions: dict[str, Decimal] = {}
+        self.open_positions: dict[str, dict] = {} # Dict of symbol to {"notional": Decimal, "direction": str}
 
     @property
     def daily_drawdown(self) -> float:
@@ -59,9 +59,9 @@ class PortfolioState:
     def open_symbols(self) -> list[str]:
         return list(self.open_positions.keys())
 
-    def update_exposure(self, symbol: str, notional: Decimal) -> None:
-        self.open_positions[symbol] = notional
-        self.current_exposure = sum(self.open_positions.values())
+    def update_exposure(self, symbol: str, notional: Decimal, direction: str = "long") -> None:
+        self.open_positions[symbol] = {"notional": notional, "direction": direction}
+        self.current_exposure = sum(pos["notional"] for pos in self.open_positions.values())
         risk_exposure_pct.set(
             float(self.current_exposure / self.portfolio_value)
             if self.portfolio_value > 0
@@ -70,7 +70,7 @@ class PortfolioState:
 
     def remove_position(self, symbol: str) -> None:
         self.open_positions.pop(symbol, None)
-        self.current_exposure = sum(self.open_positions.values())
+        self.current_exposure = sum(pos["notional"] for pos in self.open_positions.values())
 
     def update_daily_drawdown(self) -> None:
         risk_daily_drawdown.set(self.daily_drawdown)

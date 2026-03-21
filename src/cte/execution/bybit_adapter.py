@@ -95,6 +95,7 @@ class BybitDemoAdapter(ExecutionAdapter):
             "category": "linear",
             "symbol": request.symbol,
             "side": "Buy" if request.side == OrderSide.BUY else "Sell",
+            "positionIdx": 1 if request.direction == "long" else 2, # Bybit positionIdx (0=One-Way, 1=Long, 2=Short)
             "orderType": "Market" if request.order_type.value == "market" else "Limit",
             "qty": str(request.quantity),
             "orderLinkId": request.client_order_id,
@@ -171,12 +172,13 @@ class BybitDemoAdapter(ExecutionAdapter):
         return positions
 
     async def close_position(
-        self, symbol: str, quantity: Decimal, side: OrderSide
+        self, symbol: str, quantity: Decimal, side: OrderSide, direction: str = "long"
     ) -> OrderResult:
         close_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
         request = OrderRequest(
             symbol=symbol,
             side=close_side,
+            direction=direction,
             quantity=quantity,
             reduce_only=True,
         )

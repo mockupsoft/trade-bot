@@ -186,12 +186,20 @@ docker compose -f deploy/docker-compose.yml up -d        # Full stack
 | Event clock, no wall clock | `datetime.now()` breaks replay; event timestamps are deterministic |
 | 25 readiness gates before live | Infrastructure (6) + execution parity (10) + edge proof (9) |
 
+## Directional Support Matrix
+
+| Venue / Mode | Verified | Notes |
+|---|---|---|
+| Paper Mode | **Yes** | Fully verifies LONG/SHORT metrics inverted calculations |
+| Binance Testnet | **Yes** | Open/close LONG and SHORT REST behaviors validated |
+| Bybit Demo | **Yes** | Explicit isolated LONG/SHORT endpoints checked via REST APIs |
+
 ## V1 Constraints
 
 | Constraint | Value |
 |---|---|
 | Symbols | BTCUSDT, ETHUSDT |
-| Direction | LONG only |
+| Direction | LONG + SHORT (Bi-directional validated on testnet) |
 | Max leverage | 3x |
 | Primary venue | Binance USDⓈ-M Futures |
 | Secondary venue | Bybit v5 linear |

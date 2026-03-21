@@ -100,6 +100,7 @@ class BinanceTestnetAdapter(ExecutionAdapter):
         params = {
             "symbol": request.symbol,
             "side": "BUY" if request.side == OrderSide.BUY else "SELL",
+            "positionSide": "LONG" if request.direction == "long" else "SHORT",
             "type": request.order_type.value.upper(),
             "quantity": str(request.quantity),
             "newClientOrderId": request.client_order_id,
@@ -201,12 +202,13 @@ class BinanceTestnetAdapter(ExecutionAdapter):
         }
 
     async def close_position(
-        self, symbol: str, quantity: Decimal, side: OrderSide
+        self, symbol: str, quantity: Decimal, side: OrderSide, direction: str = "long"
     ) -> OrderResult:
         close_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
         request = OrderRequest(
             symbol=symbol,
             side=close_side,
+            direction=direction,
             quantity=quantity,
             reduce_only=True,
         )

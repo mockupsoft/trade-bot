@@ -160,6 +160,11 @@ def check_layer2_thesis_failure(
     - Momentum z-score collapses (price movement stalls/reverses)
     - Liquidation imbalance shifts against position (longs being liquidated)
 
+    For SHORT positions, thesis fails when:
+    - Taker flow imbalance flips positive (buyers overwhelm)
+    - Momentum z-score surges (price movement spikes)
+    - Liquidation imbalance shifts against position (shorts being liquidated)
+
     Uses a confirmation count to avoid whipsaw: the thesis must be
     negative for N consecutive checks before triggering.
     """
@@ -172,24 +177,39 @@ def check_layer2_thesis_failure(
     tf = ctx.features.tf_60s
     failures: list[str] = []
 
+    is_long = ctx.position.direction == "long"
+
     # Orderflow flip
-    if tf.taker_flow_imbalance is not None and tf.taker_flow_imbalance < profile.thesis_tfi_flip_threshold:
+    if tf.taker_flow_imbalance is not None:
+        if is_long and tf.taker_flow_imbalance < profile.thesis_tfi_flip_threshold:
             failures.append(
                 f"TFI={tf.taker_flow_imbalance:.2f} < {profile.thesis_tfi_flip_threshold}"
             )
+        elif not is_long and tf.taker_flow_imbalance > -profile.thesis_tfi_flip_threshold:
+            failures.append(
+                f"TFI={tf.taker_flow_imbalance:.2f} > {-profile.thesis_tfi_flip_threshold}"
+            )
 
     # Momentum collapse
-    if tf.returns_z is not None and tf.returns_z < profile.thesis_momentum_collapse_z:
-        failures.append(
-            f"returns_z={tf.returns_z:.2f} < {profile.thesis_momentum_collapse_z}"
-        )
+    if tf.returns_z is not None:
+        if is_long and tf.returns_z < profile.thesis_momentum_collapse_z:
+            failures.append(
+                f"returns_z={tf.returns_z:.2f} < {profile.thesis_momentum_collapse_z}"
+            )
+        elif not is_long and tf.returns_z > -profile.thesis_momentum_collapse_z:
+            failures.append(
+                f"returns_z={tf.returns_z:.2f} > {-profile.thesis_momentum_collapse_z}"
+            )
 
-    # Liquidation shift (for longs: positive liq_imb = longs being liquidated = bad)
-    if (tf.liquidation_imbalance is not None
-            and ctx.position.direction == "long"
-            and tf.liquidation_imbalance > profile.thesis_liq_shift_threshold):
+    # Liquidation shift
+    if tf.liquidation_imbalance is not None:
+        if is_long and tf.liquidation_imbalance > profile.thesis_liq_shift_threshold:
             failures.append(
                 f"liq_imbalance={tf.liquidation_imbalance:.2f} > {profile.thesis_liq_shift_threshold}"
+            )
+        elif not is_long and tf.liquidation_imbalance < -profile.thesis_liq_shift_threshold:
+            failures.append(
+                f"liq_imbalance={tf.liquidation_imbalance:.2f} < {-profile.thesis_liq_shift_threshold}"
             )
 
     if failures:
@@ -309,26 +329,34 @@ def check_layer4_winner_protection(
         state.position_mode = "winner_protection"
         state.mode_transitions.append(("normal", "winner_protection", ctx.now.isoformat()))
 
-    # Check trailing stop from high
+    # Check trailing stop from high (or low for shorts)
     pos = ctx.position
-    if pos.highest_price > 0:
-        drawdown_from_high = float(
-            (pos.highest_price - ctx.current_price) / pos.highest_price
+
+    is_long = pos.direction == "long"
+    drawdown_from_best = 0.0
+    best_price_str = ""
+
+    if is_long and pos.highest_price > 0:
+        drawdown_from_best = float((pos.highest_price - ctx.current_price) / pos.highest_price)
+        best_price_str = f"high {pos.highest_price}"
+    elif not is_long and pos.lowest_price > 0:
+        drawdown_from_best = float((ctx.current_price - pos.lowest_price) / pos.lowest_price)
+        best_price_str = f"low {pos.lowest_price}"
+
+    if best_price_str and drawdown_from_best >= profile.winner_trailing_pct:
+        return LayerResult(
+            layer=4, layer_name="winner_protection", triggered=True,
+            exit_reason="winner_trailing",
+            detail=(
+                f"Drawdown {drawdown_from_best:.2%} from {best_price_str} "
+                f"≥ trailing {profile.winner_trailing_pct:.2%}"
+            ),
         )
-        if drawdown_from_high >= profile.winner_trailing_pct:
-            return LayerResult(
-                layer=4, layer_name="winner_protection", triggered=True,
-                exit_reason="winner_trailing",
-                detail=(
-                    f"Drawdown {drawdown_from_high:.2%} from high {pos.highest_price} "
-                    f"≥ trailing {profile.winner_trailing_pct:.2%}"
-                ),
-            )
 
     return LayerResult(
         layer=4, layer_name="winner_protection", triggered=False,
         exit_reason="",
-        detail=f"Winner protected: trailing {profile.winner_trailing_pct:.2%} from high",
+        detail=f"Winner protected: trailing {profile.winner_trailing_pct:.2%} from best price",
     )
 
 
@@ -370,17 +398,20 @@ def check_layer5_runner(
     # Check for runner downgrade: momentum completely dead
     if ctx.features is not None:
         ret_z = ctx.features.tf_60s.returns_z
-        if ret_z is not None and ret_z < -1.5:
-            if state.position_mode == "runner":
-                state.position_mode = "winner_protection"
-                state.mode_transitions.append(
-                    ("runner", "winner_protection", ctx.now.isoformat())
+        if ret_z is not None:
+            is_long = ctx.position.direction == "long"
+            collapsed = (is_long and ret_z < -1.5) or (not is_long and ret_z > 1.5)
+            if collapsed:
+                if state.position_mode == "runner":
+                    state.position_mode = "winner_protection"
+                    state.mode_transitions.append(
+                        ("runner", "winner_protection", ctx.now.isoformat())
+                    )
+                return LayerResult(
+                    layer=5, layer_name="runner", triggered=False,
+                    exit_reason="",
+                    detail=f"Runner downgraded: returns_z={ret_z:.2f} (momentum collapsed)",
                 )
-            return LayerResult(
-                layer=5, layer_name="runner", triggered=False,
-                exit_reason="",
-                detail=f"Runner downgraded: returns_z={ret_z:.2f} (momentum collapsed)",
-            )
 
     # Activate runner mode
     if state.position_mode != "runner":
@@ -390,22 +421,30 @@ def check_layer5_runner(
 
     # Wide trailing stop
     pos = ctx.position
-    if pos.highest_price > 0:
-        drawdown_from_high = float(
-            (pos.highest_price - ctx.current_price) / pos.highest_price
+
+    is_long = pos.direction == "long"
+    drawdown_from_best = 0.0
+    best_price_str = ""
+
+    if is_long and pos.highest_price > 0:
+        drawdown_from_best = float((pos.highest_price - ctx.current_price) / pos.highest_price)
+        best_price_str = f"high {pos.highest_price}"
+    elif not is_long and pos.lowest_price > 0:
+        drawdown_from_best = float((ctx.current_price - pos.lowest_price) / pos.lowest_price)
+        best_price_str = f"low {pos.lowest_price}"
+
+    if best_price_str and drawdown_from_best >= profile.runner_trailing_pct:
+        return LayerResult(
+            layer=5, layer_name="runner", triggered=True,
+            exit_reason="runner_trailing",
+            detail=(
+                f"Runner drawdown {drawdown_from_best:.2%} from {best_price_str} "
+                f"≥ runner trailing {profile.runner_trailing_pct:.2%}"
+            ),
         )
-        if drawdown_from_high >= profile.runner_trailing_pct:
-            return LayerResult(
-                layer=5, layer_name="runner", triggered=True,
-                exit_reason="runner_trailing",
-                detail=(
-                    f"Runner drawdown {drawdown_from_high:.2%} from high {pos.highest_price} "
-                    f"≥ runner trailing {profile.runner_trailing_pct:.2%}"
-                ),
-            )
 
     return LayerResult(
         layer=5, layer_name="runner", triggered=False,
         exit_reason="",
-        detail=f"Runner active: trailing {profile.runner_trailing_pct:.2%} from high",
+        detail=f"Runner active: trailing {profile.runner_trailing_pct:.2%} from best price",
     )

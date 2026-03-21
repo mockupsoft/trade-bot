@@ -28,13 +28,13 @@ from cte.analytics.metrics import (
 
 def _trade(
     pnl=10, symbol="BTCUSDT", venue="binance", tier="A", epoch="paper",
-    source="paper_simulated",
+    direction="long", source="paper_simulated",
     exit_reason="winner_trailing", exit_layer=4, hold=300, r=1.0,
     latency=100, slip=5.0, mfe=0.02, mae=0.005, profitable_at_exit=True,
     mode="normal",
 ) -> CompletedTrade:
     return CompletedTrade(
-        symbol=symbol, venue=venue, tier=tier, epoch=epoch, source=source,
+        symbol=symbol, venue=venue, tier=tier, epoch=epoch, direction=direction, source=source,
         pnl=Decimal(str(pnl)), exit_reason=exit_reason, exit_layer=exit_layer,
         hold_seconds=hold, r_multiple=r, entry_latency_ms=latency,
         modeled_slippage_bps=slip, mfe_pct=mfe, mae_pct=mae,
