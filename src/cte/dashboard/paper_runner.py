@@ -30,7 +30,6 @@ from cte.core.events import (
     DataQuality,
     FreshnessScore,
     RiskDecision,
-    SignalAction,
     SignalEvent,
     StreamingFeatureVector,
     Symbol,

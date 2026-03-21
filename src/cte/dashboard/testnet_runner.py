@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock
 
 import structlog
 
-from cte.core.events import RiskDecision, SignalAction, SignalEvent
+from cte.core.events import RiskDecision, SignalEvent
 from cte.core.exceptions import ExecutionError, OrderRejectedError
 from cte.core.settings import CTESettings, ExecutionMode, ExecutionSettings
 from cte.dashboard.paper_runner import _SYMBOL_MAP as _SYMBOL_MAP

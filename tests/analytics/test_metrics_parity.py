@@ -1,5 +1,7 @@
 from decimal import Decimal
-from cte.analytics.metrics import compute_all_metrics, CompletedTrade
+
+from cte.analytics.metrics import CompletedTrade, compute_all_metrics
+
 
 def _trade(direction="long", pnl=10) -> CompletedTrade:
     return CompletedTrade(

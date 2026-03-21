@@ -1,7 +1,8 @@
-from decimal import Decimal
 from datetime import UTC, datetime
-from cte.exits.config import TIER_A_PROFILE, TIER_C_PROFILE
+from decimal import Decimal
+
 from cte.execution.position import PaperPosition
+from cte.exits.config import TIER_A_PROFILE, TIER_C_PROFILE
 from cte.exits.layers import (
     ExitContext,
     PositionExitState,
@@ -10,6 +11,7 @@ from cte.exits.layers import (
     check_layer5_runner,
 )
 from tests.exits.test_layers import _features
+
 
 def _t(minute=0, second=0):
     return datetime(2024, 1, 1, 12, minute, second, tzinfo=UTC)

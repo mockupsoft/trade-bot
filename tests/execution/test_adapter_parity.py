@@ -1,9 +1,12 @@
-import pytest
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
-from cte.execution.adapter import OrderRequest, OrderSide, OrderRequestType
+from unittest.mock import AsyncMock
+
+import pytest
+
+from cte.execution.adapter import OrderRequest, OrderRequestType, OrderSide
 from cte.execution.binance_adapter import BinanceTestnetAdapter
 from cte.execution.bybit_adapter import BybitDemoAdapter
+
 
 class TestBinanceTestnetAdapterParity:
     @pytest.mark.asyncio
@@ -18,7 +21,7 @@ class TestBinanceTestnetAdapterParity:
             symbol="BTCUSDT", side=OrderSide.SELL, direction="short",
             order_type=OrderRequestType.MARKET, quantity=Decimal("1")
         )
-        res = await adapter.place_order(req)
+        await adapter.place_order(req)
 
         adapter._signed_request.assert_called_once()
         params = adapter._signed_request.call_args[0][2]
@@ -52,7 +55,7 @@ class TestBybitDemoAdapterParity:
             symbol="BTCUSDT", side=OrderSide.SELL, direction="short",
             order_type=OrderRequestType.MARKET, quantity=Decimal("1")
         )
-        res = await adapter.place_order(req)
+        await adapter.place_order(req)
 
         adapter._signed_request.assert_called_once()
         body = adapter._signed_request.call_args[0][2]
