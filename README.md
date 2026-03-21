@@ -198,7 +198,26 @@ Full notes: [docs/DASHBOARD_MODES.md](docs/DASHBOARD_MODES.md).
 
 ### Validation Campaign (Real Data)
 
+**SYSTEM STATUS:** **NOT VERIFIED / BLOCKED**
+
 End-to-end checks use **live WebSocket** prices. By default the dashboard runs **paper** execution (`source=paper_simulated`). **No seed trades.** With `CTE_ENGINE_MODE=demo`, `CTE_EXECUTION_MODE=testnet`, and `CTE_DASHBOARD_VENUE_LOOP=1`, the dashboard can place **real Binance USDⓈ-M testnet REST orders** (`source=demo_exchange`); testnet keys still satisfy the demo **safety gate** (no production URLs).
+
+**Currently, testnet execution and 24-hour validation are BLOCKED.**
+The system has been hardened against false passes in readiness logic (critical metric DTOs enforce strict required validation, mitigating the risk of silent `0` defaults). However, true validation requires real testnet credentials and an actual 24-hour operational run on a persistent host.
+
+**BLOCKERS:**
+* Missing real Binance Testnet API keys (`CTE_BINANCE_TESTNET_API_KEY` and `CTE_BINANCE_TESTNET_API_SECRET`).
+* Missing persistent operational host to run the continuous 24-hour baseline.
+
+**NEXT STEPS (Operator Instructions):**
+1. **Provide Credentials:** Supply valid Binance testnet keys via the `.env` file.
+2. **Verify Credentials:** Run `python3 scripts/verify_binance_testnet_auth.py` to confirm the keys work.
+3. **Execute E2E Proof:** Run `python3 scripts/run_testnet_e2e_proof.py` to demonstrate a complete trade lifecycle (entry, accept, close, and clean reconciliation).
+4. **24-Hour Baseline:** Deploy the dashboard/system on a host and let it run for a full 24 hours in demo/testnet mode.
+5. **Collect Snapshots:** Aggregate hourly snapshots via `POST /api/campaign/snapshot?period=hourly`.
+6. **Update Status:** Replace this section with real evidence metrics once the run is successfully completed (Trades, Win rate, Expectancy, Net PnL, Max DD, Latency p95, etc).
+
+*Do NOT update this documentation with faked, simulated, or hypothetical campaign results. The system remains formally UNVERIFIED until real proof is produced.*
 
 | Item | Command / artifact |
 |------|---------------------|

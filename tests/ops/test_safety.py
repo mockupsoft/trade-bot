@@ -1,4 +1,5 @@
 """Tests for environment safety guards."""
+
 from __future__ import annotations
 
 from cte.ops.safety import SystemMode, validate_environment
