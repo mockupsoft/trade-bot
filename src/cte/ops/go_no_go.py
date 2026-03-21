@@ -61,6 +61,7 @@ class GoNoGoMetrics:
 
 def build_go_no_go_report(
     metrics: GoNoGoMetrics | None = None,
+
 ) -> dict:
     """Build the complete GO/NO-GO report."""
 
@@ -79,6 +80,7 @@ def build_go_no_go_report(
     if m.stale_feed_events > 5:
         health_score -= 10
         health_findings.append(f"{m.stale_feed_events} stale feed events")
+
     if not health_findings:
         health_findings.append("All systems healthy during validation period")
 
@@ -102,6 +104,7 @@ def build_go_no_go_report(
     if m.reconciliation_clean_pct < 100:
         exec_score -= 30
         exec_findings.append(f"Reconciliation clean rate {m.reconciliation_clean_pct:.0f}%")
+
     if not exec_findings:
         exec_findings.append("Paper and demo execution closely aligned")
 
@@ -130,6 +133,7 @@ def build_go_no_go_report(
         sig_findings.append(f"Marginal profit factor: {m.profit_factor:.2f}")
 
     if m.tier_a_expectancy > m.tier_b_expectancy > m.tier_c_expectancy:
+
         sig_score += 10
         sig_findings.append("Tier separation correct: A > B > C")
     else:
@@ -162,6 +166,7 @@ def build_go_no_go_report(
         exit_score += 10
         exit_findings.append(f"Runner mode effective: avg {m.runner_avg_r:.1f}R")
 
+
     sections.append(ReportSection(
         name="exit_effectiveness", score=max(0, min(100, exit_score)),
         verdict="pass" if exit_score >= 60 else "warning",
@@ -184,6 +189,7 @@ def build_go_no_go_report(
     if m.worst_case_dd > 0.10:
         risk_score -= 30
         risk_findings.append(f"Worst-case DD {m.worst_case_dd:.1%} exceeds 10%")
+
 
     sections.append(ReportSection(
         name="risk_behavior", score=max(0, risk_score),
@@ -210,6 +216,7 @@ def build_go_no_go_report(
     else:
         edge_findings.append(f"Worst-case expectancy NEGATIVE: ${m.worst_case_expectancy:.2f}")
 
+
     sections.append(ReportSection(
         name="edge_stability", score=max(0, min(100, edge_score)),
         verdict="pass" if edge_score >= 70 else "fail" if edge_score < 40 else "warning",
@@ -235,6 +242,7 @@ def build_go_no_go_report(
         "generated_at": datetime.now(UTC).isoformat(),
         "campaign_days": m.campaign_days,
         "total_trades": m.total_trades,
+
         "final_verdict": final_verdict,
         "overall_score": round(avg_score, 1),
         "sections": [

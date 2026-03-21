@@ -104,6 +104,7 @@ class TestDashboardReadinessGates:
                 all_tests_pass=True,
                 fsm_violations=0,
             )
+
         )
         r = evaluate_readiness(gates)
         assert r["ready"]
@@ -119,6 +120,7 @@ class TestReadinessGate:
                 all_tests_pass=True, state_machine_violations=0,
                 api_keys_configured=True,
             )
+
         )
         result = evaluate_readiness(gates)
         assert result["ready"]
@@ -128,6 +130,7 @@ class TestReadinessGate:
         gates = build_paper_to_demo_checklist(
             PaperToDemoMetrics(paper_days=3, paper_trades=10)
         )
+
         result = evaluate_readiness(gates)
         assert not result["ready"]
         assert result["failed"] > 0
@@ -146,6 +149,7 @@ class TestReadinessGate:
                 max_capital_configured=True,
                 monitoring_alerts_configured=True,
             )
+
         )
         result = evaluate_readiness(gates)
         assert result["ready"]
@@ -158,6 +162,7 @@ class TestReadinessGate:
                 reconciliation_clean_rate=1.0,
                 fill_latency_p99_ms=8000,  # > 5000ms threshold
             )
+
         )
         result = evaluate_readiness(gates)
         assert not result["ready"]
@@ -169,7 +174,7 @@ class TestEdgeProofGates:
     def test_all_pass(self):
         gates = build_edge_proof_checklist(
             EdgeProofMetrics(
-                expectancy_overall=15.0,
+                expectancy_overall=15.0, total_trades=100,
                 expectancy_low_vol=5.0, expectancy_high_vol=10.0, expectancy_trending=20.0,
                 positive_regime_count=3,
                 tier_a_expectancy=25.0, tier_b_expectancy=10.0, tier_c_expectancy=2.0,
@@ -179,17 +184,19 @@ class TestEdgeProofGates:
                 kill_switch_false_positive_rate=0.10, kill_switch_response_ms=500,
             )
         )
+
         result = evaluate_readiness(gates)
         assert result["ready"]
 
     def test_tier_separation_fail(self):
         gates = build_edge_proof_checklist(
             EdgeProofMetrics(
-                expectancy_overall=10.0, positive_regime_count=3,
+                expectancy_overall=10.0, positive_regime_count=3, total_trades=100,
                 tier_a_expectancy=5.0, tier_b_expectancy=15.0,  # B > A = wrong
                 tier_a_better_than_b=False, tier_b_better_than_c=True,
             )
         )
+
         result = evaluate_readiness(gates)
         assert not result["ready"]
         blocker_names = [b["name"] for b in result["blockers"]]
@@ -198,11 +205,12 @@ class TestEdgeProofGates:
     def test_worst_case_survival_fail(self):
         gates = build_edge_proof_checklist(
             EdgeProofMetrics(
-                expectancy_overall=10.0, positive_regime_count=3,
+                expectancy_overall=10.0, positive_regime_count=3, total_trades=100,
                 worst_case_expectancy=-5.0,  # collapses under worst-case fills
                 worst_case_max_dd=0.15,      # 15% > 10% threshold
             )
         )
+
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
         assert "worst_case_expectancy" in blocker_names
@@ -211,9 +219,10 @@ class TestEdgeProofGates:
     def test_edge_regime_count(self):
         gates = build_edge_proof_checklist(
             EdgeProofMetrics(
-                expectancy_overall=10.0, positive_regime_count=1,
+                expectancy_overall=10.0, positive_regime_count=1, total_trades=100,
             )
         )
+
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
         assert "edge_regime_count" in blocker_names
@@ -235,6 +244,7 @@ class TestGoNoGoReport:
                 positive_regime_count=3, worst_case_expectancy=8.0,
                 campaign_days=7, total_trades=120,
             )
+
         )
         assert report["final_verdict"] == "GO"
         assert report["overall_score"] > 60
@@ -248,6 +258,7 @@ class TestGoNoGoReport:
                 max_drawdown_pct=0.08, worst_case_dd=0.15,
                 positive_regime_count=0, worst_case_expectancy=-20.0,
             )
+
         )
         assert report["final_verdict"] == "NO-GO"
         assert len(report["critical_blockers"]) > 0
@@ -263,6 +274,7 @@ class TestGoNoGoReport:
                 positive_regime_count=3, worst_case_expectancy=3.0,
                 reconciliation_clean_pct=100,
             )
+
         )
         assert report["final_verdict"] in ("CONDITIONAL-GO", "GO")
 

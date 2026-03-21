@@ -140,6 +140,7 @@ class TestCampaignValidationGates:
                 stale_ratio=0.005, reject_ratio=0.02, error_count=0,
                 expectancy=15.0, seed_trade_count=0,
             )
+
         )
         result = evaluate_readiness(gates)
         assert result["ready"]
@@ -150,6 +151,7 @@ class TestCampaignValidationGates:
                 campaign_days=10, total_trades=150, all_recon_clean=True,
                 seed_trade_count=5,  # seed data mixed in!
             )
+
         )
         result = evaluate_readiness(gates)
         assert not result["ready"]
@@ -161,6 +163,7 @@ class TestCampaignValidationGates:
             CampaignValidationMetrics(
                 campaign_days=10, total_trades=150, all_recon_clean=False,
             )
+
         )
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
@@ -171,6 +174,7 @@ class TestCampaignValidationGates:
             CampaignValidationMetrics(
                 campaign_days=10, total_trades=150, max_dd_observed=0.08,
             )
+
         )
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
@@ -181,6 +185,7 @@ class TestCampaignValidationGates:
             CampaignValidationMetrics(
                 campaign_days=10, total_trades=150, expectancy=-5.0,
             )
+
         )
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
@@ -198,6 +203,7 @@ class TestCampaignValidationGates:
                 promotion_expectancy=5.0,
                 promotion_max_dd_observed=0.02,
             )
+
         )
         result = evaluate_readiness(gates)
         blocker_names = [b["name"] for b in result["blockers"]]
