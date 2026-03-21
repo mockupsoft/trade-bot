@@ -155,7 +155,7 @@ def _dashboard_signal_settings(base: SignalSettings) -> SignalSettings:
 
 
 def _dashboard_risk_settings(base: RiskSettings, symbol_count: int) -> RiskSettings:
-    """Raise total exposure cap so one max-sized LONG per symbol can coexist in sim."""
+    """Raise total exposure cap so one max-sized position per symbol can coexist in sim."""
     n = max(1, symbol_count)
     per = float(base.max_position_pct)
     needed = min(1.0, per * float(n))
@@ -370,7 +370,7 @@ def build_streaming_vector_from_ticker(
     return vec
 
 
-def _has_open_long(paper: PaperExecutionEngine, symbol: str) -> bool:
+def _has_open_position(paper: PaperExecutionEngine, symbol: str) -> bool:
     return any(pos.symbol == symbol and pos.is_open for pos in paper.open_positions.values())
 
 
@@ -755,7 +755,7 @@ class DashboardPaperRunner:
             if not ops.is_symbol_enabled(sym):
                 self._diag.record(sym, "rejected_symbol_disabled", "")
                 continue
-            if _has_open_long(paper, sym):
+            if _has_open_position(paper, sym):
                 self._diag.record(sym, "rejected_existing_position", "")
                 continue
 
@@ -784,7 +784,7 @@ class DashboardPaperRunner:
 
             legacy = SignalEvent(
                 symbol=scored.symbol,
-                action=SignalAction.OPEN_LONG,
+                action=scored.action,
                 confidence=scored.composite_score,
                 reason=scored.reason,
             )

@@ -60,6 +60,7 @@ class OrderRequest:
     client_order_id: str = field(default_factory=lambda: str(uuid4()))
     symbol: str = ""
     side: OrderSide = OrderSide.BUY
+    direction: str = "long"              # "long" or "short"
     order_type: OrderRequestType = OrderRequestType.MARKET
     quantity: Decimal = Decimal("0")
     price: Decimal | None = None         # required for LIMIT orders
@@ -76,6 +77,7 @@ class OrderResult:
     venue_order_id: str = ""
     symbol: str = ""
     side: OrderSide = OrderSide.BUY
+    direction: str = "long"              # "long" or "short"
     status: VenueOrderStatus = VenueOrderStatus.PENDING
     requested_quantity: Decimal = Decimal("0")
     filled_quantity: Decimal = Decimal("0")
@@ -157,7 +159,7 @@ class ExecutionAdapter(ABC):
 
     @abstractmethod
     async def close_position(
-        self, symbol: str, quantity: Decimal, side: OrderSide
+        self, symbol: str, quantity: Decimal, side: OrderSide, direction: str = "long"
     ) -> OrderResult:
         """Close a position with a reduce-only market order."""
 

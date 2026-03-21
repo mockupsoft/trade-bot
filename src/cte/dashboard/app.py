@@ -388,7 +388,7 @@ def _v1_operations_policy() -> dict[str, object]:
     """Static PRD alignment for the Operations UI (matches .cursorrules / phased plan)."""
     s = get_settings()
     return {
-        "direction": "long_only",
+        "direction": s.engine.direction.value,
         "symbols": expand_legacy_engine_symbols(list(s.engine.symbols)),
         "venues": {
             "primary": "binance_usdm_futures_testnet",

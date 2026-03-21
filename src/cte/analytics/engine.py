@@ -77,6 +77,7 @@ class AnalyticsEngine:
             venue=venue,
             tier=position.signal_tier,
             epoch=epoch,
+            direction=position.direction,
             source=source,
             pnl=position.realized_pnl,
             exit_reason=position.exit_reason,

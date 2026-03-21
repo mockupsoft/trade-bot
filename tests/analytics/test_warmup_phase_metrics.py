@@ -13,12 +13,13 @@ from cte.analytics.metrics import (
 )
 
 
-def _t(pnl: float, phase: str) -> CompletedTrade:
+def _t(pnl: float, phase: str, direction: str = "long") -> CompletedTrade:
     return CompletedTrade(
         symbol="BTCUSDT",
         venue="binance",
         tier="A",
         epoch="e",
+        direction=direction,
         source="paper_simulated",
         pnl=Decimal(str(pnl)),
         exit_reason="no_progress",

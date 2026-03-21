@@ -71,6 +71,10 @@ class CampaignValidationMetrics:
     promotion_trade_count: int | None = None
     promotion_expectancy: float | None = None
     promotion_max_dd_observed: float | None = None
+    long_trade_count: int = 0
+    short_trade_count: int = 0
+    long_expectancy: float = 0.0
+    short_expectancy: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -593,5 +597,17 @@ def build_campaign_validation_checklist(
             description="Expectancy > $0 per trade (promotion evidence when provided)",
             status=GateStatus.PASS if promo_exp > 0 else GateStatus.FAIL,
             value=f"${promo_exp:.2f}", threshold="> $0",
+        ),
+        ReadinessGate(
+            name="bi_directional_parity", category="edge",
+            description="Minimum 25 trades per direction (long and short)",
+            status=GateStatus.PASS if metrics.long_trade_count >= 25 and metrics.short_trade_count >= 25 else GateStatus.FAIL,
+            value=f"long={metrics.long_trade_count}, short={metrics.short_trade_count}", threshold=">= 25 each",
+        ),
+        ReadinessGate(
+            name="bi_directional_expectancy", category="edge",
+            description="Expectancy > $0 per trade for both long and short",
+            status=GateStatus.PASS if metrics.long_expectancy > 0 and metrics.short_expectancy > 0 else GateStatus.FAIL,
+            value=f"L=${metrics.long_expectancy:.2f}, S=${metrics.short_expectancy:.2f}", threshold="> $0 each",
         ),
     ]

@@ -20,6 +20,7 @@ class CompletedTrade:
     venue: str
     tier: str
     epoch: str
+    direction: str
     source: str  # "seed" | "paper_simulated" | "demo_exchange"
     pnl: Decimal
     exit_reason: str
@@ -278,6 +279,9 @@ def compute_all_metrics(
     trades: list[CompletedTrade], initial_capital: float = 10000.0
 ) -> dict:
     """Compute all metrics for a set of trades. Dashboard-ready dict."""
+    long_trades = [t for t in trades if t.direction == "long"]
+    short_trades = [t for t in trades if t.direction == "short"]
+
     return {
         "trade_count": len(trades),
         "win_rate": round(win_rate(trades), 4),
@@ -304,4 +308,14 @@ def compute_all_metrics(
         ),
         "count_by_source": count_by_dimension(trades, "source"),
         "warmup_phase_breakdown": compute_warmup_phase_breakdown(trades, initial_capital),
+        "direction_splits": {
+            "long_trade_count": len(long_trades),
+            "short_trade_count": len(short_trades),
+            "long_win_rate": round(win_rate(long_trades), 4) if long_trades else 0.0,
+            "short_win_rate": round(win_rate(short_trades), 4) if short_trades else 0.0,
+            "long_expectancy": round(expectancy(long_trades), 2) if long_trades else 0.0,
+            "short_expectancy": round(expectancy(short_trades), 2) if short_trades else 0.0,
+            "long_pnl": round(float(sum(t.pnl for t in long_trades)), 2),
+            "short_pnl": round(float(sum(t.pnl for t in short_trades)), 2),
+        }
     }

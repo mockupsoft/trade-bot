@@ -44,10 +44,12 @@ def engine(exec_settings, exit_settings, publisher):
     return eng
 
 
-def _signal(symbol="BTCUSDT", tier="A", score=0.82):
+def _signal(symbol="BTCUSDT", tier="A", score=0.82, direction="long"):
+    action = SignalAction.OPEN_LONG if direction == "long" else SignalAction.OPEN_SHORT
     return ScoredSignalEvent(
         symbol=Symbol(symbol),
-        action=SignalAction.OPEN_LONG,
+        action=action,
+        direction=direction,
         composite_score=score,
         primary_score=score,
         context_multiplier=1.0,
@@ -75,6 +77,22 @@ class TestOpenPosition:
         pos = engine.open_position(_signal(), Decimal("0.01"), Decimal("650"), _t())
         # Ask = 65001, slippage = 5 bps → fill > 65001
         assert pos.fill_price > Decimal("65001")
+        assert pos.direction == "long"
+
+    def test_creates_short_position(self, engine):
+        signal = _signal(direction="short")
+        pos = engine.open_position(signal, Decimal("0.01"), Decimal("650"), _t())
+        assert pos is not None
+        assert pos.status == PositionStatus.OPEN
+        assert pos.symbol == "BTCUSDT"
+        assert pos.direction == "short"
+
+    def test_fills_below_bid_for_sell(self, engine):
+        # Short entry (SELL) should hit the bid and incur slippage downward
+        pos = engine.open_position(_signal(direction="short"), Decimal("0.01"), Decimal("650"), _t())
+        # Bid = 64999, slippage = 5 bps -> fill < 64999
+        assert pos.fill_price < Decimal("64999")
+        assert pos.direction == "short"
 
     def test_carries_signal_provenance(self, engine):
         pos = engine.open_position(_signal(tier="B", score=0.61), Decimal("0.01"), Decimal("650"), _t())
@@ -109,13 +127,28 @@ class TestClosePosition:
         closed = engine.close_position(pos.position_id, "take_profit", "Test", _t(second=30))
         assert closed is not None
         assert closed.status == PositionStatus.CLOSED
-        # Exit fill should be below bid (65000 - slippage)
-        assert closed.exit_price < Decimal("65000")
+        # Exit fill should be below bid (64999 - slippage)
+        assert closed.exit_price < Decimal("64999")
+
+    def test_close_short_at_ask(self, engine):
+        pos = engine.open_position(_signal(direction="short"), Decimal("0.01"), Decimal("650"), _t())
+        closed = engine.close_position(pos.position_id, "take_profit", "Test", _t(second=30))
+        assert closed is not None
+        assert closed.status == PositionStatus.CLOSED
+        # Exit fill for short (BUY) should be above ask (65001 + slippage)
+        assert closed.exit_price > Decimal("65001")
 
     def test_realized_pnl_calculated(self, engine):
         pos = engine.open_position(_signal(), Decimal("1"), Decimal("65000"), _t())
         # Move price up
         engine.update_book("BTCUSDT", Decimal("66000"), Decimal("66002"))
+        closed = engine.close_position(pos.position_id, "take_profit", "Test", _t(second=30))
+        assert closed.realized_pnl > 0
+
+    def test_short_realized_pnl_calculated(self, engine):
+        pos = engine.open_position(_signal(direction="short"), Decimal("1"), Decimal("65000"), _t())
+        # Move price down -> profitable short
+        engine.update_book("BTCUSDT", Decimal("63998"), Decimal("64000"))
         closed = engine.close_position(pos.position_id, "take_profit", "Test", _t(second=30))
         assert closed.realized_pnl > 0
 

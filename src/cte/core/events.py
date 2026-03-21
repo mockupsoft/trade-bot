@@ -66,6 +66,8 @@ class OrderStatus(StrEnum):
 class SignalAction(StrEnum):
     OPEN_LONG = "open_long"
     CLOSE_LONG = "close_long"
+    OPEN_SHORT = "open_short"
+    CLOSE_SHORT = "close_short"
     HOLD = "hold"
 
 
@@ -270,6 +272,7 @@ class ScoredSignalEvent(BaseEvent):
     source: str = "scoring_signal_engine"
     symbol: Symbol
     action: SignalAction
+    direction: str = "long"  # "long" or "short" (populated by engine)
 
     # Composite scoring
     composite_score: float = Field(ge=0.0, le=1.0)
