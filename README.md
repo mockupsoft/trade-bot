@@ -129,9 +129,9 @@ Requires [testnet API keys](https://testnet.binancefuture.com). No seed / fake t
 
 ```bash
 pip install -e .
-export CTE_BINANCE_TESTNET_API_KEY="..."
-export CTE_BINANCE_TESTNET_API_SECRET="..."
-CTE_ENGINE_MODE=demo cte-dashboard
+# Prefer repo-root .env (see .env.example) with CTE_BINANCE_TESTNET_* keys.
+./scripts/start_dashboard.sh
+# Or foreground: CTE_ENGINE_MODE=demo cte-dashboard
 ```
 
 → **http://localhost:8080** (listens on all interfaces; dual-stack IPv4+IPv6 so `localhost` → `::1` works). Market stream defaults to `wss://stream.binancefuture.com/stream`.
