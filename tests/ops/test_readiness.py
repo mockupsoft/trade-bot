@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import pytest
+
 from cte.ops.readiness import (
+    EdgeProofMetrics,
     GateStatus,
-    PerformanceMetrics,
     build_edge_proof_checklist,
     evaluate_readiness,
 )
@@ -13,7 +14,7 @@ from cte.ops.readiness import (
 class TestEdgeProofChecklist:
     def test_edge_proof_all_pass(self):
         """Happy path: all gates passing."""
-        metrics = PerformanceMetrics(
+        metrics = EdgeProofMetrics(
             expectancy_overall=15.0,
             expectancy_low_vol=5.0,
             expectancy_high_vol=10.0,
@@ -70,7 +71,7 @@ class TestEdgeProofChecklist:
         }
         # Override one field to cause failure
         base_metrics[field] = value
-        metrics = PerformanceMetrics(**base_metrics)
+        metrics = EdgeProofMetrics(**base_metrics)
 
         gates = build_edge_proof_checklist(metrics, min_trades=100)
         result = evaluate_readiness(gates)
@@ -82,24 +83,24 @@ class TestEdgeProofChecklist:
     def test_edge_proof_boundaries(self):
         """Test threshold boundary conditions."""
         # Overall expectancy must be > 0
-        metrics_zero_exp = PerformanceMetrics(expectancy_overall=0.0, total_trades=200)
+        metrics_zero_exp = EdgeProofMetrics(expectancy_overall=0.0, total_trades=200)
         gates = build_edge_proof_checklist(metrics_zero_exp)
         assert any(g.name == "edge_overall" and g.status == GateStatus.FAIL for g in gates)
 
         # Sample size must be >= min_trades
-        metrics_border_trades = PerformanceMetrics(total_trades=100, expectancy_overall=1.0)
+        metrics_border_trades = EdgeProofMetrics(total_trades=100, expectancy_overall=1.0)
         gates = build_edge_proof_checklist(metrics_border_trades, min_trades=100)
         assert any(g.name == "sample_size" and g.status == GateStatus.PASS for g in gates)
 
-        metrics_just_below = PerformanceMetrics(total_trades=99, expectancy_overall=1.0)
+        metrics_just_below = EdgeProofMetrics(total_trades=99, expectancy_overall=1.0)
         gates = build_edge_proof_checklist(metrics_just_below, min_trades=100)
         assert any(g.name == "sample_size" and g.status == GateStatus.FAIL for g in gates)
 
         # Kill switch speed must be > 0 and < 2000
-        metrics_zero_ms = PerformanceMetrics(kill_switch_response_ms=0, expectancy_overall=1.0)
+        metrics_zero_ms = EdgeProofMetrics(kill_switch_response_ms=0, expectancy_overall=1.0)
         gates = build_edge_proof_checklist(metrics_zero_ms)
         assert any(g.name == "kill_switch_speed" and g.status == GateStatus.FAIL for g in gates)
 
-        metrics_fast = PerformanceMetrics(kill_switch_response_ms=1, expectancy_overall=1.0)
+        metrics_fast = EdgeProofMetrics(kill_switch_response_ms=1, expectancy_overall=1.0)
         gates = build_edge_proof_checklist(metrics_fast)
         assert any(g.name == "kill_switch_speed" and g.status == GateStatus.PASS for g in gates)

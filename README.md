@@ -21,35 +21,7 @@ Production-grade, event-driven crypto trading engine for Binance USDⓈ-M Future
 | Phase 5: Analytics & Monitoring | **Complete** | Epoch-aware, 15+ metrics, 52 tests |
 | Operations Platform | **Complete** | Kill switch, readiness gates, GO/NO-GO |
 | Dashboard UI | **Complete** | 7-page ops + research platform |
-| **Validation Campaign** | **Complete** | 7-day paper/demo parallel run |
-| Readiness Gates System | **Complete** | Paper → demo → live progression |
-| Go/No-Go Decision Engine | **Complete** | Multi-metric evaluation |
-| Validation Campaign Framework | **Complete** | Campaign validation checklist system |
-| Readiness Refactor Audit | **Complete** | Verdict: RISKY |
-| Test Suite Alignment | **Fixed** | Post-refactor alignment |
-
-## Readiness Refactor Audit (Latest)
-
-**Verdict:** **RISKY**
-
-* No regression in business logic or thresholds.
-* Major architectural improvement via DTO/dataclass refactor.
-* **Key risk identified:** Silent default values (`0` / `0.0` / `False`) may mask missing critical inputs.
-* Potential false PASS scenarios if metrics are not explicitly provided.
-
-**Test status:**
-* Refactor initially broke campaign tests due to signature changes.
-* All failing tests have been fixed and aligned with new dataclass usage.
-
-## Known Risks / Next Steps
-
-**Known Risks:**
-* Unsafe default values in metrics DTOs (may lead to incorrect GO decisions).
-
-**Next Steps:**
-* Remove silent defaults from critical metrics (make fields required).
-* Introduce strict validation for all readiness inputs.
-* Add negative-path tests for missing data scenarios.
+| **Validation Campaign** | **Next** | 7-day paper/demo parallel run |
 
 ## Architecture
 
@@ -92,24 +64,6 @@ src/cte/
 ├── api/            3 modules   18+ REST endpoints
 └── db/             2 modules   TimescaleDB schema (15 tables)
 ```
-
-### Operations Layer (`src/cte/ops/`)
-
-* **Readiness gate system** (paper → demo → live progression)
-* **Go/No-Go decision engine** with multi-metric evaluation
-* **Campaign validation** checklist system
-* **Dataclass-based metrics architecture:**
-  * `CampaignValidationMetrics`
-  * `GoNoGoMetrics`
-  * `DemoToLiveMetrics`
-  * `PaperToDemoMetrics`
-  * `EdgeProofMetrics`
-
-**Key Features:**
-* Threshold-based gating system (PnL, drawdown, latency, reconciliation, etc.)
-* Structured evaluation reports (pass/fail per gate with real values)
-* Sample size enforcement (trade count, duration)
-* Emergency stop + operational safety checks (integrated in evaluation logic)
 
 ### 498 Tests (28+ test files)
 

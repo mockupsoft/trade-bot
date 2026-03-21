@@ -39,7 +39,7 @@ async def validate_binance(duration_sec: int) -> dict:
                     else:
                         stats["invalid_format"] += 1
 
-                except TimeoutError:
+                except asyncio.TimeoutError:
                     stats["timeouts"] += 1
 
     except Exception as e:
@@ -86,7 +86,7 @@ async def validate_bybit(duration_sec: int) -> dict:
                     else:
                         stats["invalid_format"] += 1
 
-                except TimeoutError:
+                except asyncio.TimeoutError:
                     stats["timeouts"] += 1
 
     except Exception as e:
