@@ -7,7 +7,11 @@ import pytest
 
 from cte.analytics.metrics import CompletedTrade
 from cte.ops.campaign import CampaignCollector, MetricSnapshot, compute_snapshot
-from cte.ops.readiness import CampaignValidationMetrics, build_campaign_validation_checklist, evaluate_readiness
+from cte.ops.readiness import (
+    CampaignValidationMetrics,
+    build_campaign_validation_checklist,
+    evaluate_readiness,
+)
 
 
 def _trade(
