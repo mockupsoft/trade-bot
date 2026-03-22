@@ -6,10 +6,8 @@ No I/O, no side effects, fully deterministic, fully testable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from decimal import Decimal
+from decimal import Decimal
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -33,6 +31,8 @@ class CompletedTrade:
     mae_pct: float
     was_profitable_at_exit: bool
     position_mode: str  # normal | winner_protection | runner
+    entry_price: Decimal = Decimal("0")
+    exit_price: Decimal = Decimal("0")
     warmup_phase: str = "none"
     """``none`` | ``early`` | ``full`` — dashboard staged warmup entries."""
 

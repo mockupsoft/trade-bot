@@ -90,6 +90,7 @@ def generate_seed_trades() -> list[CompletedTrade]:
             venue="binance",
             tier=tier,
             epoch="crypto_v1_paper",
+            direction="long",
             source="seed",
             pnl=Decimal(str(pnl)),
             exit_reason=exit_r,

@@ -79,6 +79,8 @@ class AnalyticsEngine:
             epoch=epoch,
             direction=position.direction,
             source=source,
+            entry_price=position.entry_price,
+            exit_price=position.exit_price,
             pnl=position.realized_pnl,
             exit_reason=position.exit_reason,
             exit_layer=exit_layer,
@@ -162,7 +164,13 @@ class AnalyticsEngine:
                     "venue": t.venue,
                     "tier": t.tier,
                     "epoch": t.epoch,
+                    "direction": t.direction,
                     "source": t.source,
+                    "entry_price": str(t.entry_price),
+                    "exit_price": str(t.exit_price),
+                    "execution_channel": "binance_usdm_testnet"
+                    if t.source == "demo_exchange"
+                    else "paper_simulated",
                     "pnl": str(t.pnl),
                     "exit_reason": t.exit_reason,
                     "exit_layer": t.exit_layer,
