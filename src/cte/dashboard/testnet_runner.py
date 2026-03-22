@@ -39,7 +39,7 @@ from cte.dashboard.paper_runner import (
     _mid_price,
     try_build_streaming_vector_from_ticker,
 )
-from cte.execution.adapter import OrderRequest, OrderSide, VenueOrderStatus
+from cte.execution.adapter import OrderRequest, OrderResult, OrderSide, VenueOrderStatus
 from cte.execution.binance_adapter import BinanceTestnetAdapter
 from cte.execution.paper import PaperExecutionEngine
 from cte.execution.reconciliation import LocalPositionView, PositionReconciler
@@ -172,6 +172,10 @@ class DashboardTestnetRunner:
         self._recon_mismatches = 0
         self._recon_last: dict[str, Any] = {"status": "not_run", "details": []}
         self._last_balance: dict[str, str] = {}
+        # First wallet sync must reset daily_high_water; otherwise portfolio_value
+        # jumps from paper default (10k) to real available (~few k) and risk sees
+        # fake ~50% daily drawdown (veto everything).
+        self._wallet_portfolio_initialized: bool = False
 
         self._running = False
         self._last_error: str | None = None
@@ -442,10 +446,39 @@ class DashboardTestnetRunner:
         diff = abs(available - self._portfolio.portfolio_value)
         if diff > Decimal("1"):
             self._portfolio.portfolio_value = available
+            if not self._wallet_portfolio_initialized:
+                self._portfolio.daily_high_water = available
+                self._wallet_portfolio_initialized = True
+                logger.info(
+                    "testnet_portfolio_baseline_from_wallet",
+                    available=str(available),
+                    daily_high_water=str(self._portfolio.daily_high_water),
+                )
             logger.debug(
                 "portfolio_synced_from_wallet",
                 available=str(available),
             )
+
+    async def _await_order_settled(
+        self,
+        symbol: str,
+        client_order_id: str,
+        first: OrderResult,
+    ) -> OrderResult:
+        """Binance sometimes returns ``NEW`` on POST while the market fills immediately.
+
+        Poll ``GET /fapi/v1/order`` until the order is no longer ``NEW`` or timeout.
+        """
+        orez = first
+        for _ in range(35):
+            raw = (orez.raw_response or {}).get("status", "")
+            if raw != "NEW":
+                break
+            await asyncio.sleep(0.1)
+            nxt = await self._adapter.get_order(symbol, client_order_id)
+            if nxt is not None:
+                orez = nxt
+        return orez
 
     async def _reconcile_tick(self) -> None:
         self._recon_tick += 1
@@ -627,6 +660,7 @@ class DashboardTestnetRunner:
                         entry_side,
                         direction=pos.direction,
                     )
+                    orez = await self._await_order_settled(sym, orez.client_order_id, orez)
                 except (ExecutionError, OrderRejectedError) as e:
                     self._last_venue_error = str(e)[:500]
                     self._diag.record(sym, "rejected_venue_rest", f"exit: {e!s}"[:240])
@@ -759,6 +793,7 @@ class DashboardTestnetRunner:
             self._venue_entry_orders_sent += 1
             try:
                 orez = await self._adapter.place_order(req)
+                orez = await self._await_order_settled(sym, req.client_order_id, orez)
             except (ExecutionError, OrderRejectedError) as e:
                 self._last_venue_error = str(e)[:500]
                 self._diag.record(sym, "rejected_venue_rest", str(e)[:240])
@@ -768,11 +803,13 @@ class DashboardTestnetRunner:
                     error=str(e),
                 )
                 continue
+            notion_pre = mark * qty
             await logger.ainfo(
                 "testnet_place_order_result",
                 symbol=sym,
                 side=req.side.value,
                 quantity=str(qty),
+                notional_usd=str(notion_pre.quantize(Decimal("0.000001"))),
                 client_order_id=orez.client_order_id,
                 venue_order_id=orez.venue_order_id,
                 status=orez.status.value,
