@@ -77,6 +77,7 @@ REJECTION_KEYS: tuple[str, ...] = (
     "rejected_no_quote",
     "rejected_venue_rest",
     "rejected_sizing_failed",
+    "rejected_venue_proof_symbol",
     "rejected_unknown_gate",
 )
 

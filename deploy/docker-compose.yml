@@ -195,12 +195,23 @@ services:
       - path: ../.env
         required: false
     environment:
-      <<: *cte-env
+      # Do not spread *cte-env here: it sets CTE_ENGINE_MODE=paper and would override ../.env
+      # before the container sees demo+testnet. Infra only; engine/execution/venue come from env_file.
+      CTE_REDIS_URL: "redis://redis:6379/0"
+      CTE_DB_HOST: "postgres"
+      CTE_DB_PORT: "5432"
+      CTE_DB_NAME: "cte"
+      CTE_DB_USER: "cte"
+      CTE_DB_PASSWORD: "${CTE_DB_PASSWORD:-cte_dev_password}"
+      CTE_ENGINE_LOG_LEVEL: "INFO"
       CTE_SERVICE_PORT: "8080"
-      CTE_ENGINE_MODE: "demo"
-      CTE_BINANCE_TESTNET_REST_URL: "${CTE_BINANCE_TESTNET_REST_URL:-https://testnet.binancefuture.com}"
-      CTE_BINANCE_TESTNET_API_KEY: "${CTE_BINANCE_TESTNET_API_KEY:-}"
-      CTE_BINANCE_TESTNET_API_SECRET: "${CTE_BINANCE_TESTNET_API_SECRET:-}"
+      # Validation-only proof window (NOT production defaults): looser gates so the demo
+      # venue loop can reach tier-C signals under testnet liquidity. Remove or tighten after
+      # the validation campaign — do not ship these as final operator baselines.
+      CTE_SIGNALS_GATE_MAX_SPREAD_BPS: "80"
+      CTE_DASHBOARD_PAPER_WARMUP_MIDS_EARLY: "5"
+      CTE_DASHBOARD_PAPER_WARMUP_MIDS_FULL: "12"
+      CTE_DASHBOARD_PAPER_TIER_C_THRESHOLD: "0.18"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/dashboard/health/live"]
       interval: 15s

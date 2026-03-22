@@ -1,5 +1,7 @@
 # Signal Engine — Design Document
 
+**v1 strategy scope:** the production `ScoringSignalEngine` emits **long entries only** (`SignalAction.OPEN_LONG` after tiering). Short-side strategy signals are **not** implemented; see [SHORT_STRATEGY_ROADMAP.md](SHORT_STRATEGY_ROADMAP.md) for a post–v1 checklist. Do not confuse adapter REST short capability with strategy support.
+
 ## Table of Contents
 
 1. [Composite Formula](#1-composite-formula)

@@ -67,6 +67,28 @@ class TestDemoSafetyGuards:
         blocked = [r for r in results if not r.passed and r.check == "bybit_production_guard"]
         assert len(blocked) == 1
 
+    def test_bybit_demo_missing_keys_fails(self):
+        results = validate_environment(
+            "demo",
+            execution_venue="bybit_demo",
+            bybit_rest_url="https://api-demo.bybit.com",
+            bybit_api_key="",
+            bybit_api_secret="",
+        )
+        key_check = [r for r in results if r.check == "bybit_demo_keys_required"]
+        assert len(key_check) == 1
+        assert not key_check[0].passed
+
+    def test_bybit_demo_valid_keys_passes(self):
+        results = validate_environment(
+            "demo",
+            execution_venue="bybit_demo",
+            bybit_rest_url="https://api-demo.bybit.com",
+            bybit_api_key="demo_key",
+            bybit_api_secret="demo_secret",
+        )
+        assert all(r.passed for r in results)
+
 
 class TestPaperMode:
     def test_paper_mode_passes(self):

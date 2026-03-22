@@ -15,6 +15,7 @@ import os
 import time
 from collections import deque
 from decimal import ROUND_DOWN, Decimal
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
@@ -41,20 +42,20 @@ from cte.dashboard.paper_runner import (
 )
 from cte.execution.adapter import OrderRequest, OrderResult, OrderSide, VenueOrderStatus
 from cte.execution.binance_adapter import BinanceTestnetAdapter
+from cte.execution.bybit_adapter import BybitDemoAdapter
 from cte.execution.paper import PaperExecutionEngine
 from cte.execution.reconciliation import LocalPositionView, PositionReconciler
+from cte.analytics.engine import AnalyticsEngine
+from cte.market.feed import MarketDataFeed, TickerState
+from cte.ops.kill_switch import OperationsController
 from cte.risk.manager import PortfolioState, RiskManager
 from cte.signals.engine import ScoringSignalEngine
 from cte.sizing.engine import SizingEngine
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from datetime import datetime
 
-    from cte.analytics.engine import AnalyticsEngine
     from cte.execution.position import PaperPosition
-    from cte.market.feed import MarketDataFeed, TickerState
-    from cte.ops.kill_switch import OperationsController
 
 logger = structlog.get_logger("dashboard.testnet_runner")
 
@@ -81,6 +82,17 @@ def _round_down_qty(symbol: str, q: Decimal) -> Decimal:
     return (n * step).quantize(step)
 
 
+def dashboard_execution_venue() -> str:
+    """Explicit venue for dashboard REST execution: ``binance_testnet`` | ``bybit_demo``."""
+    return (os.environ.get("CTE_DASHBOARD_EXECUTION_VENUE") or "binance_testnet").strip().lower()
+
+
+def venue_proof_symbol() -> str | None:
+    """When set, only this symbol receives venue entries (feed may include more symbols)."""
+    raw = (os.environ.get("CTE_DASHBOARD_VENUE_PROOF_SYMBOL") or "").strip().upper()
+    return raw if raw else None
+
+
 def venue_loop_enabled_for_settings(settings: CTESettings) -> bool:
     """True when dashboard should run venue REST loop instead of pure paper."""
     from cte.dashboard.paper_runner import paper_loop_enabled
@@ -90,7 +102,60 @@ def venue_loop_enabled_for_settings(settings: CTESettings) -> bool:
     if settings.execution.mode != ExecutionMode.TESTNET:
         return False
     raw = (os.environ.get("CTE_DASHBOARD_VENUE_LOOP") or "1").strip().lower()
-    return raw not in ("0", "false", "no", "off")
+    if raw in ("0", "false", "no", "off"):
+        return False
+    v = dashboard_execution_venue()
+    if v == "bybit_demo":
+        k = (os.environ.get("CTE_BYBIT_DEMO_API_KEY") or "").strip()
+        s = (os.environ.get("CTE_BYBIT_DEMO_API_SECRET") or "").strip()
+        return bool(k and s)
+    k = (os.environ.get("CTE_BINANCE_TESTNET_API_KEY") or "").strip()
+    s = (os.environ.get("CTE_BINANCE_TESTNET_API_SECRET") or "").strip()
+    return bool(k and s)
+
+
+def build_dashboard_venue_runner(
+    *,
+    settings: CTESettings,
+    market_feed: Callable[[], MarketDataFeed | None],
+    analytics_engine: Callable[[], AnalyticsEngine | None],
+    ops_controller: Callable[[], OperationsController],
+    symbols: tuple[str, ...],
+) -> DashboardTestnetRunner:
+    """Construct the venue runner for the configured ``CTE_DASHBOARD_EXECUTION_VENUE``."""
+    v = dashboard_execution_venue()
+    if v == "bybit_demo":
+        key = (os.environ.get("CTE_BYBIT_DEMO_API_KEY") or "").strip()
+        secret = (os.environ.get("CTE_BYBIT_DEMO_API_SECRET") or "").strip()
+        base = (os.environ.get("CTE_BYBIT_REST_BASE_URL") or "").strip() or "https://api-demo.bybit.com"
+        adapter = BybitDemoAdapter(api_key=key, api_secret=secret, base_url=base)
+        return DashboardTestnetRunner(
+            settings=settings,
+            market_feed=market_feed,
+            analytics_engine=analytics_engine,
+            ops_controller=ops_controller,
+            symbols=symbols,
+            adapter=adapter,
+            execution_channel="bybit_linear_demo",
+            analytics_venue="bybit_demo",
+            proof_symbol=venue_proof_symbol(),
+        )
+    key = (os.environ.get("CTE_BINANCE_TESTNET_API_KEY") or "").strip()
+    secret = (os.environ.get("CTE_BINANCE_TESTNET_API_SECRET") or "").strip()
+    rest = (os.environ.get("CTE_BINANCE_TESTNET_REST_URL") or "").strip()
+    base = rest or "https://testnet.binancefuture.com"
+    adapter = BinanceTestnetAdapter(api_key=key, api_secret=secret, base_url=base)
+    return DashboardTestnetRunner(
+        settings=settings,
+        market_feed=market_feed,
+        analytics_engine=analytics_engine,
+        ops_controller=ops_controller,
+        symbols=symbols,
+        adapter=adapter,
+        execution_channel="binance_usdm_testnet",
+        analytics_venue="binance_testnet",
+        proof_symbol=venue_proof_symbol(),
+    )
 
 
 class DashboardTestnetRunner:
@@ -104,13 +169,19 @@ class DashboardTestnetRunner:
         analytics_engine: Callable[[], AnalyticsEngine | None],
         ops_controller: Callable[[], OperationsController],
         symbols: tuple[str, ...],
-        adapter: BinanceTestnetAdapter | None = None,
+        adapter: BinanceTestnetAdapter | BybitDemoAdapter | None = None,
+        execution_channel: str = "binance_usdm_testnet",
+        analytics_venue: str = "binance_testnet",
+        proof_symbol: str | None = None,
     ) -> None:
         self._settings = settings
         self._market_feed = market_feed
         self._analytics_engine = analytics_engine
         self._ops = ops_controller
         self._symbols = symbols
+        self._execution_channel = execution_channel
+        self._analytics_venue = analytics_venue
+        self._proof_symbol = proof_symbol
         self._warmup_early, self._warmup_full = _dashboard_warmup_thresholds()
 
         self._publisher = AsyncMock()
@@ -154,15 +225,18 @@ class DashboardTestnetRunner:
             self._publisher,
         )
 
-        key = (os.environ.get("CTE_BINANCE_TESTNET_API_KEY") or "").strip()
-        secret = (os.environ.get("CTE_BINANCE_TESTNET_API_SECRET") or "").strip()
-        rest = (os.environ.get("CTE_BINANCE_TESTNET_REST_URL") or "").strip()
-        base = rest or "https://testnet.binancefuture.com"
-        self._adapter = adapter or BinanceTestnetAdapter(
-            api_key=key,
-            api_secret=secret,
-            base_url=base,
-        )
+        if adapter is None:
+            key = (os.environ.get("CTE_BINANCE_TESTNET_API_KEY") or "").strip()
+            secret = (os.environ.get("CTE_BINANCE_TESTNET_API_SECRET") or "").strip()
+            rest = (os.environ.get("CTE_BINANCE_TESTNET_REST_URL") or "").strip()
+            base = rest or "https://testnet.binancefuture.com"
+            self._adapter = BinanceTestnetAdapter(
+                api_key=key,
+                api_secret=secret,
+                base_url=base,
+            )
+        else:
+            self._adapter = adapter
 
         self._mid_history: dict[str, deque[Decimal]] = {
             s: deque(maxlen=400) for s in symbols
@@ -289,7 +363,9 @@ class DashboardTestnetRunner:
             "runner_class": "DashboardTestnetRunner",
             "in_process_execution": "demo_exchange",
             "execution_mode": "testnet",
-            "execution_channel": "binance_usdm_testnet",
+            "execution_channel": self._execution_channel,
+            "dashboard_execution_venue": dashboard_execution_venue(),
+            "venue_proof_symbol": self._proof_symbol,
             "ticks_ok": self._ticks_ok,
             "entries_total": self._entries_total,
             "exits_recorded": self._exits_recorded,
@@ -406,7 +482,7 @@ class DashboardTestnetRunner:
                     "venue_order_id": pos.venue_order_id,
                     "entry_client_order_id": pos.entry_client_order_id,
                     "execution_mode": "testnet",
-                    "execution_channel": "binance_usdm_testnet",
+                    "execution_channel": self._execution_channel,
                     "trade_source": "demo_exchange",
                 }
             )
@@ -465,15 +541,22 @@ class DashboardTestnetRunner:
         client_order_id: str,
         first: OrderResult,
     ) -> OrderResult:
-        """Binance sometimes returns ``NEW`` on POST while the market fills immediately.
-
-        Poll ``GET /fapi/v1/order`` until the order is no longer ``NEW`` or timeout.
-        """
+        """Poll venue until Binance leaves ``NEW`` or Bybit reports a terminal/fill state."""
         orez = first
-        for _ in range(35):
-            raw = (orez.raw_response or {}).get("status", "")
-            if raw != "NEW":
-                break
+        for _ in range(40):
+            raw = orez.raw_response or {}
+            if self._adapter.venue_name == "binance_testnet":
+                if raw.get("status") != "NEW":
+                    break
+            else:
+                st = str(raw.get("orderStatus", ""))
+                if orez.filled_quantity > 0 or orez.status in (
+                    VenueOrderStatus.FILLED,
+                    VenueOrderStatus.PARTIAL,
+                ):
+                    break
+                if st in ("Filled", "Cancelled", "Rejected", "PartiallyFilledCanceled"):
+                    break
             await asyncio.sleep(0.1)
             nxt = await self._adapter.get_order(symbol, client_order_id)
             if nxt is not None:
@@ -532,10 +615,11 @@ class DashboardTestnetRunner:
         was_prof = position.realized_pnl > 0
         analytics.record_trade(
             position,
-            venue="binance_testnet",
+            venue=self._analytics_venue,
             was_profitable_at_exit=was_prof,
             source="demo_exchange",
             warmup_phase=position.warmup_phase,
+            execution_channel=self._execution_channel,
         )
         self._exits_recorded += 1
         await logger.ainfo(
@@ -734,6 +818,10 @@ class DashboardTestnetRunner:
                 continue
 
             scored = ev.signal
+            if self._proof_symbol and sym != self._proof_symbol:
+                self._diag.record(sym, "rejected_venue_proof_symbol", self._proof_symbol)
+                continue
+
             if _has_open_position_same_direction(mirror, sym, scored.action):
                 self._diag.record(sym, "rejected_existing_position", f"same-direction {scored.direction} already open")
                 continue

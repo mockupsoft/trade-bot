@@ -1,6 +1,7 @@
 """Tests for live market data feed."""
 from __future__ import annotations
 
+import importlib.util
 from decimal import Decimal
 
 import orjson
@@ -138,6 +139,10 @@ class TestMarketDataFeed:
         assert h.symbols["BTCUSDT"]["last_price"] == "65000"
         assert "volume_1m" in h.symbols["BTCUSDT"]
 
+    @pytest.mark.skipif(
+        importlib.util.find_spec("time_machine") is None,
+        reason="optional dev dependency: pip install time-machine",
+    )
     def test_trade_window_expires(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import time_machine
 

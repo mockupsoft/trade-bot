@@ -5,6 +5,7 @@ from cte.core.universe import (
     DEFAULT_TRADING_SYMBOLS,
     binance_futures_default_streams,
     expand_legacy_engine_symbols,
+    merge_market_feed_symbols,
 )
 
 
@@ -27,3 +28,9 @@ def test_expand_custom_universe_unchanged() -> None:
 def test_streams_count_matches_three_per_symbol() -> None:
     streams = binance_futures_default_streams(DEFAULT_TRADING_SYMBOLS)
     assert len(streams) == 3 * len(DEFAULT_TRADING_SYMBOLS)
+
+
+def test_merge_market_feed_symbols_includes_full_default_universe() -> None:
+    out = merge_market_feed_symbols(["ADAUSDT"])
+    assert out == list(DEFAULT_TRADING_SYMBOLS)
+    assert len(out) == 10

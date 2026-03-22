@@ -83,6 +83,7 @@ Binance/Bybit WS → Normalizer → Feature Engine → Signal Engine → Risk Ma
 - Do NOT rebuild existing subsystems. Extend or refine them.
 - Do NOT add symbols beyond BTCUSDT/ETHUSDT in v1.
 - Do NOT implement short selling in v1.
+- Do NOT document **bi-directional strategy** or “short strategy verified” for v1: the scoring engine emits **long-only** (`OPEN_LONG`) until a deliberate post–v1 change (see `docs/SHORT_STRATEGY_ROADMAP.md`). REST-level short orders are venue/infrastructure tests, not strategy proof.
 - Do NOT connect real wallets in v1.
 - Do NOT use LLM/AI for trade decisions.
 - Do NOT use mid-price fills (bid/ask only).

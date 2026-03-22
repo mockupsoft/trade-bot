@@ -107,3 +107,28 @@ These numbers are **not** a 24 h aggregate; they are **real** in-memory analytic
 ## Phase 8 — README
 
 See repository **README** → section **Validation Campaign (Real Data)**.
+
+---
+
+## Phase 9 — 24h long-only (v1) template
+
+Use this template for a **minimum 24-hour** continuous run when validating the **long-only** strategy (`OPEN_LONG`).
+
+**Operator checklist:** [VALIDATION_24H_LONG_ONLY_CHECKLIST.md](VALIDATION_24H_LONG_ONLY_CHECKLIST.md)
+
+**Blank report:** [templates/VALIDATION_24H_REPORT_TEMPLATE.md](templates/VALIDATION_24H_REPORT_TEMPLATE.md)
+
+### What to capture
+
+| Artifact | Endpoint or script |
+|----------|-------------------|
+| Hourly snapshots | `POST /api/campaign/snapshot?period=hourly` |
+| File bundle | `BASE_URL=http://127.0.0.1:8080 ./scripts/collect_validation_snapshot.sh ./validation_snapshots` |
+| End-of-run summary | `GET /api/campaign/summary` |
+| Demo epoch metrics | `GET /api/analytics/summary?epoch=crypto_v1_demo` |
+| Exchange-backed journal | `GET /api/analytics/trades?source=demo_exchange&epoch=crypto_v1_demo&limit=200` |
+
+### Classification line for v1
+
+- **Strategy:** long-only (no `OPEN_SHORT` in `ScoringSignalEngine`).
+- **Proof-window env:** if used from `deploy/docker-compose.yml`, document as **validation-only** and schedule removal after the campaign.

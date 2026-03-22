@@ -10,11 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || pip install --no-cache-dir .
 
 COPY src/ ./src/
 COPY config/ ./config/
+COPY scripts/ ./scripts/
 
 RUN pip install --no-cache-dir -e .
 
