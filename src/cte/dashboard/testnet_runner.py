@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock
 
 import structlog
 
-from cte.core.events import RiskDecision, SignalAction, SignalEvent
+from cte.core.events import RiskDecision, SignalEvent
 from cte.core.exceptions import ExecutionError, OrderRejectedError
 from cte.core.settings import CTESettings, ExecutionMode, ExecutionSettings
 from cte.dashboard.paper_runner import _SYMBOL_MAP as _SYMBOL_MAP
@@ -34,7 +34,6 @@ from cte.dashboard.paper_runner import (
     _dashboard_warmup_thresholds,
     _env_bool,
     _event_time_utc,
-    _has_open_position,
     _has_open_position_same_direction,
     _iso_utc,
     _mid_price,
@@ -430,7 +429,7 @@ class DashboardTestnetRunner:
         """
         raw_available = self._last_balance.get("available", "")
         if not raw_available or raw_available == "0" or "error" in self._last_balance:
-            # No valid wallet data yet – keep the existing in-memory value.
+            # No valid wallet data yet - keep the existing in-memory value.
             return
         try:
             available = Decimal(raw_available)
