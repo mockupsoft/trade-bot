@@ -374,6 +374,24 @@ def _has_open_position(paper: PaperExecutionEngine, symbol: str) -> bool:
     return any(pos.symbol == symbol and pos.is_open for pos in paper.open_positions.values())
 
 
+def _has_open_position_same_direction(
+    paper: PaperExecutionEngine,
+    symbol: str,
+    action: SignalAction,
+) -> bool:
+    """True if an open leg exists on ``symbol`` on the same side as ``action``."""
+    want_long = action in (SignalAction.OPEN_LONG, SignalAction.CLOSE_SHORT)
+    want_short = action in (SignalAction.OPEN_SHORT, SignalAction.CLOSE_LONG)
+    for pos in paper.open_positions.values():
+        if not pos.is_open or pos.symbol != symbol:
+            continue
+        if want_long and pos.direction == "long":
+            return True
+        if want_short and pos.direction == "short":
+            return True
+    return False
+
+
 def _iso_utc(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt else None
 
