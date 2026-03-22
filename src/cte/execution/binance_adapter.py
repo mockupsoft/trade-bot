@@ -111,7 +111,10 @@ class BinanceTestnetAdapter(ExecutionAdapter):
             params["price"] = str(request.price)
             params["timeInForce"] = request.time_in_force.value
 
-        if request.reduce_only:
+        # Hedge mode always sends ``positionSide``; Binance USD-M then rejects
+        # ``reduceOnly`` with -1106 ("Parameter 'reduceonly' sent when not required").
+        # Opposite side + ``positionSide`` is sufficient to close a leg.
+        if request.reduce_only and "positionSide" not in params:
             params["reduceOnly"] = "true"
 
         data = await self._signed_request("POST", "/fapi/v1/order", params, weight=1)
