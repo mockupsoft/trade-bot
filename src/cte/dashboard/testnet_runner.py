@@ -35,6 +35,7 @@ from cte.dashboard.paper_runner import (
     _env_bool,
     _event_time_utc,
     _has_open_position,
+    _has_open_position_same_direction,
     _iso_utc,
     _mid_price,
     try_build_streaming_vector_from_ticker,
@@ -419,6 +420,34 @@ class DashboardTestnetRunner:
         except Exception as e:
             self._last_balance = {"error": str(e)[:200]}
 
+    def _sync_portfolio_from_wallet(self) -> None:
+        """Sync PortfolioState.portfolio_value from the real exchange wallet.
+
+        Uses *available* balance (not wallet balance) as the sizing basis so
+        we only size against margin that is not already locked in open positions.
+        Falls back to the existing in-memory value if the balance fetch failed
+        or returned zero, preventing accidental sizing-to-zero.
+        """
+        raw_available = self._last_balance.get("available", "")
+        if not raw_available or raw_available == "0" or "error" in self._last_balance:
+            # No valid wallet data yet – keep the existing in-memory value.
+            return
+        try:
+            available = Decimal(raw_available)
+        except Exception:
+            return
+        if available <= Decimal("0"):
+            return
+        # Only update when the difference is material (>1 USDT) to avoid
+        # micro-jitter from floating-point rounding in the REST response.
+        diff = abs(available - self._portfolio.portfolio_value)
+        if diff > Decimal("1"):
+            self._portfolio.portfolio_value = available
+            logger.debug(
+                "portfolio_synced_from_wallet",
+                available=str(available),
+            )
+
     async def _reconcile_tick(self) -> None:
         self._recon_tick += 1
         if self._recon_tick % 10 != 0:
@@ -544,6 +573,7 @@ class DashboardTestnetRunner:
         mirror = self._mirror
 
         await self._refresh_balance()
+        self._sync_portfolio_from_wallet()
         await self._reconcile_tick()
 
         for sym in self._symbols:
@@ -588,10 +618,15 @@ class DashboardTestnetRunner:
                 self._last_execution_attempt_at = event_now
                 self._venue_exit_orders_sent += 1
                 try:
+                    # close_position() takes the ENTRY side and inverts it internally.
+                    # LONG was entered with BUY → adapter sends SELL to close.
+                    # SHORT was entered with SELL → adapter sends BUY to close.
+                    entry_side = OrderSide.BUY if pos.direction == "long" else OrderSide.SELL
                     orez = await self._adapter.close_position(
                         sym,
                         pos.quantity,
-                        OrderSide.BUY,
+                        entry_side,
+                        direction=pos.direction,
                     )
                 except (ExecutionError, OrderRejectedError) as e:
                     self._last_venue_error = str(e)[:500]
@@ -646,9 +681,7 @@ class DashboardTestnetRunner:
             if not ops.is_symbol_enabled(sym):
                 self._diag.record(sym, "rejected_symbol_disabled", "")
                 continue
-            if _has_open_position(mirror, sym):
-                self._diag.record(sym, "rejected_existing_position", "")
-                continue
+
 
             if vec is None:
                 if vec_rej:
@@ -668,6 +701,10 @@ class DashboardTestnetRunner:
                 continue
 
             scored = ev.signal
+            if _has_open_position_same_direction(mirror, sym, scored.action):
+                self._diag.record(sym, "rejected_existing_position", f"same-direction {scored.direction} already open")
+                continue
+
             self._last_eligible_signal_at = event_now
             entry_wp = vec.data_quality.warmup_phase
             if entry_wp not in ("early", "full"):
@@ -713,9 +750,11 @@ class DashboardTestnetRunner:
                 continue
 
             self._last_execution_attempt_at = event_now
+            entry_side = OrderSide.BUY if scored.action.value == "open_long" else OrderSide.SELL
             req = OrderRequest(
                 symbol=sym,
-                side=OrderSide.BUY,
+                side=entry_side,
+                direction=scored.direction,
                 quantity=qty,
             )
             self._venue_entry_orders_sent += 1
