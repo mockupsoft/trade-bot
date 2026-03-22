@@ -65,6 +65,7 @@ class AnalyticsEngine:
         position_mode: str = "normal",
         source: str = "paper_simulated",
         warmup_phase: str | None = None,
+        execution_channel: str | None = None,
     ) -> CompletedTrade:
         """Record a completed trade from a closed position."""
         epoch = self._epochs.active_name
@@ -93,6 +94,7 @@ class AnalyticsEngine:
             was_profitable_at_exit=was_profitable_at_exit,
             position_mode=position_mode,
             warmup_phase=wp,
+            execution_channel=execution_channel,
         )
 
         self._trades.append(trade)
@@ -168,9 +170,19 @@ class AnalyticsEngine:
                     "source": t.source,
                     "entry_price": str(t.entry_price),
                     "exit_price": str(t.exit_price),
-                    "execution_channel": "binance_usdm_testnet"
-                    if t.source == "demo_exchange"
-                    else "paper_simulated",
+                    "execution_channel": (
+                        t.execution_channel
+                        if t.execution_channel
+                        else (
+                            "bybit_linear_demo"
+                            if t.source == "demo_exchange" and t.venue == "bybit_demo"
+                            else (
+                                "binance_usdm_testnet"
+                                if t.source == "demo_exchange"
+                                else "paper_simulated"
+                            )
+                        )
+                    ),
                     "pnl": str(t.pnl),
                     "exit_reason": t.exit_reason,
                     "exit_layer": t.exit_layer,

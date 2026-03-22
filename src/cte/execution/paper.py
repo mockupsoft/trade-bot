@@ -25,6 +25,7 @@ from prometheus_client import Counter, Gauge, Histogram
 from cte.core.events import (
     ExitReason,
     ScoredSignalEvent,
+    SignalAction,
     StreamingFeatureVector,
 )
 from cte.execution.fill_model import BookLevel, FillMode, compute_fill
@@ -223,9 +224,13 @@ class PaperExecutionEngine:
 
         fill_time = event_time + timedelta(milliseconds=self._exec.fill_delay_ms)
 
+        direction = (
+            "short" if signal.action == SignalAction.OPEN_SHORT else "long"
+        )
+
         position = PaperPosition(
             symbol=symbol,
-            direction="long",
+            direction=direction,
             status=PositionStatus.PENDING,
             signal_id=signal.event_id,
             signal_tier=signal.tier.value,

@@ -42,7 +42,8 @@ class TestBinanceTestnetAdapterParity:
 
 class TestBybitDemoAdapterParity:
     @pytest.mark.asyncio
-    async def test_place_short_order(self):
+    async def test_place_short_order(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CTE_BYBIT_LINEAR_POSITION_MODE", "hedge")
         adapter = BybitDemoAdapter("key", "secret")
         adapter._signed_request = AsyncMock(return_value={
             "result": {"orderId": "123", "orderLinkId": "abc"}
@@ -58,7 +59,7 @@ class TestBybitDemoAdapterParity:
         body = adapter._signed_request.call_args[0][2]
 
         assert body["side"] == "Sell"
-        assert body["positionIdx"] == 2  # 2 is short
+        assert body["positionIdx"] == 2  # hedge: 2 is short
 
     @pytest.mark.asyncio
     async def test_close_short_position(self):

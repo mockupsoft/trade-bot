@@ -8,6 +8,8 @@
 
 Production-grade, event-driven crypto trading engine for Binance USDⓈ-M Futures and Bybit v5 perpetuals. Built from scratch — no copy-paste from other bots.
 
+**v1 strategy scope:** the scoring engine emits **long entries only** (`OPEN_LONG`). Multi-venue execution adapters exist; **REST-level shorts** (e.g. smoke scripts) are **not** short-strategy support. See [docs/DIRECTIONAL_VENUE_PROOF_MATRIX.md](docs/DIRECTIONAL_VENUE_PROOF_MATRIX.md) and [docs/SHORT_STRATEGY_ROADMAP.md](docs/SHORT_STRATEGY_ROADMAP.md).
+
 ## Current Status
 
 | Phase | Status | Evidence |
@@ -21,7 +23,7 @@ Production-grade, event-driven crypto trading engine for Binance USDⓈ-M Future
 | Phase 5: Analytics & Monitoring | **Complete** | Epoch-aware, 15+ metrics, 52 tests |
 | Operations Platform | **Complete** | Kill switch, readiness gates, GO/NO-GO |
 | Dashboard UI | **Complete** | 7-page ops + research platform |
-| **Validation Campaign** | **Next** | 7-day paper/demo parallel run |
+| **Validation Campaign** | **Next** | 24h+ snapshots; [DEMO_VALIDATION_CAMPAIGN_RUNBOOK.md](docs/DEMO_VALIDATION_CAMPAIGN_RUNBOOK.md) |
 
 ## Architecture
 
@@ -100,7 +102,7 @@ All endpoints verified via HTTP (not just unit tests):
 | `/api/report/go_no_go` | GET | 7-section decision report |
 | `/api/config` | GET | Read-only active configuration |
 
-### 8 Design Documents
+### 13 design / operator documents
 
 | Document | Scope |
 |---|---|
@@ -113,6 +115,24 @@ All endpoints verified via HTTP (not just unit tests):
 | [ANALYTICS_MONITORING.md](docs/ANALYTICS_MONITORING.md) | Epoch system, alert rules |
 | [OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) | Emergency procedures, secrets |
 | [DASHBOARD_MODES.md](docs/DASHBOARD_MODES.md) | **seed / paper / demo** dashboard + Docker `CTE_DASHBOARD_MODE` |
+| [DIRECTIONAL_VENUE_PROOF_MATRIX.md](docs/DIRECTIONAL_VENUE_PROOF_MATRIX.md) | v1 long-only strategy vs venue vs proof layers |
+| [SHORT_STRATEGY_ROADMAP.md](docs/SHORT_STRATEGY_ROADMAP.md) | Post–v1 checklist for real short **strategy** (not REST smoke) |
+| [DEMO_VALIDATION_CAMPAIGN_RUNBOOK.md](docs/DEMO_VALIDATION_CAMPAIGN_RUNBOOK.md) | Validation-only proof-window tuning, campaign API |
+| [VALIDATION_24H_LONG_ONLY_CHECKLIST.md](docs/VALIDATION_24H_LONG_ONLY_CHECKLIST.md) | Operator steps for a 24h long-only run |
+
+## Proof & validation (operator)
+
+| Artifact | Purpose |
+|----------|---------|
+| [DIRECTIONAL_VENUE_PROOF_MATRIX.md](docs/DIRECTIONAL_VENUE_PROOF_MATRIX.md) | Strategy vs venue vs runtime vs analytics; v1 long-only |
+| [SHORT_STRATEGY_ROADMAP.md](docs/SHORT_STRATEGY_ROADMAP.md) | Future short **strategy** work (post–v1) |
+| [DEMO_VALIDATION_CAMPAIGN_RUNBOOK.md](docs/DEMO_VALIDATION_CAMPAIGN_RUNBOOK.md) | Temporary proof-window env (remove after campaign), `/api/campaign/*` |
+| [VALIDATION_24H_LONG_ONLY_CHECKLIST.md](docs/VALIDATION_24H_LONG_ONLY_CHECKLIST.md) | 24h run checklist + snapshot discipline |
+| [templates/VALIDATION_24H_REPORT_TEMPLATE.md](docs/templates/VALIDATION_24H_REPORT_TEMPLATE.md) | Blank report for a 24h window |
+| [VALIDATION_CAMPAIGN_REPORT.md](docs/VALIDATION_CAMPAIGN_REPORT.md) | Evidence-style report + Phase 9 template |
+| `./scripts/collect_validation_snapshot.sh` | Point-in-time JSON bundle (`config`, `demo_exchange` trades filter) |
+
+**v1 honest line:** **Strategy = long-only.** Adapters may accept short **REST** orders for wiring tests; that is **not** short-strategy lifecycle. Optional REST-only short: `CTE_SMOKE_DIRECTION=short python scripts/smoke_bybit_demo.py` (does not write strategy analytics as a short signal).
 
 ## Quick Start
 
@@ -154,12 +174,15 @@ Full notes: [docs/DASHBOARD_MODES.md](docs/DASHBOARD_MODES.md).
 
 **Dashboard paper warmup:** the in-process loop uses **staged warmup**. The signal warmup gate clears after `CTE_DASHBOARD_PAPER_WARMUP_MIDS_EARLY` rolling mids (default 20); **full** confidence uses `CTE_DASHBOARD_PAPER_WARMUP_MIDS_FULL` (default 36). Entries opened before full use a reduced notional (`CTE_DASHBOARD_PAPER_EARLY_SIZE_MULT`) and are labeled `warmup_phase=early` in positions and analytics. Tune loop cadence with `CTE_DASHBOARD_PAPER_INTERVAL_SEC`. See `.env.example` and `/api/paper/warmup` / `/api/paper/entry-diagnostics`.
 
+**Multi-symbol venue validation:** do **not** set `CTE_DASHBOARD_VENUE_PROOF_SYMBOL` (or set it empty) so the venue loop can submit REST orders on every symbol in the merged dashboard universe (`merge_market_feed_symbols` + defaults). Restart the dashboard process after changing `.env` so `/api/config` shows `venue_proof_symbol: (none — multi-symbol venue)`. Confirm `GET /api/paper/entry-diagnostics` → `global_counts.rejected_venue_proof_symbol` stays **0**. Risk caps (`CTE_RISK_*`, sizing min/max) still apply.
+
 ### Validation Campaign (Real Data)
 
 End-to-end checks use **live WebSocket** prices. By default the dashboard runs **paper** execution (`source=paper_simulated`). **No seed trades.** With `CTE_ENGINE_MODE=demo`, `CTE_EXECUTION_MODE=testnet`, and `CTE_DASHBOARD_VENUE_LOOP=1`, the dashboard can place **real Binance USDⓈ-M testnet REST orders** (`source=demo_exchange`); testnet keys still satisfy the demo **safety gate** (no production URLs).
 
 | Item | Command / artifact |
 |------|---------------------|
+| 24h long-only checklist | [docs/VALIDATION_24H_LONG_ONLY_CHECKLIST.md](docs/VALIDATION_24H_LONG_ONLY_CHECKLIST.md) |
 | Full report | [docs/VALIDATION_CAMPAIGN_REPORT.md](docs/VALIDATION_CAMPAIGN_REPORT.md) |
 | Testnet venue smoke (REST orders) | [docs/TESTNET_SMOKE_TEST_REPORT.md](docs/TESTNET_SMOKE_TEST_REPORT.md) |
 | Testnet full lifecycle proof | [docs/TESTNET_E2E_PROOF_REPORT.md](docs/TESTNET_E2E_PROOF_REPORT.md) |
@@ -190,20 +213,23 @@ docker compose -f deploy/docker-compose.yml up -d        # Full stack
 | Event clock, no wall clock | `datetime.now()` breaks replay; event timestamps are deterministic |
 | 25 readiness gates before live | Infrastructure (6) + execution parity (10) + edge proof (9) |
 
-## Directional Support Matrix
+## Direction and proof layers (v1)
 
-| Venue / Mode | Verified | Notes |
-|---|---|---|
-| Paper Mode | **Yes** | Fully verifies LONG/SHORT metrics inverted calculations |
-| Binance Testnet | **Yes** | Open/close LONG and SHORT REST behaviors validated |
-| Bybit Demo | **Yes** | Explicit isolated LONG/SHORT endpoints checked via REST APIs |
+| Layer | LONG (v1) | SHORT (v1) |
+|-------|-----------|------------|
+| **Strategy** (`ScoringSignalEngine`) | Yes — `OPEN_LONG` when tier passes | **No** — no `OPEN_SHORT` ([engine](src/cte/signals/engine.py)) |
+| **Venue adapters** (REST order shapes) | Yes | Yes — mechanical; **not** strategy |
+| **Runtime proof** (dashboard loop → positions) | Provable per venue | Not produced by strategy |
+| **Analytics proof** (journal `direction`) | Yes for long-driven trades | Only if a short **strategy** exists — see [SHORT_STRATEGY_ROADMAP.md](docs/SHORT_STRATEGY_ROADMAP.md) |
+
+Full taxonomy: [docs/DIRECTIONAL_VENUE_PROOF_MATRIX.md](docs/DIRECTIONAL_VENUE_PROOF_MATRIX.md).
 
 ## V1 Constraints
 
 | Constraint | Value |
 |---|---|
 | Symbols | BTCUSDT, ETHUSDT |
-| Direction | LONG + SHORT (Bi-directional validated on testnet) |
+| **Strategy direction** | **Long-only** (settings may list `bi_directional`; execution path still emits long-only until [SHORT_STRATEGY_ROADMAP.md](docs/SHORT_STRATEGY_ROADMAP.md) is implemented) |
 | Max leverage | 3x |
 | Primary venue | Binance USDⓈ-M Futures |
 | Secondary venue | Bybit v5 linear |

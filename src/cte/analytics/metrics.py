@@ -33,8 +33,8 @@ class CompletedTrade:
     position_mode: str  # normal | winner_protection | runner
     entry_price: Decimal = Decimal("0")
     exit_price: Decimal = Decimal("0")
-    warmup_phase: str = "none"
-    """``none`` | ``early`` | ``full`` — dashboard staged warmup entries."""
+    warmup_phase: str = "none"  # none | early | full — dashboard staged warmup
+    execution_channel: str | None = None  # e.g. bybit_linear_demo | binance_usdm_testnet
 
 
 def trades_for_promotion_evidence(trades: list[CompletedTrade]) -> list[CompletedTrade]:

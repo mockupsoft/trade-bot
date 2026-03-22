@@ -1363,6 +1363,13 @@ function app(){return{
     this.researchTiers=out;
   },
   async init(){
+    try{
+      const meta=await(await fetch('/api/dashboard/meta')).json();
+      if(meta.active_epoch){
+        this.epoch=meta.active_epoch;
+        this.epochs=[{name:meta.active_epoch,is_active:true}];
+      }
+    }catch(e){/* keep defaults */}
     if(!location.hash||location.hash==='#'){
       history.replaceState(null,'','#/overview');
     }

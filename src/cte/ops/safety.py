@@ -57,6 +57,9 @@ def validate_environment(
     bybit_rest_url: str = "",
     binance_api_key: str = "",
     binance_api_secret: str = "",
+    execution_venue: str = "binance_testnet",
+    bybit_api_key: str = "",
+    bybit_api_secret: str = "",
 ) -> list[SafetyCheckResult]:
     """Run all safety checks. Returns list of results."""
     results: list[SafetyCheckResult] = []
@@ -98,18 +101,36 @@ def validate_environment(
                 detail=f"BLOCKED: Demo mode but Bybit REST URL is production: {bybit_rest_url}",
             ))
 
-        # Demo mode: API keys required
-        if not binance_api_key or not binance_api_secret:
-            results.append(SafetyCheckResult(
-                passed=False,
-                check="api_keys_required",
-                detail="Demo mode requires BINANCE_TESTNET_API_KEY and API_SECRET",
-            ))
+        venue = (execution_venue or "binance_testnet").strip().lower()
+        # Demo mode: API keys for the selected execution venue (explicit; no silent fallback).
+        if venue == "bybit_demo":
+            if not bybit_api_key or not bybit_api_secret:
+                results.append(SafetyCheckResult(
+                    passed=False,
+                    check="bybit_demo_keys_required",
+                    detail=(
+                        "Demo mode with CTE_DASHBOARD_EXECUTION_VENUE=bybit_demo requires "
+                        "CTE_BYBIT_DEMO_API_KEY and CTE_BYBIT_DEMO_API_SECRET"
+                    ),
+                ))
+            else:
+                results.append(SafetyCheckResult(
+                    passed=True,
+                    check="bybit_demo_keys_present",
+                    detail="Bybit demo API keys configured",
+                ))
         else:
-            results.append(SafetyCheckResult(
-                passed=True, check="api_keys_present",
-                detail="Binance testnet API keys configured",
-            ))
+            if not binance_api_key or not binance_api_secret:
+                results.append(SafetyCheckResult(
+                    passed=False,
+                    check="api_keys_required",
+                    detail="Demo mode requires BINANCE_TESTNET_API_KEY and API_SECRET",
+                ))
+            else:
+                results.append(SafetyCheckResult(
+                    passed=True, check="api_keys_present",
+                    detail="Binance testnet API keys configured",
+                ))
 
     # Paper mode: production URLs are OK (read-only market data)
     if mode == "paper":

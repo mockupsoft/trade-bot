@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -31,18 +32,22 @@ from cte.api.analytics_routes import router as analytics_router
 from cte.api.analytics_routes import set_engine
 from cte.api.health import router as health_router
 from cte.core.logging import setup_logging
-from cte.core.settings import get_settings
+from cte.core.settings import EngineMode, ExecutionMode, get_settings
 from cte.core.universe import (
     DEFAULT_TRADING_SYMBOLS,
     binance_futures_default_streams,
     expand_legacy_engine_symbols,
+    merge_market_feed_symbols,
 )
 from cte.dashboard.paper_runner import (
     DashboardPaperRunner,
     _dashboard_paper_interval_sec,
     paper_loop_enabled,
 )
-from cte.dashboard.testnet_runner import DashboardTestnetRunner, venue_loop_enabled_for_settings
+from cte.dashboard.testnet_runner import (
+    build_dashboard_venue_runner,
+    venue_loop_enabled_for_settings,
+)
 from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
@@ -69,6 +74,8 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 ACTIVE_TESTNET_EPOCH = "crypto_v1_demo"
 # Set at startup from expanded engine symbols (see ``lifespan``).
 _active_dashboard_symbols: tuple[str, ...] = DEFAULT_TRADING_SYMBOLS
+# Active analytics epoch name (``crypto_v1_paper`` when ``CTE_ENGINE_MODE=paper``).
+_active_dashboard_epoch: str = ACTIVE_TESTNET_EPOCH
 
 _system_mode: SystemMode = SystemMode.DEMO
 _epoch_manager = EpochManager()
@@ -84,16 +91,22 @@ _paper_task: asyncio.Task | None = None
 
 
 def _resolve_mode() -> SystemMode:
-    """Return LIVE only when explicitly requested (then safety blocks startup)."""
-    raw = (os.environ.get("CTE_ENGINE_MODE") or "demo").lower()
+    """Map ``CTE_ENGINE_MODE`` to dashboard system mode (default: paper, no API keys)."""
+    raw = (os.environ.get("CTE_ENGINE_MODE") or "paper").lower()
     if raw == "live":
         return SystemMode.LIVE
-    return SystemMode.DEMO
+    if raw == "seed":
+        return SystemMode.SEED
+    if raw == "demo":
+        return SystemMode.DEMO
+    if raw == "paper":
+        return SystemMode.PAPER
+    return SystemMode.PAPER
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _active_dashboard_symbols, _analytics_engine, _market_feed, _feed_task, _system_mode, _paper_runner, _paper_task
+    global _active_dashboard_epoch, _active_dashboard_symbols, _analytics_engine, _market_feed, _feed_task, _system_mode, _paper_runner, _paper_task
     # Repo-root ``.env`` overrides stale shell exports (e.g. old testnet key placeholders).
     load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / ".env", override=True)
     setup_logging(level="INFO", service_name="dashboard")
@@ -101,32 +114,58 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _system_mode = _resolve_mode()
     if _system_mode == SystemMode.DEMO:
         os.environ["CTE_ENGINE_MODE"] = "demo"
+    elif _system_mode == SystemMode.PAPER:
+        os.environ["CTE_ENGINE_MODE"] = "paper"
     banner_key = "demo" if _system_mode == SystemMode.DEMO else _system_mode.value
     print_startup_banner(banner_key)
 
     if _system_mode == SystemMode.DEMO:
+        exec_venue = (
+            os.environ.get("CTE_DASHBOARD_EXECUTION_VENUE") or "binance_testnet"
+        ).strip().lower()
         enforce_safety(
             "demo",
-            binance_rest_url=os.environ.get("CTE_BINANCE_TESTNET_REST_URL", "https://testnet.binancefuture.com"),
+            execution_venue=exec_venue,
+            binance_rest_url=os.environ.get(
+                "CTE_BINANCE_TESTNET_REST_URL", "https://testnet.binancefuture.com"
+            ),
             binance_api_key=os.environ.get("CTE_BINANCE_TESTNET_API_KEY", ""),
             binance_api_secret=os.environ.get("CTE_BINANCE_TESTNET_API_SECRET", ""),
+            bybit_rest_url=os.environ.get(
+                "CTE_BYBIT_REST_BASE_URL", "https://api-demo.bybit.com"
+            ),
+            bybit_api_key=os.environ.get("CTE_BYBIT_DEMO_API_KEY", ""),
+            bybit_api_secret=os.environ.get("CTE_BYBIT_DEMO_API_SECRET", ""),
         )
+    elif _system_mode == SystemMode.PAPER:
+        enforce_safety("paper")
 
     if _system_mode == SystemMode.LIVE:
         enforce_safety("live")
 
-    _epoch_manager.create_epoch(
-        ACTIVE_TESTNET_EPOCH,
-        EpochMode.DEMO,
-        "Binance USD-M futures testnet",
-    )
-    _epoch_manager.activate(ACTIVE_TESTNET_EPOCH)
+    if _system_mode == SystemMode.PAPER:
+        _active_dashboard_epoch = "crypto_v1_paper"
+        _epoch_manager.create_epoch(
+            _active_dashboard_epoch,
+            EpochMode.PAPER,
+            "Binance USD-M futures testnet (paper simulated)",
+        )
+    else:
+        _active_dashboard_epoch = ACTIVE_TESTNET_EPOCH
+        _epoch_manager.create_epoch(
+            ACTIVE_TESTNET_EPOCH,
+            EpochMode.DEMO,
+            "Binance USD-M futures testnet",
+        )
+    _epoch_manager.activate(_active_dashboard_epoch)
 
     _analytics_engine = AnalyticsEngine(_epoch_manager, initial_capital=Decimal("10000"))
     set_engine(_analytics_engine)
 
     settings = get_settings()
-    expanded = expand_legacy_engine_symbols(list(settings.engine.symbols))
+    expanded = merge_market_feed_symbols(
+        expand_legacy_engine_symbols(list(settings.engine.symbols)),
+    )
     dash_syms = tuple(expanded)
     _active_dashboard_symbols = dash_syms
     streams = binance_futures_default_streams(dash_syms)
@@ -146,7 +185,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     if paper_loop_enabled():
         if venue_loop_enabled_for_settings(settings):
-            _paper_runner = DashboardTestnetRunner(
+            _paper_runner = build_dashboard_venue_runner(
                 settings=settings,
                 market_feed=lambda: _market_feed,
                 analytics_engine=lambda: _analytics_engine,
@@ -162,6 +201,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 interval_sec=_paper_interval,
                 execution_mode="testnet",
             )
+        elif (
+            settings.engine.mode == EngineMode.DEMO
+            and settings.execution.mode == ExecutionMode.TESTNET
+        ):
+            v = (os.environ.get("CTE_DASHBOARD_EXECUTION_VENUE") or "binance_testnet").strip()
+            print(
+                "\n  ABORT: CTE_ENGINE_MODE=demo and CTE_EXECUTION_MODE=testnet require "
+                f"valid API credentials for CTE_DASHBOARD_EXECUTION_VENUE={v!r}.\n",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
         else:
             _paper_runner = DashboardPaperRunner(
                 settings=settings,
@@ -218,6 +268,7 @@ async def dashboard_meta() -> dict[str, str]:
     return {
         "service": "cte.dashboard",
         "market_profile": "binance_usdm_testnet",
+        "active_epoch": _active_dashboard_epoch,
     }
 
 
@@ -474,6 +525,12 @@ def _testnet_keys_configured() -> bool:
     return len(k) >= 8 and len(s) >= 8
 
 
+def _bybit_demo_keys_configured() -> bool:
+    k = (os.environ.get("CTE_BYBIT_DEMO_API_KEY") or "").strip()
+    s = (os.environ.get("CTE_BYBIT_DEMO_API_SECRET") or "").strip()
+    return len(k) >= 8 and len(s) >= 8
+
+
 @app.get("/api/readiness/paper_to_demo")
 async def paper_to_demo_checklist():
     """v1 path: validation + testnet infra (keys, WS, safety) with declared metrics via env."""
@@ -610,7 +667,7 @@ def _build_alerts_status() -> dict[str, Any]:
 
     metrics: dict[str, Any] = {}
     if _analytics_engine:
-        metrics = _analytics_engine.get_metrics(epoch=ACTIVE_TESTNET_EPOCH)
+        metrics = _analytics_engine.get_metrics(epoch=_active_dashboard_epoch)
     dd = float(metrics.get("max_drawdown_pct") or 0.0)
     trade_count = int(metrics.get("trade_count") or 0)
     avg_slip = float(metrics.get("avg_slippage_bps") or 0.0)
@@ -861,7 +918,26 @@ def _build_config_snapshot() -> dict[str, object]:
                 {"key": "system_mode", "label": "System mode (dashboard)", "value": _system_mode.value},
                 {"key": "engine_mode", "label": "Engine mode", "value": s.engine.mode.value},
                 {"key": "execution_mode", "label": "Execution mode", "value": s.execution.mode.value},
-                {"key": "testnet_keys", "label": "Testnet API credentials", "value": "configured" if _testnet_keys_configured() else "missing"},
+                {
+                    "key": "dashboard_execution_venue",
+                    "label": "Dashboard execution venue (REST)",
+                    "value": os.environ.get("CTE_DASHBOARD_EXECUTION_VENUE") or "binance_testnet",
+                },
+                {
+                    "key": "venue_proof_symbol",
+                    "label": "Venue proof symbol (unset = all merged symbols may receive venue REST)",
+                    "value": os.environ.get("CTE_DASHBOARD_VENUE_PROOF_SYMBOL") or "(none - multi-symbol venue)",
+                },
+                {
+                    "key": "testnet_keys",
+                    "label": "Binance USD-M testnet API credentials",
+                    "value": "configured" if _testnet_keys_configured() else "missing",
+                },
+                {
+                    "key": "bybit_demo_keys",
+                    "label": "Bybit demo API credentials",
+                    "value": "configured" if _bybit_demo_keys_configured() else "missing",
+                },
                 {
                     "key": "dashboard_paper_loop",
                     "label": "In-process paper loop (tick→signal→risk→journal)",
@@ -878,6 +954,13 @@ def _build_config_snapshot() -> dict[str, object]:
                     "label": "Symbols (engine; dashboard expands legacy BTC+ETH to full universe)",
                     "value": expand_legacy_engine_symbols(list(s.engine.symbols)),
                 },
+                {
+                    "key": "market_feed_symbols",
+                    "label": "Market feed symbols (merged with default 10-pair universe)",
+                    "value": merge_market_feed_symbols(
+                        expand_legacy_engine_symbols(list(s.engine.symbols)),
+                    ),
+                },
                 {"key": "direction", "label": "Direction", "value": s.engine.direction.value},
                 {"key": "max_leverage", "label": "Max leverage (cap)", "value": s.engine.max_leverage},
             ],
@@ -889,6 +972,18 @@ def _build_config_snapshot() -> dict[str, object]:
                 {"key": "ws_combined", "label": "Combined WebSocket", "value": s.binance.ws_combined_url},
                 {"key": "rest_base", "label": "REST base", "value": s.binance.rest_base_url},
                 {"key": "stream_count", "label": "Default stream templates", "value": len(s.binance.streams)},
+            ],
+        },
+        {
+            "id": "bybit",
+            "title": "Bybit (demo / testnet REST)",
+            "rows": [
+                {
+                    "key": "bybit_rest_base",
+                    "label": "REST base (demo orders)",
+                    "value": os.environ.get("CTE_BYBIT_REST_BASE_URL") or s.bybit.rest_base_url,
+                },
+                {"key": "bybit_ws", "label": "Public WS (connectors)", "value": s.bybit.ws_base_url},
             ],
         },
         {

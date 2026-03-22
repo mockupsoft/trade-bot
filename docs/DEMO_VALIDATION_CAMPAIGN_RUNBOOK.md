@@ -1,5 +1,7 @@
 # Demo Validation Campaign v1 — Runbook
 
+**Scope:** This runbook targets **v1 long-only strategy** validation (live feed → scoring → risk → execution path that emits `OPEN_LONG` only). Multi-venue adapters and optional REST smoke for shorts are **infrastructure** concerns; they do **not** mean short **strategy** is in scope. See [DIRECTIONAL_VENUE_PROOF_MATRIX.md](DIRECTIONAL_VENUE_PROOF_MATRIX.md) and [SHORT_STRATEGY_ROADMAP.md](SHORT_STRATEGY_ROADMAP.md).
+
 ## Prerequisites
 
 ### 1. Binance Futures Testnet Account
@@ -252,6 +254,53 @@ for b in d.get('blockers', []):
 ```bash
 curl -s http://localhost:8080/api/report/go_no_go | python -m json.tool
 ```
+
+---
+
+## Temporary proof-window tuning (validation only)
+
+The **`deploy/docker-compose.yml`** `analytics` service may set **dashboard-only** variables to complete **LONG** `demo_exchange` lifecycle proofs when testnet spreads are wide and tier-C signals are rare:
+
+| Variable | Purpose |
+|----------|---------|
+| `CTE_SIGNALS_GATE_MAX_SPREAD_BPS` | Raise max spread gate for feature-vector build (e.g. `80`) |
+| `CTE_DASHBOARD_PAPER_WARMUP_MIDS_EARLY` / `_FULL` | Fewer mids before staged warmup clears |
+| `CTE_DASHBOARD_PAPER_TIER_C_THRESHOLD` | Lower tier-C floor for proof (e.g. `0.18`) |
+
+These values are **evidence-collection aids only** — **not** production-grade defaults, **not** final operator baselines. **Remove or tighten after the validation campaign** (or before any production-like host) and rely on `config/defaults.toml` + normal `CTE_SIGNALS_*` / `CTE_DASHBOARD_PAPER_*` from `.env`.
+
+Directional note: the scoring engine still emits **long-only** signals; this tuning does **not** enable SHORT. See [DIRECTIONAL_VENUE_PROOF_MATRIX.md](DIRECTIONAL_VENUE_PROOF_MATRIX.md).
+
+---
+
+## 24h validation: snapshots and summary
+
+### On-box snapshot bundle (CLI)
+
+From the repo root (requires `curl`; Git Bash / WSL on Windows):
+
+```bash
+BASE_URL=http://127.0.0.1:8080 ./scripts/collect_validation_snapshot.sh ./validation_snapshots
+```
+
+Writes a timestamped directory with JSON for market health, paper status, analytics (`epoch=crypto_v1_demo`), campaign snapshot (`POST /api/campaign/snapshot`), ops, readiness, etc.
+
+### In-process campaign API
+
+| Step | Command |
+|------|---------|
+| Hourly point sample | `POST /api/campaign/snapshot?period=hourly` |
+| Daily aggregate | `POST /api/campaign/snapshot?period=daily` |
+| Rolling summary | `GET /api/campaign/summary` |
+| Raw snapshot list | `GET /api/campaign/snapshots` |
+
+### 24h minimum run
+
+1. Keep `uvicorn` / `cte-dashboard` or Docker `analytics` up **≥24h** on a stable host.
+2. **Cron** hourly: `POST /api/campaign/snapshot?period=hourly` **or** run `collect_validation_snapshot.sh` hourly.
+3. End of window: export `GET /api/campaign/summary` and `GET /api/readiness/campaign`; attach `analytics/summary` for `crypto_v1_paper` and `crypto_v1_demo` as appropriate.
+
+See also: [VALIDATION_CAMPAIGN_REPORT.md](VALIDATION_CAMPAIGN_REPORT.md).
 
 ---
 

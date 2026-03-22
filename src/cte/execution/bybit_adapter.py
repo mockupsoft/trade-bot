@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import time
 from decimal import Decimal
 
@@ -74,6 +75,13 @@ class BybitDemoAdapter(ExecutionAdapter):
         self._connected = False
         self._error_count = 0
 
+    def _position_idx_for(self, request: OrderRequest) -> int:
+        """0 = one-way (default); 1/2 = hedge long/short (``CTE_BYBIT_LINEAR_POSITION_MODE=hedge``)."""
+        mode = (os.environ.get("CTE_BYBIT_LINEAR_POSITION_MODE") or "one_way").strip().lower()
+        if mode in ("oneway", "one_way", "one-way"):
+            return 0
+        return 1 if request.direction == "long" else 2
+
     @property
     def venue_name(self) -> str:
         return "bybit_demo"
@@ -95,7 +103,7 @@ class BybitDemoAdapter(ExecutionAdapter):
             "category": "linear",
             "symbol": request.symbol,
             "side": "Buy" if request.side == OrderSide.BUY else "Sell",
-            "positionIdx": 1 if request.direction == "long" else 2, # Bybit positionIdx (0=One-Way, 1=Long, 2=Short)
+            "positionIdx": self._position_idx_for(request),
             "orderType": "Market" if request.order_type.value == "market" else "Limit",
             "qty": str(request.quantity),
             "orderLinkId": request.client_order_id,
@@ -110,6 +118,33 @@ class BybitDemoAdapter(ExecutionAdapter):
 
         data = await self._signed_request("POST", "/v5/order/create", body)
         return self._parse_order_response(data, request)
+
+    async def get_usdt_wallet_snapshot(self) -> dict[str, Decimal]:
+        """USDT balance for unified or contract wallet (demo/testnet REST)."""
+        zeros = {
+            "wallet": Decimal("0"),
+            "available": Decimal("0"),
+            "cross_wallet": Decimal("0"),
+        }
+        for acct in ("UNIFIED", "CONTRACT"):
+            params: dict[str, str] = {"accountType": acct, "coin": "USDT"}
+            data = await self._signed_get("/v5/account/wallet-balance", params)
+            if data.get("retCode") != 0:
+                continue
+            lst = (data.get("result") or {}).get("list") or []
+            if not lst:
+                continue
+            coins = lst[0].get("coin") or []
+            for c in coins:
+                if c.get("coin") == "USDT":
+                    avail = c.get("availableToWithdraw") or c.get("availableBalance") or "0"
+                    wall = c.get("walletBalance") or "0"
+                    return {
+                        "wallet": Decimal(str(wall)),
+                        "available": Decimal(str(avail)),
+                        "cross_wallet": Decimal(str(wall)),
+                    }
+        return zeros
 
     async def cancel_order(
         self, symbol: str, client_order_id: str
@@ -134,7 +169,7 @@ class BybitDemoAdapter(ExecutionAdapter):
         result_list = data.get("result", {}).get("list", [])
         if not result_list:
             return None
-        return self._parse_query_response(result_list[0])
+        return self._parse_query_response(result_list[0], full=data)
 
     async def get_open_orders(
         self, symbol: str | None = None
@@ -144,7 +179,7 @@ class BybitDemoAdapter(ExecutionAdapter):
             params["symbol"] = symbol
         data = await self._signed_get("/v5/order/realtime", params)
         result_list = data.get("result", {}).get("list", [])
-        return [self._parse_query_response(o) for o in result_list]
+        return [self._parse_query_response(o, full=data) for o in result_list]
 
     async def get_positions(
         self, symbol: str | None = None
@@ -291,14 +326,33 @@ class BybitDemoAdapter(ExecutionAdapter):
 
     @staticmethod
     def _parse_order_response(data: dict, request: OrderRequest) -> OrderResult:
-        result = data.get("result", {})
+        if data.get("retCode") not in (0, None):
+            return OrderResult(
+                client_order_id=request.client_order_id,
+                venue_order_id="",
+                symbol=request.symbol,
+                side=request.side,
+                status=VenueOrderStatus.REJECTED,
+                requested_quantity=request.quantity,
+                error_code=str(data.get("retCode", "")),
+                error_message=str(data.get("retMsg", "")),
+                raw_response=data,
+            )
+        result = data.get("result", {}) or {}
+        st = result.get("orderStatus") or "New"
+        status = BYBIT_STATUS_MAP.get(st, VenueOrderStatus.SUBMITTED)
+        filled = Decimal(str(result.get("cumExecQty", "0") or "0"))
+        avg = Decimal(str(result.get("avgPrice", "0") or "0"))
         return OrderResult(
             client_order_id=result.get("orderLinkId", request.client_order_id),
-            venue_order_id=result.get("orderId", ""),
+            venue_order_id=str(result.get("orderId", "")),
             symbol=request.symbol,
             side=request.side,
-            status=VenueOrderStatus.SUBMITTED,
-            requested_quantity=request.quantity,
+            status=status,
+            requested_quantity=Decimal(str(result.get("qty", request.quantity))),
+            filled_quantity=filled,
+            average_price=avg,
+            raw_response=result,
         )
 
     @staticmethod
@@ -311,10 +365,13 @@ class BybitDemoAdapter(ExecutionAdapter):
         )
 
     @staticmethod
-    def _parse_query_response(order: dict) -> OrderResult:
+    def _parse_query_response(order: dict, full: dict | None = None) -> OrderResult:
         status = BYBIT_STATUS_MAP.get(
             order.get("orderStatus", ""), VenueOrderStatus.REJECTED
         )
+        raw = dict(order)
+        if full is not None:
+            raw["_api"] = full
         return OrderResult(
             client_order_id=order.get("orderLinkId", ""),
             venue_order_id=order.get("orderId", ""),
@@ -325,4 +382,5 @@ class BybitDemoAdapter(ExecutionAdapter):
             filled_quantity=Decimal(str(order.get("cumExecQty", "0"))),
             average_price=Decimal(str(order.get("avgPrice", "0"))),
             fees=Decimal(str(order.get("cumExecFee", "0"))),
+            raw_response=raw,
         )
