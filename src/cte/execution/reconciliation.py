@@ -5,13 +5,15 @@ with our local tracking. Discrepancies are logged and can trigger
 emergency actions.
 
 Types of discrepancy:
-- PHANTOM_LOCAL: We think we have a position but venue doesn't
+- PHANTOM_LOCAL: We think we have a position but venue doesn't (persistent)
+- PHANTOM_LOCAL_TRANSIENT: Same, within post-entry grace (venue position list lag)
 - PHANTOM_VENUE: Venue shows a position we don't track
 - QUANTITY_MISMATCH: Both agree position exists but quantities differ
 - SIDE_MISMATCH: Position exists on both sides but direction differs
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
@@ -33,6 +35,7 @@ recon_discrepancies = Counter(
 
 class DiscrepancyType(StrEnum):
     PHANTOM_LOCAL = "phantom_local"     # local has position, venue doesn't
+    PHANTOM_LOCAL_TRANSIENT = "phantom_local_transient"  # same, within post-fill grace (venue lag)
     PHANTOM_VENUE = "phantom_venue"     # venue has position, local doesn't
     QUANTITY_MISMATCH = "quantity_mismatch"
     SIDE_MISMATCH = "side_mismatch"
@@ -55,6 +58,8 @@ class ReconciliationResult:
     """Result of a reconciliation run."""
     is_clean: bool
     discrepancies: list[Discrepancy]
+    persistent_discrepancies: list[Discrepancy]
+    transient_discrepancies: list[Discrepancy]
     local_position_count: int
     venue_position_count: int
 
@@ -73,17 +78,30 @@ class PositionReconciler:
     def __init__(self, tolerance_pct: float = 0.01) -> None:
         self._tolerance_pct = tolerance_pct
 
+    @property
+    def tolerance_pct(self) -> float:
+        """Relative quantity tolerance (0 = exact Decimal match only)."""
+        return self._tolerance_pct
+
     async def reconcile(
         self,
         adapter: ExecutionAdapter,
         local_positions: list[LocalPositionView],
+        *,
+        grace_until_mono: dict[str, float] | None = None,
     ) -> ReconciliationResult:
         """Run a reconciliation check.
 
         Queries the venue for current positions and compares
         with the provided local position view.
+
+        ``grace_until_mono``: per-symbol monotonic deadline; ``PHANTOM_LOCAL`` before
+        this time is classified as ``PHANTOM_LOCAL_TRANSIENT`` (venue list lag after fills).
         """
         recon_runs_total.inc()
+
+        now_mono = time.monotonic()
+        grace_until_mono = grace_until_mono or {}
 
         venue_positions = await adapter.get_positions()
 
@@ -103,16 +121,24 @@ class PositionReconciler:
             venue = venue_by_symbol.get(symbol)
 
             if local and not venue:
+                deadline = grace_until_mono.get(symbol)
+                in_grace = deadline is not None and now_mono < deadline
+                dtype = (
+                    DiscrepancyType.PHANTOM_LOCAL_TRANSIENT
+                    if in_grace
+                    else DiscrepancyType.PHANTOM_LOCAL
+                )
+                label = "phantom_local_transient" if in_grace else "phantom_local"
                 discrepancies.append(Discrepancy(
                     symbol=symbol,
-                    dtype=DiscrepancyType.PHANTOM_LOCAL,
+                    dtype=dtype,
                     local_qty=local.quantity,
                     venue_qty=Decimal("0"),
                     local_side=local.side,
                     venue_side="",
                     detail=f"Local has {local.side} {local.quantity}, venue has nothing",
                 ))
-                recon_discrepancies.labels(type="phantom_local").inc()
+                recon_discrepancies.labels(type=label).inc()
 
             elif venue and not local:
                 discrepancies.append(Discrepancy(
@@ -154,8 +180,22 @@ class PositionReconciler:
                     ))
                     recon_discrepancies.labels(type="quantity_mismatch").inc()
 
+        persistent: list[Discrepancy] = [
+            d for d in discrepancies
+            if d.dtype != DiscrepancyType.PHANTOM_LOCAL_TRANSIENT
+        ]
+        transient: list[Discrepancy] = [
+            d for d in discrepancies
+            if d.dtype == DiscrepancyType.PHANTOM_LOCAL_TRANSIENT
+        ]
+
         for d in discrepancies:
-            await logger.awarning(
+            log_fn = (
+                logger.ainfo
+                if d.dtype == DiscrepancyType.PHANTOM_LOCAL_TRANSIENT
+                else logger.awarning
+            )
+            await log_fn(
                 "reconciliation_discrepancy",
                 symbol=d.symbol,
                 type=d.dtype.value,
@@ -163,8 +203,10 @@ class PositionReconciler:
             )
 
         return ReconciliationResult(
-            is_clean=len(discrepancies) == 0,
+            is_clean=len(persistent) == 0,
             discrepancies=discrepancies,
+            persistent_discrepancies=persistent,
+            transient_discrepancies=transient,
             local_position_count=len(local_positions),
             venue_position_count=len(venue_positions),
         )

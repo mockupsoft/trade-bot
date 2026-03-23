@@ -13,6 +13,7 @@ Key differences from the old paper engine:
 - Optional VWAP depth-based fills
 - All timestamps from event clock (replay-safe)
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -40,14 +41,12 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-paper_fills_total = Counter(
-    "cte_paper_fills_total", "Paper fills executed", ["symbol"]
-)
-paper_positions_open = Gauge(
-    "cte_paper_positions_open", "Open paper positions", ["symbol"]
-)
+paper_fills_total = Counter("cte_paper_fills_total", "Paper fills executed", ["symbol"])
+paper_positions_open = Gauge("cte_paper_positions_open", "Open paper positions", ["symbol"])
 paper_fill_slip = Histogram(
-    "cte_paper_fill_slippage_bps", "Fill slippage in bps", ["symbol"],
+    "cte_paper_fill_slippage_bps",
+    "Fill slippage in bps",
+    ["symbol"],
     buckets=[0.5, 1, 2, 3, 5, 7, 10, 15, 20],
 )
 paper_pnl_total = Gauge("cte_paper_pnl_total_usd", "Total paper PnL")
@@ -163,6 +162,15 @@ class PaperExecutionEngine:
 
         # Signal price = mid at signal time
         signal_price = (best_bid + best_ask) / 2
+        strongest_sub_score = ""
+        strongest_sub_score_value = 0.0
+        if signal.sub_scores:
+            strongest_sub_score, strongest_val = sorted(
+                signal.sub_scores.items(),
+                key=lambda kv: kv[1],
+                reverse=True,
+            )[0]
+            strongest_sub_score_value = float(strongest_val)
 
         position = PaperPosition(
             symbol=symbol,
@@ -172,9 +180,14 @@ class PaperExecutionEngine:
             signal_tier=signal.tier.value,
             entry_reason=signal.reason.human_readable,
             composite_score=signal.composite_score,
+            primary_score=signal.primary_score,
+            context_multiplier=signal.context_multiplier,
+            strongest_sub_score=strongest_sub_score,
+            strongest_sub_score_value=strongest_sub_score_value,
             warmup_phase=warmup_phase,
             quantity=quantity,
             notional_usd=notional_usd,
+            initial_notional_usd=notional_usd,
             signal_price=signal_price,
             modeled_slippage_bps=fill_result.slippage_bps,
             effective_spread_bps=fill_result.effective_spread_bps,
@@ -210,13 +223,24 @@ class PaperExecutionEngine:
         entry_client_order_id: str = "",
         entry_fees_usd: Decimal | None = None,
     ) -> PaperPosition | None:
-        """Register an OPEN position using a venue-reported fill (no bid/ask simulation)."""
-        symbol = signal.symbol.value
-        book = self._books.get(symbol)
-        if book is None:
-            return None
+        """Register an OPEN position using a venue-reported fill (no bid/ask simulation).
 
-        best_bid, best_ask = book
+        If no order book has been seen yet for ``symbol`` (e.g. bid/ask not yet in ticker),
+        but ``fill_price`` is venue-confirmed and positive, seed a **flat** book at
+        ``fill_price`` so the mirror opens and subsequent exit paths have a quote.
+        """
+        symbol = signal.symbol.value
+        if self._books.get(symbol) is None:
+            if fill_price <= 0:
+                return None
+            self.update_book(symbol, fill_price, fill_price)
+            logger.info(
+                "paper_venue_mirror_synthetic_book",
+                symbol=symbol,
+                fill_price=str(fill_price),
+            )
+
+        best_bid, best_ask = self._books[symbol]
         signal_price = (best_bid + best_ask) / Decimal("2")
         fees = entry_fees_usd
         if fees is None:
@@ -224,9 +248,16 @@ class PaperExecutionEngine:
 
         fill_time = event_time + timedelta(milliseconds=self._exec.fill_delay_ms)
 
-        direction = (
-            "short" if signal.action == SignalAction.OPEN_SHORT else "long"
-        )
+        direction = "short" if signal.action == SignalAction.OPEN_SHORT else "long"
+        strongest_sub_score = ""
+        strongest_sub_score_value = 0.0
+        if signal.sub_scores:
+            strongest_sub_score, strongest_val = sorted(
+                signal.sub_scores.items(),
+                key=lambda kv: kv[1],
+                reverse=True,
+            )[0]
+            strongest_sub_score_value = float(strongest_val)
 
         position = PaperPosition(
             symbol=symbol,
@@ -236,9 +267,14 @@ class PaperExecutionEngine:
             signal_tier=signal.tier.value,
             entry_reason=signal.reason.human_readable,
             composite_score=signal.composite_score,
+            primary_score=signal.primary_score,
+            context_multiplier=signal.context_multiplier,
+            strongest_sub_score=strongest_sub_score,
+            strongest_sub_score_value=strongest_sub_score_value,
             warmup_phase=warmup_phase,
             quantity=quantity,
             notional_usd=notional_usd,
+            initial_notional_usd=notional_usd,
             signal_price=signal_price,
             modeled_slippage_bps=Decimal("0"),
             effective_spread_bps=Decimal("0"),
@@ -288,6 +324,7 @@ class PaperExecutionEngine:
             mode=self._fill_mode,
         )
 
+        before_pnl = position.realized_pnl
         position.close(
             exit_price=fill_result.fill_price,
             close_time=event_time,
@@ -298,7 +335,7 @@ class PaperExecutionEngine:
         del self._positions[position_id]
         self._closed_positions.append(position)
 
-        self._total_realized_pnl += position.realized_pnl
+        self._total_realized_pnl += position.realized_pnl - before_pnl
 
         self._layered_exit.cleanup(position_id)
 
@@ -315,11 +352,37 @@ class PaperExecutionEngine:
         exit_reason: str,
         exit_detail: str,
         *,
+        filled_exit_quantity: Decimal | None = None,
         additional_exit_fees_usd: Decimal = Decimal("0"),
     ) -> PaperPosition | None:
-        """Close a position at a venue-reported exit price (no bid/ask fill model)."""
+        """Close or reduce a position at a venue-reported exit price (no bid/ask fill model).
+
+        When ``filled_exit_quantity`` is less than the open quantity, applies a partial
+        venue exit (local quantity reduced; position stays open). Returns ``None`` in
+        that case. When the remainder is zero, returns the closed position.
+        """
         position = self._positions.get(position_id)
         if position is None or not position.is_open:
+            return None
+
+        if filled_exit_quantity is None:
+            filled_exit_quantity = position.quantity
+
+        qty = min(filled_exit_quantity, position.quantity)
+        if qty <= 0:
+            return None
+
+        before_pnl = position.realized_pnl
+
+        if qty < position.quantity:
+            position.apply_external_partial_reduce(
+                qty,
+                exit_price,
+                event_time,
+                additional_exit_fees_usd=additional_exit_fees_usd,
+            )
+            self._total_realized_pnl += position.realized_pnl - before_pnl
+            paper_pnl_total.set(float(self._total_realized_pnl))
             return None
 
         position.close(
@@ -333,7 +396,7 @@ class PaperExecutionEngine:
         del self._positions[position_id]
         self._closed_positions.append(position)
 
-        self._total_realized_pnl += position.realized_pnl
+        self._total_realized_pnl += position.realized_pnl - before_pnl
         self._layered_exit.cleanup(position_id)
 
         paper_positions_open.labels(symbol=position.symbol).dec()
@@ -355,8 +418,7 @@ class PaperExecutionEngine:
         """
         planned: list[tuple[UUID, str, str]] = []
         position_ids = [
-            pid for pid, pos in self._positions.items()
-            if pos.symbol == symbol and pos.is_open
+            pid for pid, pos in self._positions.items() if pos.symbol == symbol and pos.is_open
         ]
 
         book = self._books.get(symbol)
@@ -420,9 +482,7 @@ class PaperExecutionEngine:
         Returns list of positions that were closed.
         """
         closed: list[PaperPosition] = []
-        for pid, reason, detail in self.plan_exits(
-            symbol, current_price, event_time, features
-        ):
+        for pid, reason, detail in self.plan_exits(symbol, current_price, event_time, features):
             result = self.close_position(pid, reason, detail, event_time)
             if result:
                 closed.append(result)

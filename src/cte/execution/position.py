@@ -2,22 +2,21 @@
 
 Position Lifecycle:
   PENDING → OPEN → CLOSED
-                → REDUCED → CLOSED  (future: partial closes)
+                → REDUCED → CLOSED  (partial venue exits reduce qty first)
 
 Every price tick updates MFE (Max Favorable Excursion) and MAE
 (Max Adverse Excursion), which measure the best and worst unrealized
 PnL the position experienced during its lifetime.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
-from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-if TYPE_CHECKING:
-    from datetime import datetime
+from datetime import datetime
 
 
 class PositionStatus(StrEnum):
@@ -44,6 +43,10 @@ class PaperPosition:
     signal_tier: str = ""
     entry_reason: str = ""
     composite_score: float = 0.0
+    primary_score: float = 0.0
+    context_multiplier: float = 1.0
+    strongest_sub_score: str = ""
+    strongest_sub_score_value: float = 0.0
     warmup_phase: str = "none"
     """``none`` | ``early`` | ``full`` — dashboard staged warmup (paper only)."""
 
@@ -57,10 +60,11 @@ class PaperPosition:
     fill_price: Decimal = Decimal("0")
     quantity: Decimal = Decimal("0")
     notional_usd: Decimal = Decimal("0")
+    initial_notional_usd: Decimal = Decimal("0")
     leverage: int = 1
 
     # Slippage and cost tracking
-    signal_price: Decimal = Decimal("0")     # price at signal generation time
+    signal_price: Decimal = Decimal("0")  # price at signal generation time
     modeled_slippage_bps: Decimal = Decimal("0")
     effective_spread_bps: Decimal = Decimal("0")
     fill_model_used: str = ""
@@ -70,13 +74,14 @@ class PaperPosition:
     signal_time: datetime | None = None
     fill_time: datetime | None = None
     close_time: datetime | None = None
-    entry_latency_ms: int = 0                # signal_time → fill_time
-    modeled_fill_latency_ms: int = 0         # simulated exchange processing
+    entry_latency_ms: int = 0  # signal_time → fill_time
+    modeled_fill_latency_ms: int = 0  # simulated exchange processing
 
     # Risk
     stop_loss_pct: float = 0.0
     take_profit_pct: float = 0.0
-    stop_distance_usd: Decimal = Decimal("0")  # entry x stop_pct x qty
+    stop_distance_usd: Decimal = Decimal("0")  # entry x stop_pct x current qty
+    initial_stop_distance_usd: Decimal = Decimal("0")  # at open; R-multiple denominator
 
     # Price tracking (updated on every tick)
     current_price: Decimal = Decimal("0")
@@ -118,13 +123,10 @@ class PaperPosition:
             delta = fill_time - self.signal_time
             self.entry_latency_ms = int(delta.total_seconds() * 1000)
 
-        self.stop_distance_usd = (
-            self.entry_price * Decimal(str(self.stop_loss_pct)) * self.quantity
-        )
+        self.stop_distance_usd = self.entry_price * Decimal(str(self.stop_loss_pct)) * self.quantity
+        self.initial_stop_distance_usd = self.stop_distance_usd
 
-        self.state_transitions.append(
-            ("pending", "open", fill_time.isoformat())
-        )
+        self.state_transitions.append(("pending", "open", fill_time.isoformat()))
 
     def update_price(self, price: Decimal) -> None:
         """Update market price and recalculate MFE/MAE."""
@@ -161,6 +163,39 @@ class PaperPosition:
         else:
             self.unrealized_pnl = (self.entry_price - price) * self.quantity
 
+    def apply_external_partial_reduce(
+        self,
+        qty_closed: Decimal,
+        exit_price: Decimal,
+        event_time: datetime,
+        *,
+        additional_exit_fees_usd: Decimal = Decimal("0"),
+    ) -> None:
+        """Realize PnL for a slice and reduce open quantity (venue partial exit)."""
+        if self.status not in (PositionStatus.OPEN, PositionStatus.REDUCED):
+            raise ValueError(f"Cannot reduce position in state {self.status}")
+        if qty_closed <= 0:
+            raise ValueError("qty_closed must be positive")
+        if qty_closed >= self.quantity:
+            raise ValueError("Use close() when exiting full remaining quantity")
+
+        if self.direction == "long":
+            slice_pnl = (exit_price - self.entry_price) * qty_closed
+        else:
+            slice_pnl = (self.entry_price - exit_price) * qty_closed
+
+        self.realized_pnl += slice_pnl - additional_exit_fees_usd
+        self.notional_usd -= self.entry_price * qty_closed
+        self.quantity -= qty_closed
+
+        self.stop_distance_usd = self.entry_price * Decimal(str(self.stop_loss_pct)) * self.quantity
+
+        old_status = self.status.value
+        self.status = PositionStatus.REDUCED
+        self.state_transitions.append((old_status, "reduced", event_time.isoformat()))
+
+        self.update_price(exit_price)
+
     def close(
         self,
         exit_price: Decimal,
@@ -170,7 +205,7 @@ class PaperPosition:
         *,
         additional_exit_fees_usd: Decimal = Decimal("0"),
     ) -> None:
-        """Transition from OPEN to CLOSED."""
+        """Transition from OPEN or REDUCED to CLOSED for the remaining quantity."""
         if self.status not in (PositionStatus.OPEN, PositionStatus.REDUCED):
             raise ValueError(f"Cannot close position in state {self.status}")
 
@@ -183,17 +218,16 @@ class PaperPosition:
         self.exit_reason = exit_reason
         self.exit_detail = exit_detail
 
+        remaining_qty = self.quantity
         if self.direction == "long":
-            self.realized_pnl = (exit_price - self.entry_price) * self.quantity
+            slice_pnl = (exit_price - self.entry_price) * remaining_qty
         else:
-            self.realized_pnl = (self.entry_price - exit_price) * self.quantity
+            slice_pnl = (self.entry_price - exit_price) * remaining_qty
 
-        self.realized_pnl -= self.estimated_fees_usd + additional_exit_fees_usd
+        self.realized_pnl += slice_pnl - self.estimated_fees_usd - additional_exit_fees_usd
         self.unrealized_pnl = Decimal("0")
 
-        self.state_transitions.append(
-            (old_status, "closed", close_time.isoformat())
-        )
+        self.state_transitions.append((old_status, "closed", close_time.isoformat()))
 
     @property
     def r_multiple(self) -> float | None:
@@ -203,9 +237,14 @@ class PaperPosition:
         R = 2.0 → earned 2x the risk
         R = -1.0 → lost exactly the stop distance
         """
-        if self.stop_distance_usd <= 0:
+        risk = (
+            self.initial_stop_distance_usd
+            if self.initial_stop_distance_usd > 0
+            else self.stop_distance_usd
+        )
+        if risk <= 0:
             return None
-        return float(self.realized_pnl / self.stop_distance_usd)
+        return float(self.realized_pnl / risk)
 
     @property
     def hold_duration_seconds(self) -> int:
@@ -233,10 +272,15 @@ class PaperPosition:
             "signal_tier": self.signal_tier,
             "entry_reason": self.entry_reason,
             "composite_score": self.composite_score,
+            "primary_score": self.primary_score,
+            "context_multiplier": self.context_multiplier,
+            "strongest_sub_score": self.strongest_sub_score,
+            "strongest_sub_score_value": self.strongest_sub_score_value,
             "entry_price": str(self.entry_price),
             "fill_price": str(self.fill_price),
             "quantity": str(self.quantity),
             "notional_usd": str(self.notional_usd),
+            "initial_notional_usd": str(self.initial_notional_usd),
             "modeled_slippage_bps": str(self.modeled_slippage_bps),
             "effective_spread_bps": str(self.effective_spread_bps),
             "fill_model_used": self.fill_model_used,
@@ -248,6 +292,7 @@ class PaperPosition:
             "stop_loss_pct": self.stop_loss_pct,
             "take_profit_pct": self.take_profit_pct,
             "stop_distance_usd": str(self.stop_distance_usd),
+            "initial_stop_distance_usd": str(self.initial_stop_distance_usd),
             "mfe_pct": round(self.mfe_pct, 6),
             "mae_pct": round(self.mae_pct, 6),
             "mfe_usd": str(self.mfe_usd),

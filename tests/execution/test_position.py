@@ -64,6 +64,30 @@ class TestPositionLifecycle:
         assert pos.state_transitions[1][1] == "closed"
 
 
+class TestPartialVenueExit:
+    def test_partial_reduce_then_close_accumulates_pnl(self):
+        pos = PaperPosition(
+            symbol="BTCUSDT",
+            direction="long",
+            quantity=Decimal("1"),
+            estimated_fees_usd=Decimal("0"),
+            stop_loss_pct=0.02,
+        )
+        pos.open(Decimal("50000"), _utc())
+        pos.apply_external_partial_reduce(
+            Decimal("0.4"),
+            Decimal("51000"),
+            _utc(second=10),
+            additional_exit_fees_usd=Decimal("0"),
+        )
+        assert pos.status == PositionStatus.REDUCED
+        assert pos.quantity == Decimal("0.6")
+        assert pos.realized_pnl == Decimal("400")  # (51000-50000)*0.4
+        pos.close(Decimal("52000"), _utc(second=30), "take_profit")
+        # 400 + (52000-50000)*0.6 = 400 + 1200 = 1600
+        assert pos.realized_pnl == Decimal("1600")
+
+
 class TestPnL:
     def test_long_winning_trade(self):
         pos = PaperPosition(symbol="BTCUSDT", direction="long", quantity=Decimal("2"))

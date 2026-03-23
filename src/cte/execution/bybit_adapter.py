@@ -184,7 +184,14 @@ class BybitDemoAdapter(ExecutionAdapter):
     async def get_positions(
         self, symbol: str | None = None
     ) -> list[VenuePosition]:
-        params: dict = {"category": "linear"}
+        """Linear USDT perps on unified/demo accounts.
+
+        ``settleCoin=USDT`` is required for reliable visibility on v5 unified
+        linear USDT-M contracts (matches ``place_order`` category ``linear``).
+        Keep ``CTE_BYBIT_LINEAR_POSITION_MODE`` aligned with the account's
+        one-way vs hedge mode in the Bybit UI.
+        """
+        params: dict = {"category": "linear", "settleCoin": "USDT"}
         if symbol:
             params["symbol"] = symbol
         data = await self._signed_get("/v5/position/list", params)

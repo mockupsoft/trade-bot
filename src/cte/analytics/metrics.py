@@ -3,8 +3,10 @@
 Every function takes a list of trade records and returns a metric value.
 No I/O, no side effects, fully deterministic, fully testable.
 """
+
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -35,6 +37,15 @@ class CompletedTrade:
     exit_price: Decimal = Decimal("0")
     warmup_phase: str = "none"  # none | early | full — dashboard staged warmup
     execution_channel: str | None = None  # e.g. bybit_linear_demo | binance_usdm_testnet
+    entry_reason_summary: str = ""
+    entry_time: str | None = None
+    exit_time: str | None = None
+    entry_notional_usd: Decimal = Decimal("0")
+    entry_composite_score: float = 0.0
+    entry_primary_score: float = 0.0
+    entry_context_multiplier: float = 1.0
+    entry_strongest_sub_score: str = ""
+    entry_strongest_sub_score_value: float = 0.0
 
 
 def trades_for_promotion_evidence(trades: list[CompletedTrade]) -> list[CompletedTrade]:
@@ -157,9 +168,7 @@ def avg_loss(trades: list[CompletedTrade]) -> float:
     return sum(losers) / len(losers) if losers else 0.0
 
 
-def max_drawdown_pct(
-    trades: list[CompletedTrade], initial_capital: float = 10000.0
-) -> float:
+def max_drawdown_pct(trades: list[CompletedTrade], initial_capital: float = 10000.0) -> float:
     """Peak-to-trough equity drawdown as a percentage."""
     if not trades:
         return 0.0
@@ -179,9 +188,7 @@ def max_drawdown_pct(
     return max_dd
 
 
-def pnl_by_dimension(
-    trades: list[CompletedTrade], dimension: str
-) -> dict[str, float]:
+def pnl_by_dimension(trades: list[CompletedTrade], dimension: str) -> dict[str, float]:
     """Group PnL by a trade dimension (symbol, venue, tier, epoch, exit_reason)."""
     result: dict[str, float] = {}
     for t in trades:
@@ -190,9 +197,7 @@ def pnl_by_dimension(
     return result
 
 
-def count_by_dimension(
-    trades: list[CompletedTrade], dimension: str
-) -> dict[str, int]:
+def count_by_dimension(trades: list[CompletedTrade], dimension: str) -> dict[str, int]:
     result: dict[str, int] = {}
     for t in trades:
         key = getattr(t, dimension, "unknown")
@@ -200,20 +205,130 @@ def count_by_dimension(
     return result
 
 
+TIER_KEYS: tuple[str, ...] = ("A", "B", "C")
+
+
+def metrics_by_tier(trades: list[CompletedTrade]) -> dict[str, dict[str, Any]]:
+    """Per-tier expectancy, win rate, and PnL (same slices as ``get_metrics(tier=...)``).
+
+    Used for validation audits: compare ``pnl_by_tier`` sums to ``expectancy * count`` per tier.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for tier in TIER_KEYS:
+        subset = [t for t in trades if t.tier == tier]
+        out[tier] = {
+            "trade_count": len(subset),
+            "pnl": round(float(sum(t.pnl for t in subset)), 2),
+            "expectancy": round(expectancy(subset), 4),
+            "win_rate": round(win_rate(subset), 4),
+            "avg_pnl_per_trade": round(expectancy(subset), 4),
+            "avg_slippage_bps": round(avg_slippage_bps(subset), 2) if subset else 0.0,
+        }
+    other = [t for t in trades if t.tier not in TIER_KEYS]
+    if other:
+        out["other"] = {
+            "trade_count": len(other),
+            "pnl": round(float(sum(t.pnl for t in other)), 2),
+            "expectancy": round(expectancy(other), 4),
+            "win_rate": round(win_rate(other), 4),
+            "avg_pnl_per_trade": round(expectancy(other), 4),
+            "avg_slippage_bps": round(avg_slippage_bps(other), 2),
+        }
+    return out
+
+
+def tier_validation_metrics(trades: list[CompletedTrade]) -> dict[str, dict[str, Any]]:
+    """Per-tier validation stats beyond baseline PnL/WR/expectancy."""
+    out: dict[str, dict[str, Any]] = {}
+    for tier in TIER_KEYS:
+        subset = [t for t in trades if t.tier == tier]
+        if not subset:
+            out[tier] = {
+                "trade_count": 0,
+                "expectancy": 0.0,
+                "win_rate": 0.0,
+                "pnl": 0.0,
+                "avg_hold_seconds": 0.0,
+                "avg_mfe_pct": 0.0,
+                "avg_mae_pct": 0.0,
+                "exit_layer_distribution": {},
+                "exit_reason_distribution": {},
+                "notional_weighted_pnl_pct": 0.0,
+            }
+            continue
+
+        total_notional = float(sum(t.entry_notional_usd for t in subset))
+        pnl_total = float(sum(t.pnl for t in subset))
+        nw = (pnl_total / total_notional * 100.0) if total_notional > 0 else 0.0
+        out[tier] = {
+            "trade_count": len(subset),
+            "expectancy": round(expectancy(subset), 4),
+            "win_rate": round(win_rate(subset), 4),
+            "pnl": round(pnl_total, 2),
+            "avg_hold_seconds": round(sum(t.hold_seconds for t in subset) / len(subset), 1),
+            "avg_mfe_pct": round(sum(t.mfe_pct for t in subset) / len(subset), 6),
+            "avg_mae_pct": round(sum(t.mae_pct for t in subset) / len(subset), 6),
+            "exit_layer_distribution": count_by_dimension(subset, "exit_layer"),
+            "exit_reason_distribution": count_by_dimension(subset, "exit_reason"),
+            "notional_weighted_pnl_pct": round(nw, 4),
+        }
+    return out
+
+
+def tier_pnl_consistency_check(trades: list[CompletedTrade]) -> dict[str, Any]:
+    """``sum(pnl_by_tier values)`` must equal total realized PnL (floating-point tolerant)."""
+    by_tier = pnl_by_dimension(trades, "tier")
+    total = float(sum(t.pnl for t in trades))
+    sum_keys = sum(by_tier.values())
+    delta = abs(total - sum_keys)
+    return {
+        "total_pnl": round(total, 2),
+        "sum_pnl_by_tier": round(sum_keys, 2),
+        "delta": round(delta, 8),
+        "consistent": delta < 1e-4,
+    }
+
+
+def slippage_by_source(trades: list[CompletedTrade]) -> dict[str, dict[str, Any]]:
+    """Modeled slippage (bps) split by ``CompletedTrade.source`` (paper vs demo_exchange)."""
+    by_src: dict[str, list[CompletedTrade]] = defaultdict(list)
+    for t in trades:
+        by_src[t.source].append(t)
+    result: dict[str, dict[str, Any]] = {}
+    for src, ts in sorted(by_src.items()):
+        result[src] = {
+            "trade_count": len(ts),
+            "avg_slippage_bps": round(avg_slippage_bps(ts), 2),
+        }
+    return result
+
+
+def exit_effectiveness_audit(trades: list[CompletedTrade]) -> dict[str, Any]:
+    """Saved/killed counts and no-progress regret with sample-size caveat (no counterfactual exits)."""
+    n = len(trades)
+    npr = no_progress_regret(trades)
+    notes: list[str] = [
+        "saved_losers/killed_winners are layer-based heuristics; they do not prove counterfactual PnL.",
+    ]
+    if n < 30:
+        notes.append("trade_count < 30: tier and exit statistics are high-variance.")
+    return {
+        "trade_count": n,
+        "saved_losers": saved_losers_count(trades),
+        "killed_winners": killed_winners_count(trades),
+        "no_progress_regret": npr,
+        "notes": notes,
+    }
+
+
 def saved_losers_count(trades: list[CompletedTrade]) -> int:
     """Exits by L1/L2 where position was losing → saved from deeper loss."""
-    return sum(
-        1 for t in trades
-        if t.exit_layer in (1, 2) and not t.was_profitable_at_exit
-    )
+    return sum(1 for t in trades if t.exit_layer in (1, 2) and not t.was_profitable_at_exit)
 
 
 def killed_winners_count(trades: list[CompletedTrade]) -> int:
     """Exits by L2/L3 where position was profitable → potentially killed a winner."""
-    return sum(
-        1 for t in trades
-        if t.exit_layer in (2, 3) and t.was_profitable_at_exit
-    )
+    return sum(1 for t in trades if t.exit_layer in (2, 3) and t.was_profitable_at_exit)
 
 
 def no_progress_regret(trades: list[CompletedTrade]) -> dict:
@@ -275,9 +390,7 @@ def slippage_drift(
     }
 
 
-def compute_all_metrics(
-    trades: list[CompletedTrade], initial_capital: float = 10000.0
-) -> dict:
+def compute_all_metrics(trades: list[CompletedTrade], initial_capital: float = 10000.0) -> dict:
     """Compute all metrics for a set of trades. Dashboard-ready dict."""
     long_trades = [t for t in trades if t.direction == "long"]
     short_trades = [t for t in trades if t.direction == "short"]
@@ -294,6 +407,11 @@ def compute_all_metrics(
         "pnl_by_symbol": pnl_by_dimension(trades, "symbol"),
         "pnl_by_venue": pnl_by_dimension(trades, "venue"),
         "pnl_by_tier": pnl_by_dimension(trades, "tier"),
+        "metrics_by_tier": metrics_by_tier(trades),
+        "tier_validation": tier_validation_metrics(trades),
+        "tier_pnl_consistency": tier_pnl_consistency_check(trades),
+        "slippage_by_source": slippage_by_source(trades),
+        "exit_effectiveness_audit": exit_effectiveness_audit(trades),
         "pnl_by_exit_reason": pnl_by_dimension(trades, "exit_reason"),
         "count_by_exit_reason": count_by_dimension(trades, "exit_reason"),
         "saved_losers": saved_losers_count(trades),
@@ -303,8 +421,7 @@ def compute_all_metrics(
         "avg_latency_ms": round(avg_signal_to_fill_latency_ms(trades), 1),
         "avg_slippage_bps": round(avg_slippage_bps(trades), 2),
         "avg_hold_seconds": (
-            round(sum(t.hold_seconds for t in trades) / len(trades), 1)
-            if trades else 0.0
+            round(sum(t.hold_seconds for t in trades) / len(trades), 1) if trades else 0.0
         ),
         "count_by_source": count_by_dimension(trades, "source"),
         "warmup_phase_breakdown": compute_warmup_phase_breakdown(trades, initial_capital),
@@ -317,5 +434,5 @@ def compute_all_metrics(
             "short_expectancy": round(expectancy(short_trades), 2) if short_trades else 0.0,
             "long_pnl": round(float(sum(t.pnl for t in long_trades)), 2),
             "short_pnl": round(float(sum(t.pnl for t in short_trades)), 2),
-        }
+        },
     }

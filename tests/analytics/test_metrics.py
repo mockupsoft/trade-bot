@@ -14,14 +14,18 @@ from cte.analytics.metrics import (
     compute_all_metrics,
     count_by_dimension,
     expectancy,
+    exit_effectiveness_audit,
     killed_winners_count,
     max_drawdown_pct,
+    metrics_by_tier,
     no_progress_regret,
     pnl_by_dimension,
     profit_factor,
     runner_mode_outcomes,
     saved_losers_count,
+    slippage_by_source,
     slippage_drift,
+    tier_pnl_consistency_check,
     win_rate,
 )
 
@@ -227,3 +231,52 @@ class TestSourceFiltering:
         paper_only = [t for t in trades if t.source != "seed"]
         assert len(paper_only) == 1
         assert float(paper_only[0].pnl) == 200
+
+
+class TestValidationAudit:
+    def test_tier_pnl_consistency(self):
+        trades = [
+            _trade(tier="A", pnl=100),
+            _trade(tier="B", pnl=-40),
+            _trade(tier="C", pnl=20),
+        ]
+        chk = tier_pnl_consistency_check(trades)
+        assert chk["consistent"] is True
+        assert chk["total_pnl"] == 80.0
+
+    def test_metrics_by_tier_matches_sliced_expectancy(self):
+        trades = [
+            _trade(tier="A", pnl=100),
+            _trade(tier="A", pnl=-50),
+            _trade(tier="B", pnl=30),
+        ]
+        by_tier = metrics_by_tier(trades)
+        assert by_tier["A"]["trade_count"] == 2
+        assert by_tier["A"]["expectancy"] == pytest.approx(25.0)
+        assert by_tier["A"]["pnl"] == 50.0
+        assert by_tier["B"]["expectancy"] == pytest.approx(30.0)
+
+    def test_slippage_by_source(self):
+        trades = [
+            _trade(source="paper_simulated", slip=2.0),
+            _trade(source="paper_simulated", slip=4.0),
+            _trade(source="demo_exchange", slip=10.0),
+        ]
+        ss = slippage_by_source(trades)
+        assert ss["paper_simulated"]["avg_slippage_bps"] == 3.0
+        assert ss["demo_exchange"]["avg_slippage_bps"] == 10.0
+
+    def test_compute_all_includes_audit_keys(self):
+        trades = [_trade(tier="A", pnl=10)]
+        m = compute_all_metrics(trades)
+        assert "metrics_by_tier" in m
+        assert "tier_pnl_consistency" in m
+        assert m["tier_pnl_consistency"]["consistent"] is True
+        assert "slippage_by_source" in m
+        assert "exit_effectiveness_audit" in m
+
+    def test_exit_effectiveness_audit_notes_low_n(self):
+        trades = [_trade(exit_layer=1, profitable_at_exit=False)]
+        audit = exit_effectiveness_audit(trades)
+        assert audit["saved_losers"] == 1
+        assert any("30" in n for n in audit["notes"])
