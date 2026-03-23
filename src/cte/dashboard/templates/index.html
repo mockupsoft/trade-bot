@@ -8,7 +8,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script>
-    tailwind.config = {
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
       darkMode: 'class',
       theme: {
         extend: {
@@ -254,7 +255,7 @@
       <div x-show="paperStatus && paperStatus.runner_active" class="pill pill-b text-[10px] font-mono tracking-tight" :title="'Paper pipeline ticks: '+((paperStatus.ticks_ok)||0)+' · entries '+((paperStatus.entries_total)||0)">
         PAPER <span x-text="(paperStatus.open_positions!=null?paperStatus.open_positions:0)+' open'"></span>
       </div>
-      <div x-show="paperStatus && paperStatus.enabled===false" class="pill text-[10px] text-slate-500 border border-white/[0.12]" title="Set CTE_DASHBOARD_PAPER_LOOP=1 (default) to enable">Paper loop off</div>
+      <div x-show="paperStatus && paperStatus.enabled===false" class="pill text-[10px] text-slate-500 border border-white/[0.12]" title="Etkinlestirmek icin CTE_DASHBOARD_PAPER_LOOP=1 (varsayilan)">Paper loop kapali</div>
     </div>
   </header>
 
@@ -315,7 +316,7 @@
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6" x-show="paperStatus && paperStatus.ticks_ok !== undefined">
         <div class="card border border-cyan-500/10">
-          <h3 class="text-sm font-semibold text-white tracking-tight mb-2">Paper pipeline · warmup &amp; first open</h3>
+          <h3 class="text-sm font-semibold text-white tracking-tight mb-2">Paper pipeline (simule islem akisi) · isinma ve ilk acilis</h3>
           <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">Staged warmup: entries allowed after <span class="font-mono text-slate-400" x-text="(paperStatus.warmup||{}).early_mids||'—'"></span> mids (early, reduced size) or <span class="font-mono text-slate-400" x-text="(paperStatus.warmup||{}).full_mids||'—'"></span> mids (full). Loop <span class="font-mono text-slate-400" x-text="(paperStatus.warmup||{}).interval_sec||'—'"></span>s.</p>
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono">
             <div class="rounded-lg bg-white/[0.03] px-2 py-1.5 border border-white/[0.06]"><span class="text-slate-500 block text-[9px] uppercase">Ticks</span><span class="text-white" x-text="paperStatus.ticks_ok||0"></span></div>
@@ -326,11 +327,11 @@
           <div class="mt-3 text-[10px] font-mono text-slate-500 space-y-1">
             <p x-show="(paperStatus.first_open_metrics||{}).time_to_first_eligible_signal_sec != null">t → first eligible signal: <span class="text-slate-300" x-text="((paperStatus.first_open_metrics||{}).time_to_first_eligible_signal_sec||0).toFixed(1)+' s'"></span></p>
             <p x-show="(paperStatus.first_open_metrics||{}).time_to_first_entry_sec != null">t → first entry: <span class="text-slate-300" x-text="((paperStatus.first_open_metrics||{}).time_to_first_entry_sec||0).toFixed(1)+' s'"></span> · ticks <span class="text-slate-300" x-text="(paperStatus.first_open_metrics||{}).ticks_to_first_entry||'—'"></span></p>
-            <p x-show="paperStatus.stall && paperStatus.stall.stall_active" class="text-amber-400/95">Stall warning: no entry after healthy feed — top blocker <span x-text="paperStatus.stall.top_blocker||'—'"></span></p>
+            <p x-show="paperStatus.stall && paperStatus.stall.stall_active" class="text-amber-400/95">Stall warning: no entry after healthy feed — top blocker <span x-text="(paperStatus.stall && paperStatus.stall.top_blocker)||'—'"></span></p>
           </div>
         </div>
         <div class="card border border-white/[0.06]">
-          <h3 class="text-sm font-semibold text-white tracking-tight mb-2">Entry blockers (counts)</h3>
+          <h3 class="text-sm font-semibold text-white tracking-tight mb-2">Giris engelleri (adet)</h3>
           <p class="text-[10px] text-slate-600 mb-2 font-mono">Why signals or orders did not open a new leg (rolling).</p>
           <div class="max-h-36 overflow-y-auto text-[10px] font-mono space-y-0.5 pr-1">
             <template x-for="row in blockerRows()" :key="row.k">
@@ -345,24 +346,24 @@
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6" x-show="paperStatus && paperStatus.pipeline_timestamps">
         <div class="card border border-white/[0.06]">
-          <h3 class="text-sm font-semibold text-white mb-2">Pipeline timestamps (UTC)</h3>
+          <h3 class="text-sm font-semibold text-white mb-2">Akis zaman damgalari (UTC)</h3>
           <dl class="text-[10px] font-mono text-slate-400 space-y-1">
-            <div class="flex justify-between gap-2"><dt>last_eligible_signal_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_eligible_signal_at||'—'"></dd></div>
-            <div class="flex justify-between gap-2"><dt>last_risk_approved_signal_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_risk_approved_signal_at||'—'"></dd></div>
-            <div class="flex justify-between gap-2"><dt>last_nonzero_sizing_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_nonzero_sizing_at||'—'"></dd></div>
-            <div class="flex justify-between gap-2"><dt>last_execution_attempt_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="paperStatus.pipeline_timestamps.last_execution_attempt_at||'—'"></dd></div>
+            <div class="flex justify-between gap-2"><dt>last_eligible_signal_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="(paperStatus.pipeline_timestamps&&paperStatus.pipeline_timestamps.last_eligible_signal_at)||'—'"></dd></div>
+            <div class="flex justify-between gap-2"><dt>last_risk_approved_signal_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="(paperStatus.pipeline_timestamps&&paperStatus.pipeline_timestamps.last_risk_approved_signal_at)||'—'"></dd></div>
+            <div class="flex justify-between gap-2"><dt>last_nonzero_sizing_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="(paperStatus.pipeline_timestamps&&paperStatus.pipeline_timestamps.last_nonzero_sizing_at)||'—'"></dd></div>
+            <div class="flex justify-between gap-2"><dt>last_execution_attempt_at</dt><dd class="text-slate-300 truncate max-w-[60%]" x-text="(paperStatus.pipeline_timestamps&&paperStatus.pipeline_timestamps.last_execution_attempt_at)||'—'"></dd></div>
           </dl>
         </div>
         <div class="card border border-amber-500/15" x-show="paperStatus.pipeline_stall">
-          <h3 class="text-sm font-semibold text-amber-200/95 mb-2">Where it stalls (no open yet)</h3>
-          <p class="text-[11px] text-slate-400 mb-2" x-text="paperStatus.pipeline_stall.hint||''"></p>
-          <p class="text-[10px] font-mono text-slate-500">furthest_stage: <span class="text-cyan-300" x-text="paperStatus.pipeline_stall.furthest_stage||'—'"></span> · blocker: <span class="text-amber-300" x-text="paperStatus.pipeline_stall.dominant_blocker||'—'"></span></p>
+          <h3 class="text-sm font-semibold text-amber-200/95 mb-2">Takilma noktasi (henuz acilis yok)</h3>
+          <p class="text-[11px] text-slate-400 mb-2" x-text="(paperStatus.pipeline_stall&&paperStatus.pipeline_stall.hint)||''"></p>
+          <p class="text-[10px] font-mono text-slate-500">furthest_stage: <span class="text-cyan-300" x-text="(paperStatus.pipeline_stall&&paperStatus.pipeline_stall.furthest_stage)||'—'"></span> · blocker: <span class="text-amber-300" x-text="(paperStatus.pipeline_stall&&paperStatus.pipeline_stall.dominant_blocker)||'—'"></span></p>
         </div>
       </div>
 
       <div class="card mt-6 border border-white/[0.06]" x-show="m.warmup_phase_breakdown">
-        <h3 class="text-sm font-semibold text-white tracking-tight mb-3">Closed trades · warmup phase (early vs full)</h3>
-        <p class="text-[10px] text-slate-500 mb-4 font-mono">Promotion readiness uses <span class="text-slate-400">promotion_evidence</span> only (excludes <span class="text-amber-400">early</span>). See Readiness / Campaign.</p>
+        <h3 class="text-sm font-semibold text-white tracking-tight mb-3">Kapanan islemler · isinma fazi (early vs full)</h3>
+        <p class="text-[10px] text-slate-500 mb-4 font-mono">Terfi hazirligi sadece <span class="text-slate-400">promotion_evidence (terfi kaniti)</span> kullanir; <span class="text-amber-400">early (erken isinma)</span> dislanir. Bkz: Hazirlik / Campaign (kampanya).</p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-[11px]">
           <div class="rounded-xl bg-white/[0.03] border border-amber-500/20 p-3">
             <p class="text-[10px] font-bold uppercase text-amber-500/90 mb-2">Early warmup</p>
@@ -403,21 +404,21 @@
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-8">
         <div class="card xl:col-span-1">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-sm font-semibold text-white tracking-tight">PnL by tier</h3>
+            <h3 class="text-sm font-semibold text-white tracking-tight">PnL (kar/zarar) · tier (seviye) dagilimi</h3>
             <span class="text-[10px] text-slate-500 font-mono">A / B / C</span>
           </div>
           <div class="h-[220px]"><canvas id="cTier"></canvas></div>
         </div>
         <div class="card xl:col-span-1">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-sm font-semibold text-white tracking-tight">PnL by exit</h3>
+            <h3 class="text-sm font-semibold text-white tracking-tight">PnL (kar/zarar) · cikis nedeni dagilimi</h3>
             <span class="text-[10px] text-slate-500 font-mono">Reason</span>
           </div>
           <div class="h-[220px]"><canvas id="cExit"></canvas></div>
         </div>
         <div class="card xl:col-span-1">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-sm font-semibold text-white tracking-tight">PnL by symbol</h3>
+            <h3 class="text-sm font-semibold text-white tracking-tight">PnL (kar/zarar) · sembol dagilimi</h3>
             <span class="text-[10px] text-slate-500 font-mono" x-text="universeSubtitle()"></span>
           </div>
           <div class="h-[220px]"><canvas id="cSym"></canvas></div>
@@ -460,7 +461,7 @@
       <div class="card mb-6">
         <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
           <div class="min-w-0 flex-1">
-            <h3 class="text-base font-semibold text-white tracking-tight">Market feeds</h3>
+            <h3 class="text-base font-semibold text-white tracking-tight">Piyasa akislari (market feed)</h3>
             <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">
               Binance USDⓈ-M <span class="text-cyan-500/80">testnet</span> combined stream ·
               <span class="text-slate-400" x-text="universeSymbols().length+' symbols'"></span>
@@ -561,7 +562,7 @@
 
     <div x-show="page==='positions'" x-cloak>
       <div class="card mb-6 border border-white/[0.06]" x-show="paperStatus && paperStatus.ticks_ok !== undefined">
-        <h3 class="text-sm font-semibold text-white tracking-tight mb-2">Why no positions?</h3>
+        <h3 class="text-sm font-semibold text-white tracking-tight mb-2">Neden pozisyon yok?</h3>
         <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">The paper loop needs staged mid history, passing signal gates, risk approval, and min notional. Early-warmup entries use a smaller size multiplier (<span class="font-mono text-slate-400" x-text="(paperStatus.warmup||{}).early_size_mult||'—'"></span> of cap).</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[11px]">
           <div>
@@ -570,7 +571,7 @@
               <template x-for="(b, bi) in ((paperEntryDiag.last_blocked)||[])" :key="bi+'-'+(b.ts||'')">
                 <div class="text-slate-400 border-b border-white/[0.04] pb-1"><span class="text-slate-600" x-text="b.symbol"></span> · <span class="text-amber-400/90" x-text="b.reason"></span> <span class="text-slate-600" x-text="b.detail||''"></span></div>
               </template>
-              <p x-show="!((paperEntryDiag.last_blocked)||[]).length" class="text-slate-600">No blocks logged yet (or runner idle).</p>
+              <p x-show="!((paperEntryDiag.last_blocked)||[]).length" class="text-slate-600">Henuz engel kaydi yok (veya calistirici bosta).</p>
             </div>
           </div>
           <div>
@@ -586,9 +587,9 @@
       <div class="card mb-6">
         <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
           <div>
-            <h3 class="text-sm font-semibold text-white tracking-tight">Open paper positions</h3>
+            <h3 class="text-sm font-semibold text-white tracking-tight">Acik paper (simule) pozisyonlar</h3>
             <p class="text-[11px] text-slate-500 mt-1 max-w-2xl leading-relaxed">
-              Simulated fills from the in-dashboard pipeline: live testnet book → <span class="font-mono text-slate-500">ScoringSignalEngine</span> → risk veto → sizing → paper execution. Rows disappear when the position hits TP/SL/trailing/timeout and move to the journal below. Pause or disable symbols on Operations to stop new entries.
+              Dashboard icindeki akistan gelen simule dolumlar: canli testnet defteri → <span class="font-mono text-slate-500">ScoringSignalEngine (sinyal puanlayici)</span> → risk veto (risk engeli) → sizing (pozisyon boyutu) → paper execution (simule emir). Pozisyon TP/SL/trailing/timeout tetikleyince satir asagidaki gunluge tasinir. Yeni girisleri durdurmak icin Operasyon sayfasindan duraklatin veya sembol kapatin.
             </p>
           </div>
           <span class="text-[10px] text-slate-600 font-mono" x-show="paperStatus && paperStatus.last_error" x-text="paperStatus.last_error"></span>
@@ -602,17 +603,30 @@
           <span class="text-slate-600"> · </span>
           <span x-text="'last: '+JSON.stringify(paperStatus.last_skip_by_symbol||{})"></span>
         </div>
+        <p class="text-[10px] text-slate-600 mb-2">Entry Px = birim fiyat, Notional = pozisyonun toplam USD büyüklüğü.</p>
+        <div class="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-[11px] text-amber-200" x-show="paperStatus && (paperStatus.concentration_ratio||0) > 0.6">
+          <span class="font-semibold">Concentration warning:</span>
+          <span class="font-mono" x-text="'largest cluster '+fmtUsd(paperStatus.largest_cluster_notional)+' / portfolio '+fmtUsd(paperStatus.portfolio_notional)+' ('+num2((paperStatus.concentration_ratio||0)*100)+'%)'"></span>
+        </div>
         <div class="overflow-x-auto tbl-scroll">
-          <table class="tbl min-w-[900px]">
+          <table class="tbl min-w-[1550px]">
             <thead>
               <tr>
                 <th>Symbol</th>
                 <th>Tier</th>
                 <th>Warmup</th>
-                <th class="text-right">Entry</th>
+                <th class="text-right">Age</th>
+                <th class="text-right">Entry Px</th>
+                <th class="text-right">Mark</th>
                 <th class="text-right">Qty</th>
-                <th class="text-right">uPnL</th>
-                <th>Entry reason (trimmed)</th>
+                <th class="text-right">Notional</th>
+                <th class="text-right">uPnL (anlik kar/zarar)</th>
+                <th class="text-right">PnL % (kar/zarar yuzdesi)</th>
+                <th>Signal</th>
+                <th>Risk</th>
+                <th>Source</th>
+                <th>Recon</th>
+                <th class="text-right">Detail</th>
               </tr>
             </thead>
             <tbody>
@@ -621,14 +635,30 @@
                   <td class="tbl-txt font-mono text-xs font-semibold text-white" x-text="op.symbol"></td>
                   <td><span class="pill" :class="tc(op.signal_tier)" x-text="op.signal_tier"></span></td>
                   <td><span class="pill text-[10px]" :class="op.warmup_phase==='early'?'pill-warn':'pill-b'" x-text="op.warmup_phase||'—'"></span></td>
+                  <td class="text-right tbl-txt text-slate-400" x-text="dur(op.hold_seconds)"></td>
                   <td class="text-right tbl-num text-slate-300" x-text="fmtUsd(op.entry_price)"></td>
-                  <td class="text-right tbl-num text-slate-400 font-mono text-[11px]" x-text="op.quantity"></td>
+                  <td class="text-right tbl-num text-slate-300" x-text="fmtUsd(op.current_price)"></td>
+                  <td class="text-right tbl-num text-slate-400 font-mono text-[11px]" x-text="fmtQty(op.quantity)"></td>
+                  <td class="text-right tbl-num text-slate-300" x-text="fmtUsd(op.notional_usd)"></td>
                   <td class="text-right tbl-num" :class="parseFloat(op.unrealized_pnl)>=0?'text-emerald-400':'text-red-400'" x-text="'$'+parseFloat(op.unrealized_pnl||0).toFixed(2)"></td>
-                  <td class="text-[10px] text-slate-500 font-mono max-w-md truncate" :title="op.entry_reason" x-text="op.entry_reason||'—'"></td>
+                  <td class="text-right tbl-num" :class="parseFloat(op.pnl_pct)>=0?'text-emerald-400/90':'text-red-400/90'" x-text="(parseFloat(op.pnl_pct||0)).toFixed(2)+'%'"></td>
+                  <td class="text-[10px] text-slate-400" :title="op.entry_reason||''">
+                    <div class="font-mono text-slate-200" x-text="'C '+num2(op.composite_score)+' · P '+num2(op.primary_score)"></div>
+                    <div class="font-mono text-slate-500" x-text="(op.strongest_sub_score||'n/a')+' '+num2(op.strongest_sub_score_value)+' · ctx '+num2(op.context_multiplier)"></div>
+                  </td>
+                  <td class="text-[10px] text-slate-400">
+                    <div class="font-mono" x-text="'SL '+pctNum(op.stop_loss_pct)+' / TP '+pctNum(op.take_profit_pct)"></div>
+                    <div class="font-mono" :class="op.exit_pressure&&op.exit_pressure!=='none'?'text-amber-300':'text-slate-600'" x-text="'exit '+(op.exit_pressure||'none')"></div>
+                  </td>
+                  <td class="text-[10px] text-slate-400 font-mono" x-text="(op.trade_source||'—')+' · '+(op.execution_channel||'—')"></td>
+                  <td class="text-[10px]" :title="op.recon_detail||''">
+                    <span class="pill text-[10px]" :class="op.recon_status==='mismatch'?'pill-r':'pill-g'" x-text="op.recon_status||'—'"></span>
+                  </td>
+                  <td class="text-right text-[10px] text-slate-500 font-mono" x-text="(op.venue_order_id||'—')"></td>
                 </tr>
               </template>
               <tr x-show="!paperOpen.length">
-                <td colspan="7" class="py-8 text-center text-xs text-slate-600">No open paper positions — wait for a scored signal (feed must be live, ops ACTIVE, symbol enabled), or check <span class="font-mono text-slate-500">/api/paper/status</span>.</td>
+                <td colspan="15" class="py-8 text-center text-xs text-slate-600">Acik paper pozisyon yok — puanlanmis sinyali bekleyin (feed canli, ops ACTIVE, sembol acik olmali) veya <span class="font-mono text-slate-500">/api/paper/status</span> kontrol edin.</td>
               </tr>
             </tbody>
           </table>
@@ -637,9 +667,9 @@
       <div class="card p-0 overflow-hidden">
         <div class="p-5 sm:p-6 border-b border-white/[0.06] flex flex-wrap items-start justify-between gap-5">
           <div>
-            <h3 class="text-base font-semibold text-white tracking-tight">Trade journal</h3>
+            <h3 class="text-base font-semibold text-white tracking-tight">Trade journal (islem gunlugu)</h3>
             <p class="text-[12px] text-slate-500 mt-1.5 max-w-xl leading-relaxed">
-              Closed trades for active epoch (<span class="font-mono text-slate-400" x-text="epoch"></span>). Full configured universe; exit reason is the mandatory explainability field. Data from <span class="font-mono text-slate-500">/api/analytics/trades</span>.
+              Aktif epoch (donem) icin kapanan islemler (<span class="font-mono text-slate-400" x-text="epoch"></span>). Tam konfigurasyon evreni kullanilir; <span class="font-mono">exit_reason (cikis nedeni)</span> zorunlu aciklanabilirlik alanidir. Veri kaynagi: <span class="font-mono text-slate-500">/api/analytics/trades</span>.
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -687,30 +717,74 @@
                 </template>
               </div>
             </div>
+            <select class="dd-trigger min-w-[110px]" @change="setTradesPageSize($event.target.value)">
+              <template x-for="n in journal.pageSizeOptions" :key="'psz-'+n">
+                <option :value="n" :selected="Number(journal.pageSize)===Number(n)" x-text="n+' / page'"></option>
+              </template>
+            </select>
+          </div>
+          <div class="w-full flex items-center justify-between text-[11px] text-slate-500">
+            <span x-text="'Rows '+journal.rowStart+'-'+journal.rowEnd+' / '+journal.totalCount"></span>
+            <div class="flex items-center gap-2">
+              <button type="button" class="btn btn-secondary px-2 py-1 text-[10px]" @click="exportJournal('csv')">CSV</button>
+              <button type="button" class="btn btn-secondary px-2 py-1 text-[10px]" @click="exportJournal('pdf')">PDF</button>
+              <button type="button" class="btn btn-secondary px-2 py-1 text-[10px]" :disabled="journal.page<=1" @click="prevTradesPage()">Onceki</button>
+              <span class="font-mono" x-text="'Page '+journal.page+' / '+journal.totalPages"></span>
+              <button type="button" class="btn btn-secondary px-2 py-1 text-[10px]" :disabled="journal.page>=journal.totalPages" @click="nextTradesPage()">Sonraki</button>
+            </div>
+          </div>
+          <div class="w-full grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2 pt-2">
+            <select class="dd-trigger min-w-[140px]" x-model="tf.venue" @change="applyAdvancedFilters()">
+              <template x-for="o in venueOpts" :key="'v-'+o.v"><option :value="o.v" x-text="o.l"></option></template>
+            </select>
+            <select class="dd-trigger min-w-[140px]" x-model="tf.direction" @change="applyAdvancedFilters()">
+              <template x-for="o in directionOpts" :key="'d-'+o.v"><option :value="o.v" x-text="o.l"></option></template>
+            </select>
+            <select class="dd-trigger min-w-[140px]" x-model="tf.pnlSign" @change="applyAdvancedFilters()">
+              <template x-for="o in pnlSignOpts" :key="'p-'+o.v"><option :value="o.v" x-text="o.l"></option></template>
+            </select>
+            <input class="dd-trigger min-w-[140px]" placeholder="channel" x-model="tf.channel" @change="applyAdvancedFilters()" />
+            <input class="dd-trigger min-w-[120px]" type="number" min="0" placeholder="hold min(s)" x-model="tf.holdMin" @change="applyAdvancedFilters()" />
+            <input class="dd-trigger min-w-[120px]" type="number" min="0" placeholder="hold max(s)" x-model="tf.holdMax" @change="applyAdvancedFilters()" />
+            <input class="dd-trigger min-w-[180px]" type="datetime-local" x-model="tf.timeFrom" @change="applyAdvancedFilters()" />
+            <input class="dd-trigger min-w-[180px]" type="datetime-local" x-model="tf.timeTo" @change="applyAdvancedFilters()" />
+          </div>
+          <div class="w-full text-[11px] text-slate-500 pt-2">
+            <span class="font-mono text-slate-300" x-text="'PnL '+fmtUsd((journalAttribution.totals||{}).total_pnl||0)"></span>
+            <span class="text-slate-600"> · </span>
+            <span x-text="'WR '+pct((journalAttribution.totals||{}).win_rate||0)"></span>
+            <span class="text-slate-600"> · </span>
+            <span x-text="'Exp $'+num2((journalAttribution.totals||{}).expectancy||0)"></span>
+            <span class="text-slate-600"> · </span>
+            <span x-text="'By source: '+attributionTop(journalAttribution.pnl_by_source)"></span>
+            <span class="text-slate-600"> · </span>
+            <span x-text="'By direction: '+attributionTop(journalAttribution.pnl_by_direction)"></span>
           </div>
         </div>
         <div class="overflow-x-auto max-h-[min(70vh,720px)] overflow-y-auto tbl-scroll">
-          <table class="tbl min-w-[1100px]">
+          <table class="tbl min-w-[1380px]">
             <thead>
               <tr>
                 <th>Symbol</th>
                 <th>Venue</th>
                 <th>Tier</th>
-                <th>WU</th>
-                <th class="text-right">PnL</th>
-                <th class="text-right">R</th>
+                <th>WU (isinma)</th>
+                <th class="text-right">PnL (kar/zarar)</th>
+                <th class="text-right">PnL % (kar/zarar yuzdesi)</th>
+                <th class="text-right">R (risk/getiri katsayisi)</th>
                 <th>Exit</th>
                 <th class="text-right">Hold</th>
-                <th class="text-right">MFE</th>
-                <th class="text-right">MAE</th>
-                <th class="text-right">Slip</th>
-                <th>Mode</th>
+                <th class="text-right">MFE (en iyi sapma)</th>
+                <th class="text-right">MAE (en kotu sapma)</th>
+                <th class="text-right">Slip (slippage kaymasi)</th>
                 <th>Source</th>
+                <th>Channel</th>
+                <th class="text-right">Detail</th>
               </tr>
             </thead>
             <tbody>
               <template x-for="(t,ti) in trades" :key="'j-'+ti+'-'+(t.epoch||'')+'-'+(t.symbol||'')+'-'+(t.pnl||'')+'-'+(t.exit_reason||'')">
-                <tr>
+                <tr :title="'entry C/P/ctx: '+num2(t.entry_composite_score)+' / '+num2(t.entry_primary_score)+' / '+num2(t.entry_context_multiplier)+' | sub: '+(t.entry_strongest_sub_score||'—')+' '+num2(t.entry_strongest_sub_score_value)+' | exit L'+(t.exit_layer!=null?t.exit_layer:'—')+' '+(t.exit_reason||'—')+' | entry_notional '+fmtUsd(t.entry_notional_usd)">
                   <td class="tbl-txt"><span class="font-mono text-[12px] font-semibold text-white tracking-tight" x-text="t.symbol"></span></td>
                   <td class="tbl-txt font-mono text-[11px] text-slate-500" x-text="t.venue||'—'"></td>
                   <td><span class="pill" :class="tc(t.tier)" x-text="t.tier"></span></td>
@@ -718,25 +792,27 @@
                   <td class="text-right tbl-num" :class="parseFloat(t.pnl)>=0?'text-emerald-400':'text-red-400'" :title="t.was_profitable_at_exit!=null?('profitable@exit: '+t.was_profitable_at_exit):''">
                     <span x-text="'$'+parseFloat(t.pnl).toFixed(2)"></span>
                   </td>
+                  <td class="text-right tbl-num" :class="(t.pnl_pct||0)>=0?'text-emerald-400/90':'text-red-400/90'" x-text="t.pnl_pct!=null?(t.pnl_pct*100).toFixed(2)+'%':'—'"></td>
                   <td class="text-right tbl-num text-slate-400" x-text="t.r_multiple!=null?t.r_multiple.toFixed(2)+'R':'—'"></td>
                   <td class="max-w-[160px]"><span class="pill text-[10px] leading-tight" :class="ec(t.exit_reason)" x-text="t.exit_reason"></span></td>
                   <td class="text-right tbl-txt text-slate-400" x-text="dur(t.hold_seconds)"></td>
                   <td class="text-right tbl-num text-emerald-400/90" x-text="(t.mfe_pct*100).toFixed(2)+'%'"></td>
                   <td class="text-right tbl-num text-red-400/90" x-text="(t.mae_pct*100).toFixed(2)+'%'"></td>
                   <td class="text-right tbl-num text-slate-400" x-text="(t.slippage_bps!=null?t.slippage_bps:0).toFixed(1)"></td>
-                  <td><span class="pill pill-b text-[10px]" x-text="t.position_mode"></span></td>
                   <td><span class="pill text-[10px]" :class="srcPill(t.source)" x-text="t.source||'—'"></span></td>
+                  <td class="tbl-txt font-mono text-[10px] text-slate-400" x-text="t.execution_channel||'—'"></td>
+                  <td class="text-right text-[10px] text-slate-500 font-mono" x-text="t.entry_time||'—'"></td>
                 </tr>
               </template>
               <tr x-show="!trades.length">
-                <td colspan="13" class="py-14 px-4 text-center">
-                  <p class="text-slate-500 text-sm mb-4">No trades for this filter</p>
+                <td colspan="15" class="py-14 px-4 text-center">
+                  <p class="text-slate-500 text-sm mb-4">Bu filtre icin islem yok</p>
                   <div class="text-left max-w-xl mx-auto text-[11px] text-slate-600 space-y-2 leading-relaxed">
-                    <p class="font-bold text-slate-500 uppercase tracking-wider text-[10px]">v1 journal (CTE rules)</p>
+                     <p class="font-bold text-slate-500 uppercase tracking-wider text-[10px]">v1 gunluk (CTE kurallari)</p>
                     <ul class="list-disc pl-5 space-y-1.5">
-                      <li>Configured universe (default: top Binance USDT linear majors, see Ops / Config); closed rows appear after the paper loop records a <strong>closed</strong> position. Open legs are listed above.</li>
-                      <li><span class="font-mono text-slate-500">exit_reason</span> is the explainability payload attached to each close (risk may veto before entry).</li>
-                      <li><span class="font-mono text-slate-500">source</span>: <span class="font-mono">paper_simulated</span> / <span class="font-mono">demo_exchange</span>; <span class="font-mono">seed</span> is for dev-only fixtures.</li>
+                       <li>Yapilandirilmis evren (varsayilan: Binance USDT linear majorlar, bkz. Operasyon / Yapilandirma) kullanilir; kapanan satirlar paper loop bir pozisyonu <strong>closed</strong> yaptiginda gorunur. Acik bacaklar yukaridadir.</li>
+                       <li><span class="font-mono text-slate-500">exit_reason (cikis nedeni)</span> her kapanisa eklenen aciklanabilirlik bilgisidir (giris oncesi risk veto olabilir).</li>
+                       <li><span class="font-mono text-slate-500">source (kaynak)</span>: <span class="font-mono">paper_simulated</span> / <span class="font-mono">demo_exchange</span>; <span class="font-mono">seed</span> sadece gelistirme test verisidir.</li>
                     </ul>
                   </div>
                 </td>
@@ -751,8 +827,8 @@
       <div class="card mb-6 border border-cyan-500/15 bg-cyan-500/[0.03]">
         <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
           <div>
-            <h3 class="text-sm font-semibold text-cyan-200/95 tracking-tight">V1 operating constraints (PRD)</h3>
-            <p class="text-[11px] text-slate-500 mt-1 max-w-3xl leading-relaxed">Aligned with CTE phased rules: bi-directional, testnet data plane, risk veto, Redis Streams between services, no v1 live wallet.</p>
+            <h3 class="text-sm font-semibold text-cyan-200/95 tracking-tight">V1 operasyon kisitlari (PRD urun gereksinimi)</h3>
+            <p class="text-[11px] text-slate-500 mt-1 max-w-3xl leading-relaxed">CTE faz kurallarina uyumlu: bi-directional (iki yonlu altyapi), testnet veri duzlemi, risk veto (risk engeli), servisler arasi Redis Streams; v1 icin canli cuzdan yok.</p>
           </div>
           <span class="pill pill-p text-[10px] shrink-0" x-text="'SYS · '+(ops.system_mode||'—')"></span>
         </div>
@@ -761,7 +837,7 @@
             <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Execution &amp; capital</p>
             <ul class="space-y-1.5 text-slate-300 leading-relaxed">
               <li><span class="text-slate-500">Surface:</span> <span class="font-mono text-slate-200" x-text="v1Policy.execution_surface"></span></li>
-              <li><span class="text-slate-500">Live wallet v1:</span> <span class="text-amber-400/90 font-medium" x-text="v1Policy.live_wallet_v1===false?'No (paper/demo)':'—'"></span></li>
+              <li><span class="text-slate-500">Live wallet v1:</span> <span class="text-amber-400/90 font-medium" x-text="v1Policy.live_wallet_v1===false?'Hayir (paper/demo)':'—'"></span></li>
               <li><span class="text-slate-500">Direction:</span> <span class="font-mono text-emerald-400/90" x-text="v1Policy.direction"></span></li>
               <li><span class="text-slate-500">Max leverage:</span> <span class="font-mono text-white" x-text="String(v1Policy.max_leverage)+'×'"></span></li>
             </ul>
@@ -787,9 +863,154 @@
         <p class="text-[10px] text-slate-600 mt-4 leading-relaxed border-t border-white/[0.06] pt-3" x-text="v1Policy.dashboard_note"></p>
       </div>
 
+      <div class="card mb-6 border border-blue-500/20 bg-blue-500/[0.03]">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold text-blue-200/95 tracking-tight">Release/Deploy gorunumu</h3>
+          <span class="text-[10px] text-slate-600 font-mono" x-text="(releaseSnap.last_deploy_at||'').replace('T',' ').substring(0,19)"></span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
+          <div class="rounded-lg bg-[#080b10] border border-white/[0.06] p-3">
+            <p class="text-[10px] text-slate-500 uppercase">Commit</p>
+            <p class="font-mono text-slate-200 mt-1 break-all" x-text="releaseSnap.commit||'unknown'"></p>
+          </div>
+          <div class="rounded-lg bg-[#080b10] border border-white/[0.06] p-3">
+            <p class="text-[10px] text-slate-500 uppercase">Image</p>
+            <p class="font-mono text-slate-200 mt-1 break-all" x-text="(releaseSnap.image||'unknown')+' : '+(releaseSnap.image_tag||'')"></p>
+          </div>
+          <div class="rounded-lg bg-[#080b10] border border-white/[0.06] p-3">
+            <p class="text-[10px] text-slate-500 uppercase">Deploy profili</p>
+            <p class="font-mono text-slate-200 mt-1" x-text="releaseSnap.deploy_profile||'prod'"></p>
+          </div>
+          <div class="rounded-lg bg-[#080b10] border border-white/[0.06] p-3">
+            <p class="text-[10px] text-slate-500 uppercase">Uptime</p>
+            <p class="font-mono text-slate-200 mt-1" x-text="dur(releaseSnap.uptime_seconds||0)"></p>
+          </div>
+        </div>
+        <div class="text-[11px] text-slate-500 mt-3">
+          <span x-text="'Release rollback from: '+((releaseSnap.rollback&&releaseSnap.rollback.release_rollback_from)||'—')"></span>
+          <span class="text-slate-600"> · </span>
+          <span x-text="'Settings rollback: '+(((releaseSnap.rollback&&releaseSnap.rollback.last_settings_rollback&&releaseSnap.rollback.last_settings_rollback.rolled_back_to))||'—')"></span>
+        </div>
+      </div>
+
+      <div class="card mb-6 border border-emerald-500/20 bg-emerald-500/[0.03]">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold text-emerald-200/95 tracking-tight">SLA/SLO durumu (hedef seviye takibi)</h3>
+          <span class="text-[10px] text-slate-600 font-mono" x-text="(sloSnap.meta&&sloSnap.meta.utc)?('snap '+sloSnap.meta.utc):''"></span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 text-xs">
+          <template x-for="k in ['uptime','decision_latency','fill_quality_slippage','fill_quality_fill_rate','rejection_rate']" :key="'slo-'+k">
+            <div class="rounded-lg border border-white/[0.08] bg-[#0a0f14] px-3 py-2.5">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-[10px] uppercase tracking-wider text-slate-500" x-text="k.replaceAll('_',' ')"></span>
+                <span class="pill text-[9px]" :class="sloPill((sloSnap.kpis||{})[k])" x-text="(((sloSnap.kpis||{})[k]||{}).status||'n/a').toUpperCase()"></span>
+              </div>
+              <p class="text-sm font-mono text-slate-200" x-text="sloVal((sloSnap.kpis||{})[k])"></p>
+              <p class="text-[10px] text-slate-500 mt-1" x-text="'hedef '+sloVal({actual:(((sloSnap.kpis||{})[k]||{}).target||0),unit:(((sloSnap.kpis||{})[k]||{}).unit||'')})"></p>
+            </div>
+          </template>
+        </div>
+        <div class="text-[11px] text-slate-500 mt-3">
+          <span x-text="'Breaches '+((sloSnap.meta&&sloSnap.meta.breach_count)||0)"></span>
+          <span class="text-slate-600"> · </span>
+          <span x-text="'Runtime '+dur((sloSnap.meta&&sloSnap.meta.runtime_seconds)||0)"></span>
+          <span class="text-slate-600"> · </span>
+          <span x-text="'Orders '+((sloSnap.raw&&sloSnap.raw.entry_orders_filled)||0)+'/'+((sloSnap.raw&&sloSnap.raw.entry_orders_sent)||0)"></span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+        <div class="card border border-red-500/20">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-white tracking-tight">Incident feed (olay akisi)</h3>
+            <span class="text-[10px] text-slate-600 font-mono" x-text="(opsPanel.meta&&opsPanel.meta.utc)?('snap '+opsPanel.meta.utc):''"></span>
+          </div>
+          <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
+            <template x-for="(it,idx) in (opsPanel.incident_feed||[])" :key="'inc-'+idx">
+              <div class="rounded-lg border border-white/[0.08] bg-[#0a0e14] px-3 py-2.5">
+                <div class="flex items-center justify-between gap-2 mb-1">
+                  <span class="text-xs text-slate-200 font-medium truncate" x-text="it.title||'incident'"></span>
+                  <span class="pill text-[9px] shrink-0" :class="opsIncidentPill(it.severity)" x-text="(it.severity||'info').toUpperCase()"></span>
+                </div>
+                <p class="text-[10px] text-slate-500 font-mono break-all" x-text="it.detail||'—'"></p>
+                <p class="text-[10px] text-slate-600 mt-1 font-mono" x-text="(it.ts||'').replace('T',' ').substring(0,19)"></p>
+              </div>
+            </template>
+            <div x-show="!(opsPanel.incident_feed||[]).length" class="text-xs text-slate-600 py-6 text-center">Aktif olay yok.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="text-sm font-semibold text-white tracking-tight mb-3">Reconnect (yeniden baglanti) ve hata durumu</h3>
+          <div class="grid grid-cols-2 gap-3 mb-4 text-xs">
+            <div class="rounded-lg bg-[#080b10] border border-white/[0.06] p-3"><p class="text-[10px] text-slate-500 uppercase">WS</p><p class="font-mono mt-1" :class="opsPanel.reconnect_status.connected?'text-emerald-400':'text-red-400'" x-text="opsPanel.reconnect_status.connected?'connected':'down'"></p></div>
+            <div class="rounded-lg bg-[#080b10] border border-white/[0.06] p-3"><p class="text-[10px] text-slate-500 uppercase">Reconnects</p><p class="font-mono text-white mt-1" x-text="opsPanel.reconnect_status.reconnect_count||0"></p></div>
+            <div class="rounded-lg bg-[#080b10] border border-white/[0.06] p-3"><p class="text-[10px] text-slate-500 uppercase">Feed errors</p><p class="font-mono mt-1" :class="(opsPanel.last_errors.feed_errors_total||0)>0?'text-red-400':'text-white'" x-text="opsPanel.last_errors.feed_errors_total||0"></p></div>
+            <div class="rounded-lg bg-[#080b10] border border-white/[0.06] p-3"><p class="text-[10px] text-slate-500 uppercase">Last pkt age</p><p class="font-mono mt-1 text-slate-200" x-text="opsPanel.reconnect_status.last_message_age_ms!=null?(opsPanel.reconnect_status.last_message_age_ms+' ms'):'—'"></p></div>
+          </div>
+          <div class="text-[10px] font-mono text-slate-500 space-y-1 break-all">
+            <p>runner_last_error: <span class="text-slate-300" x-text="opsPanel.last_errors.runner_last_error||'—'"></span></p>
+            <p>venue_last_error: <span class="text-slate-300" x-text="opsPanel.last_errors.venue_last_error||'—'"></span></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+        <div class="card">
+          <h3 class="text-sm font-semibold text-white tracking-tight mb-2">Reconciliation (uzlastirma) uyumsuzluk trendi</h3>
+          <p class="text-[10px] text-slate-600 font-mono mb-3">Recent control-loop samples (mismatches / reconnect count / feed errors).</p>
+          <div class="overflow-x-auto">
+            <table class="tbl min-w-[520px]">
+              <thead>
+                <tr><th>Time</th><th class="text-right">Mismatch</th><th class="text-right">Reconnect</th><th class="text-right">Feed err</th></tr>
+              </thead>
+              <tbody>
+                <template x-for="(s,idx) in opsTrendTail()" :key="'trend-'+idx">
+                  <tr>
+                    <td class="text-[10px] font-mono text-slate-500" x-text="(s.ts||'').replace('T',' ').substring(0,19)"></td>
+                    <td class="text-right tbl-num" :class="(s.reconciliation_mismatches||0)>0?'text-red-400':'text-emerald-400'" x-text="s.reconciliation_mismatches||0"></td>
+                    <td class="text-right tbl-num text-slate-300" x-text="s.reconnect_count||0"></td>
+                    <td class="text-right tbl-num text-slate-300" x-text="s.feed_errors_total||0"></td>
+                  </tr>
+                </template>
+                <tr x-show="!opsTrendTail().length"><td colspan="4" class="text-center py-8 text-xs text-slate-600">Henuz trend ornegi yok.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="text-sm font-semibold text-white tracking-tight mb-2">Risk veto (risk engeli) nedenleri</h3>
+          <p class="text-[10px] text-slate-600 font-mono mb-3">Derived from recent <span class="text-slate-500">rejected_risk</span> entry blocks.</p>
+          <div class="text-xs text-slate-400 mb-3">Total vetoes: <span class="font-mono text-amber-400" x-text="(opsPanel.risk_veto&&opsPanel.risk_veto.total_rejections)||0"></span></div>
+          <div class="grid grid-cols-1 gap-3">
+            <div class="rounded-lg border border-white/[0.06] bg-[#0a0e14] p-3">
+              <p class="text-[10px] text-slate-500 uppercase mb-2">Top failed checks</p>
+              <template x-for="(r,idx) in ((opsPanel.risk_veto&&opsPanel.risk_veto.top_failed_checks)||[])" :key="'chk-'+idx">
+                <div class="flex justify-between text-[11px] font-mono border-b border-white/[0.05] py-1 last:border-0">
+                  <span class="text-slate-300" x-text="r.check"></span>
+                  <span class="text-amber-300" x-text="r.count"></span>
+                </div>
+              </template>
+              <div x-show="!((opsPanel.risk_veto&&opsPanel.risk_veto.top_failed_checks)||[]).length" class="text-xs text-slate-600">Henuz risk veto detayi yok.</div>
+            </div>
+            <div class="rounded-lg border border-white/[0.06] bg-[#0a0e14] p-3 max-h-36 overflow-y-auto">
+              <p class="text-[10px] text-slate-500 uppercase mb-2">Recent veto events</p>
+              <template x-for="(r,idx) in ((opsPanel.risk_veto&&opsPanel.risk_veto.recent_vetoes)||[])" :key="'rv-'+idx">
+                <div class="text-[10px] border-b border-white/[0.05] py-1.5 last:border-0">
+                  <div class="font-mono text-slate-500" x-text="(r.ts||'').replace('T',' ').substring(0,19)+' · '+(r.symbol||'—')"></div>
+                  <div class="text-slate-300 break-all" x-text="r.detail||'—'"></div>
+                </div>
+              </template>
+              <div x-show="!((opsPanel.risk_veto&&opsPanel.risk_veto.recent_vetoes)||[]).length" class="text-xs text-slate-600">Son veto olayi yok.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="card border-red-500/20 bg-gradient-to-br from-red-950/20 to-transparent">
-          <h3 class="text-sm font-semibold text-red-400 mb-2 tracking-tight">Emergency controls</h3>
+          <h3 class="text-sm font-semibold text-red-400 mb-2 tracking-tight">Acil durum kontrolleri</h3>
           <p class="text-[11px] text-slate-500 mb-4 leading-relaxed">Kill switch: halt entries and require explicit resume. Pause: block new signals; exit logic may still run. Every action logs a <span class="font-mono text-slate-400">reason</span> (PRD).</p>
           <div class="space-y-3">
             <button type="button" class="btn btn-danger w-full" @click="if(!confirm('EMERGENCY STOP — halt trading?'))return; const r=prompt('Reason (audit log)','Emergency stop: operator'); if(r===null)return; doPost('/api/ops/emergency_stop', r||'Emergency stop: operator')">Emergency stop</button>
@@ -802,7 +1023,7 @@
           </p>
         </div>
         <div class="card">
-          <h3 class="text-sm font-semibold text-white mb-2 tracking-tight">Symbol toggles</h3>
+          <h3 class="text-sm font-semibold text-white mb-2 tracking-tight">Sembol ac/kapa</h3>
           <p class="text-[11px] text-slate-500 mb-4 leading-relaxed">All configured symbols (see list below). Disabling a symbol blocks new exposure on that leg; combine with pause/halt for full stop.</p>
           <template x-for="(info,sym) in ops.symbols||{}" :key="sym">
             <div class="flex items-center justify-between py-3 border-b border-white/[0.05] last:border-0">
@@ -821,7 +1042,7 @@
       </div>
 
       <div class="card mt-6">
-        <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Operations audit log</h3>
+        <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Operasyon denetim kaydi</h3>
         <p class="text-[11px] text-slate-500 mb-4">Last 30 events · includes operator identity stub and mandatory reason strings.</p>
         <div class="overflow-x-auto">
           <table class="tbl min-w-[640px]">
@@ -845,7 +1066,7 @@
                 </tr>
               </template>
               <tr x-show="!(ops.recent_events||[]).length">
-                <td colspan="5" class="py-10 text-center text-slate-600 text-xs">No audit events yet — use controls above (each action records a reason).</td>
+                <td colspan="5" class="py-10 text-center text-slate-600 text-xs">Henuz denetim olayi yok — yukaridaki kontrolleri kullanin (her aksiyon neden kaydeder).</td>
               </tr>
             </tbody>
           </table>
@@ -853,7 +1074,7 @@
       </div>
 
       <div class="card mt-6">
-        <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Trading mode transitions</h3>
+        <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Islem modu gecisleri</h3>
         <p class="text-[11px] text-slate-500 mb-4">State changes for <span class="font-mono">active · paused · halted</span> (event-driven stack should mirror via Redis).</p>
         <div class="space-y-0 divide-y divide-white/[0.05]">
           <template x-for="(row,i) in (ops.mode_history||[]).slice().reverse()" :key="i">
@@ -862,16 +1083,53 @@
               <span class="font-mono text-slate-400" x-text="row[0]+' → '+row[1]"></span>
             </div>
           </template>
-          <div x-show="!(ops.mode_history||[]).length" class="text-slate-600 text-xs py-6">No mode changes yet.</div>
+          <div x-show="!(ops.mode_history||[]).length" class="text-slate-600 text-xs py-6">Henuz mod degisikligi yok.</div>
         </div>
       </div>
     </div>
 
+    <div x-show="page==='runbook'" x-cloak>
+      <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
+        <div>
+          <h3 class="text-sm font-semibold text-white tracking-tight">Runbook (isletim rehberi)</h3>
+          <p class="text-[11px] text-slate-500 mt-1 max-w-3xl leading-relaxed" x-text="(runbookSnap.meta&&runbookSnap.meta.hint)||''"></p>
+          <p class="text-[10px] text-slate-600 font-mono mt-2" x-text="(runbookSnap.meta&&runbookSnap.meta.utc)?('Snapshot · '+runbookSnap.meta.utc):''"></p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-slate-400">Active issues: <span class="font-mono text-amber-300" x-text="(runbookSnap.meta&&runbookSnap.meta.active_count)||0"></span></span>
+          <button type="button" class="btn btn-ok !py-2 !px-3 !text-xs" @click="loadRunbook()">Yenile</button>
+        </div>
+      </div>
+      <div x-show="runbookLoading" class="text-xs text-slate-500 mb-4">Runbook yukleniyor…</div>
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <template x-for="(s,idx) in (runbookSnap.scenarios||[])" :key="s.id||idx">
+          <div class="card">
+            <div class="flex items-center justify-between gap-3 mb-3">
+              <h4 class="text-sm font-semibold text-white" x-text="s.title||s.id"></h4>
+              <span class="pill text-[10px]" :class="runbookPill(s)" x-text="runbookLabel(s)"></span>
+            </div>
+            <p class="text-[11px] text-slate-500 mb-3" x-text="s.detail||'—'"></p>
+            <div class="mb-3">
+              <p class="text-[10px] uppercase tracking-wider text-slate-600 mb-1">Diagnosis steps</p>
+              <template x-for="(step,i) in (s.steps||[])" :key="'st-'+i">
+                <div class="text-xs text-slate-300 py-1 border-b border-white/[0.04] last:border-0" x-text="(i+1)+'. '+step"></div>
+              </template>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <template x-for="(a,i) in (s.actions||[])" :key="'ac-'+i">
+                <button type="button" class="text-[11px] px-2.5 py-1.5 rounded-md border border-white/[0.15] text-slate-200 hover:bg-white/[0.06]" @click="runbookAction(a)" x-text="a.label"></button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <div x-show="page==='readiness'" x-cloak>
-      <p class="text-[11px] text-slate-500 mb-5 max-w-4xl leading-relaxed">Readiness reflects <span class="font-mono text-slate-400">.cursorrules</span> phased plan: v1 is paper/demo/testnet; Phase 5 live is out of scope until explicitly enabled.</p>
+      <p class="text-[11px] text-slate-500 mb-5 max-w-4xl leading-relaxed">Hazirlik gorunumu <span class="font-mono text-slate-400">.cursorrules</span> faz planini yansitir: v1 kapsaminda paper/demo/testnet vardir; Phase 5 live acikca etkinlestirilene kadar kapsam disidir.</p>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="card">
-          <h3 class="text-sm font-semibold text-white mb-2 tracking-tight">Paper / validation → Testnet (v1)</h3>
+          <h3 class="text-sm font-semibold text-white mb-2 tracking-tight">Paper / validation -> Testnet (v1)</h3>
           <p class="text-[10px] text-slate-600 mb-4 leading-relaxed" x-text="readinessPaper && readinessPaper.scope_note"></p>
           <div>
             <div class="mb-4 flex flex-wrap items-baseline gap-3">
@@ -890,7 +1148,7 @@
           </div>
         </div>
         <div class="card border border-amber-500/15 bg-amber-500/[0.04]">
-          <h3 class="text-sm font-semibold text-amber-200/95 mb-2 tracking-tight">Phase 5 → Live (reference only)</h3>
+          <h3 class="text-sm font-semibold text-amber-200/95 mb-2 tracking-tight">Phase 5 -> Live (sadece referans)</h3>
           <p class="text-[10px] text-slate-600 mb-4 leading-relaxed" x-text="readinessLive && readinessLive.scope_note"></p>
           <div class="mb-4 flex flex-wrap items-baseline gap-3">
             <span class="sv text-slate-500">N/A</span>
@@ -929,6 +1187,44 @@
           <div class="text-xs text-slate-500 mt-2">WR <span class="font-mono text-slate-400" x-text="pct(tierM('C').win_rate)"></span> · PF <span class="font-mono text-slate-400" x-text="tierM('C').profit_factor!=null?tierM('C').profit_factor.toFixed(2):'—'"></span> · <span class="font-mono text-slate-400" x-text="tierM('C').trade_count||0"></span> trades</div>
         </div>
       </div>
+      <div class="card mt-6">
+        <h3 class="text-sm font-semibold text-white tracking-tight">Tier validation matrix</h3>
+        <p class="text-[10px] text-slate-600 mt-1 mb-4">Empirical separation check: expectancy, win rate, hold, MAE/MFE, exit mix, and notional-weighted return by tier.</p>
+        <div class="overflow-x-auto tbl-scroll">
+          <table class="tbl min-w-[1150px]">
+            <thead>
+              <tr>
+                <th>Tier</th>
+                <th class="text-right">Trades</th>
+                <th class="text-right">Expectancy</th>
+                <th class="text-right">Win rate</th>
+                <th class="text-right">PnL</th>
+                <th class="text-right">Notional-w PnL%</th>
+                <th class="text-right">Avg hold</th>
+                <th class="text-right">Avg MFE</th>
+                <th class="text-right">Avg MAE</th>
+                <th>Top exits</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="tier in ['A','B','C']" :key="'tv-'+tier">
+                <tr>
+                  <td><span class="pill" :class="tc(tier)" x-text="tier"></span></td>
+                  <td class="text-right tbl-num text-slate-300" x-text="tv(tier,'trade_count',0)"></td>
+                  <td class="text-right tbl-num" :class="tv(tier,'expectancy',0)>=0?'text-emerald-400':'text-red-400'" x-text="'$'+num2(tv(tier,'expectancy',0))"></td>
+                  <td class="text-right tbl-num text-slate-300" x-text="pct(tv(tier,'win_rate',0))"></td>
+                  <td class="text-right tbl-num" :class="tv(tier,'pnl',0)>=0?'text-emerald-400':'text-red-400'" x-text="'$'+num2(tv(tier,'pnl',0))"></td>
+                  <td class="text-right tbl-num" :class="tv(tier,'notional_weighted_pnl_pct',0)>=0?'text-emerald-400':'text-red-400'" x-text="num2(tv(tier,'notional_weighted_pnl_pct',0))+'%'"></td>
+                  <td class="text-right tbl-txt text-slate-400" x-text="dur(tv(tier,'avg_hold_seconds',0))"></td>
+                  <td class="text-right tbl-num text-emerald-400/90" x-text="num2(tv(tier,'avg_mfe_pct',0)*100)+'%'"></td>
+                  <td class="text-right tbl-num text-red-400/90" x-text="num2(tv(tier,'avg_mae_pct',0)*100)+'%'"></td>
+                  <td class="text-[10px] text-slate-500 font-mono" x-text="topExitReasons(tier)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         <div class="card">
           <h3 class="text-sm font-semibold text-white mb-1 tracking-tight">Exit reason attribution</h3>
@@ -962,70 +1258,145 @@
     <div x-show="page==='config'" x-cloak>
       <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
         <div>
-          <h3 class="text-sm font-semibold text-white tracking-tight">Configuration</h3>
+          <h3 class="text-sm font-semibold text-white tracking-tight">Yapilandirma</h3>
           <p class="text-[11px] text-slate-500 mt-1 max-w-xl leading-relaxed" x-text="(configSnap.meta && configSnap.meta.hint) || ''"></p>
           <p class="text-[10px] text-slate-600 font-mono mt-2" x-show="configSnap.meta && configSnap.meta.utc" x-text="'Snapshot · ' + configSnap.meta.utc"></p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
-          <span x-show="configLoading" class="text-[11px] text-slate-500">Loading…</span>
-          <button type="button" class="btn btn-ok !py-2 !px-3 !text-xs" @click="loadConfig()">Refresh</button>
-          <button type="button" class="btn !py-2 !px-3 !text-xs border border-white/[0.12] bg-[#0c1016] text-slate-200 hover:bg-white/[0.06]" @click="copyConfigJson()">Copy JSON</button>
+          <span x-show="configLoading" class="text-[11px] text-slate-500">Yukleniyor…</span>
+          <button type="button" class="btn btn-ok !py-2 !px-3 !text-xs" @click="loadConfig()">Yenile</button>
+          <button type="button" class="btn !py-2 !px-3 !text-xs border border-white/[0.12] bg-[#0c1016] text-slate-200 hover:bg-white/[0.06]" @click="copyConfigJson()">JSON kopyala</button>
         </div>
       </div>
+
+      <div class="card mb-5 border border-cyan-500/20 bg-cyan-500/[0.03]">
+        <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+          <div>
+            <h4 class="text-sm font-semibold text-cyan-200/95 tracking-tight">Versioned settings center (surumlu ayar merkezi)</h4>
+            <p class="text-[11px] text-slate-500 mt-1">Workflow: <span class="font-mono text-slate-400" x-text="(settingsCenter.workflow||[]).join(' → ')"></span> · backend <span class="font-mono text-slate-400" x-text="settingsCenter.backend||'memory'"></span></p>
+            <p class="text-[10px] text-slate-600 mt-1" x-text="settingsCenter.apply_note||''"></p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 justify-end">
+            <input type="text" class="px-2 py-1.5 rounded-lg bg-[#0b1016] border border-white/[0.12] text-xs font-mono text-slate-200 w-[140px]" x-model="settingsActor.name" placeholder="actor" />
+            <select class="px-2 py-1.5 rounded-lg bg-[#0b1016] border border-white/[0.12] text-xs text-slate-200" x-model="settingsActor.role">
+              <option value="viewer">viewer</option>
+              <option value="operator">operator</option>
+              <option value="approver">approver</option>
+              <option value="admin">admin</option>
+            </select>
+            <span x-show="settingsCenterLoading" class="text-[11px] text-slate-500">Yukleniyor…</span>
+            <button type="button" class="btn btn-ok !py-2 !px-3 !text-xs" @click="loadSettingsCenter()">Merkezi yenile</button>
+            <button type="button" class="btn !py-2 !px-3 !text-xs border border-cyan-500/40 text-cyan-200 bg-[#0f1620] hover:bg-cyan-500/10" @click="createSettingsDraft()">New draft</button>
+          </div>
+        </div>
+        <div class="text-[11px] text-slate-400 mb-2">Active revision: <span class="font-mono text-slate-200" x-text="(settingsCenter.active_revision&&settingsCenter.active_revision.revision_id)||'none'"></span></div>
+        <div class="overflow-x-auto">
+          <table class="tbl min-w-[1150px]">
+            <thead>
+              <tr>
+                <th>Revizyon</th><th>Durum</th><th>Ad</th><th>Degisiklik</th><th>Olusturma</th><th>Onay</th><th>Zamanlama</th><th>Uygulama</th><th>Aksiyon</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(rev,idx) in (settingsCenter.revisions||[])" :key="rev.revision_id||idx">
+                <tr>
+                  <td class="font-mono text-[10px] text-slate-400" x-text="rev.revision_id"></td>
+                  <td><span class="pill text-[9px]" :class="rev.status==='applied'?'pill-g':rev.status==='approved'?'pill-b':rev.status==='scheduled'?'pill-p':'pill-y'" x-text="(rev.status||'draft').toUpperCase()"></span></td>
+                  <td class="text-xs text-slate-300" x-text="rev.name||'draft'"></td>
+                  <td class="text-[10px] font-mono text-slate-500 max-w-[300px] truncate" :title="JSON.stringify(rev.changes||{})" x-text="Object.keys(rev.changes||{}).join(', ')||'—'"></td>
+                  <td class="text-[10px] font-mono text-slate-500" x-text="(rev.created_at||'').replace('T',' ').substring(0,19)"></td>
+                  <td class="text-[10px] font-mono text-slate-500" x-text="(rev.approved_at||'').replace('T',' ').substring(0,19)||'—'"></td>
+                  <td class="text-[10px] font-mono text-slate-500" x-text="(rev.scheduled_for||'').replace('T',' ').substring(0,19)||'—'"></td>
+                  <td class="text-[10px] font-mono text-slate-500" x-text="(rev.applied_at||'').replace('T',' ').substring(0,19)||'—'"></td>
+                  <td class="text-xs space-x-2 whitespace-nowrap">
+                    <button class="text-slate-300 hover:text-white" @click="showSettingsDiff(rev.revision_id)">Fark</button>
+                    <button x-show="rev.status==='draft'" class="text-cyan-400 hover:text-cyan-300" @click="approveSettingsRevision(rev.revision_id)">Onayla</button>
+                    <button x-show="rev.status==='approved'" class="text-violet-400 hover:text-violet-300" @click="scheduleSettingsRevision(rev.revision_id)">Schedule</button>
+                    <button x-show="rev.status==='approved' || rev.status==='scheduled'" class="text-emerald-400 hover:text-emerald-300" @click="applySettingsRevision(rev.revision_id)">Uygula</button>
+                    <button x-show="rev.status==='applied'" class="text-amber-400 hover:text-amber-300" @click="rollbackSettingsRevision(rev.revision_id)">Geri al</button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="!(settingsCenter.revisions||[]).length">
+                <td colspan="9" class="py-8 text-center text-xs text-slate-600">Henuz revizyon yok. Yukaridaki dugmeden taslak olusturun.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="mt-4 rounded-lg border border-white/[0.08] bg-[#0a0f14] p-3" x-show="settingsDiff && settingsDiff.rows && settingsDiff.rows.length">
+          <p class="text-[11px] text-slate-400 mb-2">Fark · <span class="font-mono text-slate-200" x-text="settingsDiff.revision_id"></span> · <span class="font-mono text-slate-500" x-text="settingsDiff.status"></span></p>
+          <div class="max-h-44 overflow-y-auto">
+            <template x-for="(row,idx) in settingsDiff.rows" :key="'df-'+idx">
+              <div class="grid grid-cols-12 gap-2 text-[10px] font-mono border-b border-white/[0.05] py-1.5">
+                <div class="col-span-4 text-slate-300 truncate" x-text="row.key"></div>
+                <div class="col-span-4 text-slate-500 truncate" x-text="row.before==null?'(unset)':String(row.before)"></div>
+                <div class="col-span-4 truncate" :class="row.changed?'text-cyan-300':'text-slate-500'" x-text="String(row.after)"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
       <div x-show="configSnap.error" class="card border-red-500/30 mb-4">
-        <p class="text-sm text-red-400 font-medium">Config snapshot failed</p>
+        <p class="text-sm text-red-400 font-medium">Yapilandirma anlik goruntusu alinamadi</p>
         <p class="text-xs text-slate-500 font-mono mt-2 break-all" x-text="configSnap.error"></p>
       </div>
       <div x-show="!configLoading && !configSnap.error && configSectionsForTemplate().length===0" class="card border border-white/[0.08] mb-4">
-        <p class="text-sm text-slate-400">No configuration sections in the response.</p>
-        <p class="text-[11px] text-slate-600 mt-2">Use <span class="font-mono text-slate-500">Refresh</span> or open <span class="font-mono text-slate-500">/api/config</span> in this origin — if you see JSON but not here, hard-refresh the page (cache).</p>
+        <p class="text-sm text-slate-400">Yanitta yapilandirma bolumu yok.</p>
+        <p class="text-[11px] text-slate-600 mt-2"><span class="font-mono text-slate-500">Yenile</span> kullanin veya bu origin icinde <span class="font-mono text-slate-500">/api/config</span> acin. JSON gorunup burada gorunmuyorsa sayfayi sert yenileyin (cache).</p>
       </div>
       <div class="space-y-4">
-        <div class="card" x-for="sec in configSectionsForTemplate()" :key="sec.id || sec.title">
-          <h4 class="cfg-section-title" x-text="sec.title"></h4>
-          <div class="cfg-row" x-for="row in (sec.rows || [])" :key="(sec.id||sec.title)+'-'+row.key">
-            <span class="cfg-k" x-text="row.label"></span>
-            <div class="cfg-v">
-              <pre class="cfg-json" x-show="isCfgStructured(row.value)" x-text="prettyJson(row.value)"></pre>
-              <span x-show="!isCfgStructured(row.value)" class="block pt-0.5" :class="cfgScalarClass(row)" x-text="formatCfgScalar(row.value)"></span>
-            </div>
+        <template x-for="sec in configSectionsForTemplate()" :key="sec.id || sec.title">
+          <div class="card">
+            <h4 class="cfg-section-title" x-text="sec.title"></h4>
+            <template x-for="row in (sec.rows || [])" :key="(sec.id||sec.title)+'-'+row.key">
+              <div class="cfg-row">
+                <span class="cfg-k" x-text="row.label"></span>
+                <div class="cfg-v">
+                  <pre class="cfg-json" x-show="isCfgStructured(row.value)" x-text="prettyJson(row.value)"></pre>
+                  <span x-show="!isCfgStructured(row.value)" class="block pt-0.5" :class="cfgScalarClass(row)" x-text="formatCfgScalar(row.value)"></span>
+                </div>
+              </div>
+            </template>
           </div>
-        </div>
+        </template>
       </div>
     </div>
 
     <div x-show="page==='alerts'" x-cloak>
       <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
         <div>
-          <h3 class="text-sm font-semibold text-white tracking-tight">Alerts</h3>
+          <h3 class="text-sm font-semibold text-white tracking-tight">Uyarilar (alerts)</h3>
           <p class="text-[11px] text-slate-500 mt-1 max-w-2xl leading-relaxed" x-text="(alertsSnap.meta && alertsSnap.meta.legend) || ''"></p>
           <p class="text-[10px] text-slate-600 font-mono mt-2" x-show="alertsSnap.meta && alertsSnap.meta.utc" x-text="alertsEvaluatedLine()"></p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
-          <span x-show="alertsLoading" class="text-[11px] text-slate-500">Loading…</span>
-          <button type="button" class="btn btn-ok !py-2 !px-3 !text-xs" @click="loadAlerts()">Refresh</button>
+          <span x-show="alertsLoading" class="text-[11px] text-slate-500">Yukleniyor…</span>
+          <button type="button" class="btn btn-ok !py-2 !px-3 !text-xs" @click="loadAlerts()">Yenile</button>
         </div>
       </div>
       <div x-show="alertsSnap.error" class="card border-red-500/30 mb-4">
-        <p class="text-sm text-red-400 font-medium">Alerts status failed</p>
+        <p class="text-sm text-red-400 font-medium">Uyari durumu alinamadi</p>
         <p class="text-xs text-slate-500 font-mono mt-2 break-all" x-text="alertsSnap.error"></p>
       </div>
       <div class="card">
-        <h4 class="cfg-section-title">Rules &amp; live state</h4>
+        <h4 class="cfg-section-title">Kurallar ve canli durum</h4>
         <div x-show="!alertsLoading && !alertsSnap.error && alertsRulesForTemplate().length===0" class="py-10 text-center text-xs text-slate-500">
-          No alert rules in the response. Try <span class="font-mono text-slate-400">Refresh</span> or open <span class="font-mono text-slate-400">/api/alerts/status</span> in this origin.
+          Yanitta uyari kurali yok. <span class="font-mono text-slate-400">Yenile</span> deneyin veya bu origin icinde <span class="font-mono text-slate-400">/api/alerts/status</span> acin.
         </div>
         <div class="space-y-0 divide-y divide-white/[0.06] text-xs">
-          <div class="py-3.5" x-for="(rule, idx) in alertsRulesForTemplate()" :key="rule.id || rule.title || idx">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-              <div class="min-w-0 flex-1">
-                <span class="text-slate-200 font-medium" x-text="rule.title"></span>
-                <p class="text-[10px] text-slate-500 mt-1 font-mono leading-relaxed" x-text="rule.condition"></p>
-                <p class="text-[10px] text-slate-600 mt-1.5 font-mono break-all" x-show="rule.detail" x-text="rule.detail"></p>
+          <template x-for="(rule, idx) in alertsRulesForTemplate()" :key="rule.id || rule.title || idx">
+            <div class="py-3.5">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0 flex-1">
+                  <span class="text-slate-200 font-medium" x-text="rule.title"></span>
+                  <p class="text-[10px] text-slate-500 mt-1 font-mono leading-relaxed" x-text="rule.condition"></p>
+                  <p class="text-[10px] text-slate-600 mt-1.5 font-mono break-all" x-show="rule.detail" x-text="rule.detail"></p>
+                </div>
+                <span class="pill shrink-0 text-[10px]" :class="alertStatePill(rule)" x-text="alertStateLabel(rule)"></span>
               </div>
-              <span class="pill shrink-0 text-[10px]" :class="alertStatePill(rule)" x-text="alertStateLabel(rule)"></span>
             </div>
-          </div>
+          </template>
         </div>
       </div>
     </div>
@@ -1039,6 +1410,7 @@ const ICON = {
   market: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M8.25 3v2.25M17.75 3v2.25M3 8.25h18M5.25 8.25v10.5a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25V8.25"/></svg>',
   positions: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>',
   ops: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>',
+  runbook: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M7.5 3.75h9A2.25 2.25 0 0118.75 6v12a2.25 2.25 0 01-2.25 2.25h-9A2.25 2.25 0 015.25 18V6A2.25 2.25 0 017.5 3.75z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M8.5 8.25h7m-7 3.75h7m-7 3.75h4.5"/></svg>',
   readiness: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
   research: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5"/></svg>',
   config: '<svg class="nav-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="17" height="17"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>',
@@ -1046,19 +1418,22 @@ const ICON = {
 };
 function app(){return{
   page:'overview',
-  pageIds:['overview','market','positions','ops','readiness','research','config','alerts'],
+  pageIds:['overview','market','positions','ops','runbook','readiness','research','config','alerts'],
   epoch:'crypto_v1_demo',
   pages:[
-    {id:'overview',label:'Overview',svg:ICON.overview},
-    {id:'market',label:'Market feeds',svg:ICON.market},
-    {id:'positions',label:'Positions',svg:ICON.positions},
-    {id:'ops',label:'Operations',svg:ICON.ops},
-    {id:'readiness',label:'Readiness',svg:ICON.readiness},
-    {id:'research',label:'Research',svg:ICON.research},
-    {id:'config',label:'Config',svg:ICON.config},
-    {id:'alerts',label:'Alerts',svg:ICON.alerts},
+    {id:'overview',label:'Genel Bakis',svg:ICON.overview},
+    {id:'market',label:'Piyasa Akislari',svg:ICON.market},
+    {id:'positions',label:'Pozisyonlar',svg:ICON.positions},
+    {id:'ops',label:'Operasyon',svg:ICON.ops},
+    {id:'runbook',label:'Runbook (isletim rehberi)',svg:ICON.runbook},
+    {id:'readiness',label:'Hazirlik',svg:ICON.readiness},
+    {id:'research',label:'Arastirma',svg:ICON.research},
+    {id:'config',label:'Yapilandirma',svg:ICON.config},
+    {id:'alerts',label:'Uyarilar',svg:ICON.alerts},
   ],
-  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},readinessPaper:null,readinessLive:null,configSnap:{meta:{hint:'',utc:''},sections:[]},configLoading:false,alertsSnap:{meta:{legend:'',utc:'',firing_count:0},rules:[]},alertsLoading:false,researchTiers:{},paperStatus:{},paperEntryDiag:{},paperOpen:[],tf:{tier:'',symbol:'',exit:'',source:''},
+  epochs:[{name:'crypto_v1_demo',is_active:true}],m:{},trades:[],ops:{},opsPanel:{meta:{utc:'',runner_active:false},incident_feed:[],last_errors:{},reconnect_status:{},reconciliation:{current:{},trend:[]},risk_veto:{total_rejections:0,top_failed_checks:[],recent_vetoes:[]}},releaseSnap:{service:'analytics',app_version:'0.1.0',deploy_profile:'prod',commit:'unknown',image:'unknown',image_tag:'local',last_deploy_at:'',uptime_seconds:0,rollback:{release_rollback_from:null,last_settings_rollback:null}},sloSnap:{meta:{utc:'',runtime_seconds:0,breach_count:0},targets:{},kpis:{},raw:{}},runbookSnap:{meta:{utc:'',active_count:0,hint:''},scenarios:[]},runbookLoading:false,readinessPaper:null,readinessLive:null,configSnap:{meta:{hint:'',utc:''},sections:[]},configLoading:false,settingsCenter:{backend:'',workflow:['draft','approved','scheduled','applied'],active_revision:null,revisions:[],apply_note:''},settingsCenterLoading:false,settingsActor:{name:'dashboard_user',role:'admin'},settingsDiff:{revision_id:'',status:'',rows:[]},alertsSnap:{meta:{legend:'',utc:'',firing_count:0},rules:[]},alertsLoading:false,researchTiers:{},paperStatus:{},paperEntryDiag:{},paperOpen:[],journalAttribution:{totals:{trade_count:0,total_pnl:0,win_rate:0,expectancy:0},pnl_by_source:{},pnl_by_direction:{}},tf:{tier:'',symbol:'',exit:'',source:'',venue:'',direction:'',channel:'',pnlSign:'',holdMin:'',holdMax:'',timeFrom:'',timeTo:''},
+  openDetailKey:null,
+  journal:{page:1,pageSize:25,pageSizeOptions:[25,50,100],totalCount:0,totalPages:1,rowStart:0,rowEnd:0,expanded:null},
   mkt:{},mktHealth:{},
   ddTier:false,ddSym:false,ddExit:false,ddSource:false,
   tierOpts:[
@@ -1085,15 +1460,87 @@ function app(){return{
   ],
   sourceOpts:[
     {v:'',l:'All sources'},
-    {v:'paper_simulated',l:'Paper simulated'},
-    {v:'demo_exchange',l:'Demo exchange'},
-    {v:'seed',l:'Seed (dev only)'},
+    {v:'paper_simulated',l:'Paper simule'},
+    {v:'demo_exchange',l:'Demo borsa'},
+    {v:'seed',l:'Seed (sadece gelistirme)'},
+  ],
+  venueOpts:[
+    {v:'',l:'All venues'},
+    {v:'binance',l:'binance'},
+    {v:'binance_testnet',l:'binance_testnet'},
+    {v:'bybit_demo',l:'bybit_demo'},
+  ],
+  directionOpts:[
+    {v:'',l:'All directions'},
+    {v:'long',l:'long'},
+    {v:'short',l:'short'},
+  ],
+  pnlSignOpts:[
+    {v:'',l:'All pnl'},
+    {v:'pos',l:'Profitable'},
+    {v:'neg',l:'Losing'},
+    {v:'flat',l:'Flat'},
   ],
   _charts:{},_lastPrice:{},_flash:{},lastSync:0,_tickTimer:null,_slowTimer:null,_clockTick:0,
-  setTier(v){this.tf.tier=v;this.ddTier=false;this.loadTrades()},
-  setSym(v){this.tf.symbol=v;this.ddSym=false;this.loadTrades()},
-  setExit(v){this.tf.exit=v;this.ddExit=false;this.loadTrades()},
-  setSource(v){this.tf.source=v;this.ddSource=false;this.loadTrades()},
+  setTier(v){this.tf.tier=v;this.ddTier=false;this.journal.page=1;this.applyAdvancedFilters()},
+  setSym(v){this.tf.symbol=v;this.ddSym=false;this.journal.page=1;this.applyAdvancedFilters()},
+  setExit(v){this.tf.exit=v;this.ddExit=false;this.journal.page=1;this.applyAdvancedFilters()},
+  setSource(v){this.tf.source=v;this.ddSource=false;this.journal.page=1;this.applyAdvancedFilters()},
+  setTradesPageSize(v){
+    const n=parseInt(v,10);
+    if(!isFinite(n)||n<1)return;
+    this.journal.pageSize=n;
+    this.journal.page=1;
+    this.loadTrades();
+  },
+  applyAdvancedFilters(){
+    this.loadTrades();
+    this.loadJournalAttribution();
+  },
+  attributionTop(obj){
+    const entries=Object.entries(obj||{}).sort((a,b)=>Number(b[1])-Number(a[1])).slice(0,4);
+    if(!entries.length)return '—';
+    return entries.map(([k,v])=>`${k}:$${Number(v).toFixed(2)}`).join(' · ');
+  },
+  journalExportUrl(kind){
+    const p=[];
+    const add=(k,v)=>{if(v!==null&&v!==undefined&&String(v).length)p.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)};
+    add('epoch',this.epoch);
+    add('tier',this.tf.tier);
+    add('symbol',this.tf.symbol);
+    add('exit_reason',this.tf.exit);
+    add('source',this.tf.source);
+    add('venue',this.tf.venue);
+    add('direction',this.tf.direction);
+    add('execution_channel',this.tf.channel);
+    add('pnl_sign',this.tf.pnlSign);
+    add('hold_seconds_min',this.tf.holdMin);
+    add('hold_seconds_max',this.tf.holdMax);
+    add('time_from',this.tf.timeFrom);
+    add('time_to',this.tf.timeTo);
+    const qs=p.length?('?'+p.join('&')):'';
+    if(kind==='pdf')return '/api/analytics/trades/export.pdf'+qs;
+    return '/api/analytics/trades/export.csv'+qs;
+  },
+  exportJournal(kind){
+    window.open(this.journalExportUrl(kind),'_blank');
+  },
+  nextTradesPage(){
+    if(this.journal.page>=this.journal.totalPages)return;
+    this.journal.page+=1;
+    this.loadTrades();
+  },
+  prevTradesPage(){
+    if(this.journal.page<=1)return;
+    this.journal.page-=1;
+    this.loadTrades();
+  },
+  toggleTradeDetail(idx){
+    this.journal.expanded=this.journal.expanded===idx?null:idx;
+  },
+  toggleOpenDetail(key){
+    this.openDetailKey=this.openDetailKey===key?null:key;
+  },
   pageFromHash(){
     const raw=(location.hash||'').replace(/^#/,'').replace(/^\//,'').split('/')[0]||'overview';
     return this.pageIds.includes(raw)?raw:'overview';
@@ -1281,6 +1728,118 @@ function app(){return{
       await navigator.clipboard.writeText(JSON.stringify(this.configSnap,null,2));
     }catch(e){}
   },
+  async loadSettingsCenter(){
+    this.settingsCenterLoading=true;
+    try{
+      const r=await fetch('/api/config/center');
+      const j=await r.json();
+      this.settingsCenter={
+        backend:j.backend||'memory',
+        workflow:Array.isArray(j.workflow)?j.workflow:['draft','approved','scheduled','applied'],
+        active_revision:j.active_revision||null,
+        revisions:Array.isArray(j.revisions)?j.revisions:[],
+        apply_note:j.apply_note||'',
+      };
+    }catch(e){
+      this.settingsCenter={backend:'memory',workflow:['draft','approved','scheduled','applied'],active_revision:null,revisions:[],apply_note:String(e)};
+    }
+    this.settingsCenterLoading=false;
+  },
+  async createSettingsDraft(){
+    const raw=prompt('Taslak degisiklik JSON (sadece CTE_* anahtarlari)', '{"CTE_SIGNALS_COOLDOWN_SECONDS":"60"}');
+    if(raw===null)return;
+    let changes={};
+    try{changes=JSON.parse(raw);}catch(e){alert('Gecersiz JSON');return;}
+    const name=prompt('Taslak adi','ops-draft')||'ops-draft';
+    const note=prompt('Taslak notu','')||'';
+    try{
+      const actor=this.settingsActor.name||'dashboard_user';
+      const role=this.settingsActor.role||'operator';
+      const r=await fetch('/api/config/center/drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,changes,note,created_by:actor,role})});
+      const j=await r.json();
+      if(!j.ok){alert(j.error||'Taslak olusturma basarisiz');return;}
+      await this.loadSettingsCenter();
+    }catch(e){alert(String(e));}
+  },
+  async approveSettingsRevision(id){
+    if(!confirm('Revizyon onaylansin mi? '+id))return;
+    try{
+      const actor=this.settingsActor.name||'dashboard_user';
+      const role=this.settingsActor.role||'approver';
+      const r=await fetch('/api/config/center/revisions/'+encodeURIComponent(id)+'/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actor,role})});
+      const j=await r.json();
+      if(!j.ok){alert(j.error||'Onay basarisiz');return;}
+      await this.loadSettingsCenter();
+    }catch(e){alert(String(e));}
+  },
+  async applySettingsRevision(id){
+    if(!confirm('Revizyon uygulansin mi? '+id+' (calisma anindaki env guncellenir)'))return;
+    try{
+      const actor=this.settingsActor.name||'dashboard_user';
+      const role=this.settingsActor.role||'admin';
+      const r=await fetch('/api/config/center/revisions/'+encodeURIComponent(id)+'/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actor,role})});
+      const j=await r.json();
+      if(!j.ok){alert(j.error||'Uygulama basarisiz');return;}
+      await this.loadSettingsCenter();
+      await this.loadConfig();
+      alert(j.note||'Uygulandi');
+    }catch(e){alert(String(e));}
+  },
+  async scheduleSettingsRevision(id){
+    const runAt=prompt('run_at_utc (ISO8601, ornek: 2026-03-23T12:30:00Z)','');
+    if(!runAt)return;
+    try{
+      const actor=this.settingsActor.name||'dashboard_user';
+      const role=this.settingsActor.role||'admin';
+      const r=await fetch('/api/config/center/revisions/'+encodeURIComponent(id)+'/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actor,role,run_at_utc:runAt})});
+      const j=await r.json();
+      if(!j.ok){alert(j.error||'Zamanlama basarisiz');return;}
+      await this.loadSettingsCenter();
+    }catch(e){alert(String(e));}
+  },
+  async rollbackSettingsRevision(id){
+    if(!confirm('Bu revizyona rollback yapilsin mi? '+id))return;
+    try{
+      const actor=this.settingsActor.name||'dashboard_user';
+      const role=this.settingsActor.role||'admin';
+      const r=await fetch('/api/config/center/revisions/'+encodeURIComponent(id)+'/rollback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actor,role})});
+      const j=await r.json();
+      if(!j.ok){alert(j.error||'Rollback basarisiz');return;}
+      await this.loadSettingsCenter();
+      await this.loadConfig();
+      alert(j.note||'Rollback uygulandi');
+    }catch(e){alert(String(e));}
+  },
+  async showSettingsDiff(id){
+    try{
+      const r=await fetch('/api/config/center/revisions/'+encodeURIComponent(id)+'/diff');
+      const j=await r.json();
+      if(!j.ok){alert(j.error||'Diff alinamadi');return;}
+      this.settingsDiff={revision_id:j.revision_id||id,status:j.status||'',rows:Array.isArray(j.rows)?j.rows:[]};
+    }catch(e){alert(String(e));}
+  },
+  runbookPill(s){
+    if(!s||!s.active)return 'pill pill-g';
+    if(s.severity==='critical')return 'pill pill-r';
+    if(s.severity==='warning')return 'pill pill-y';
+    return 'pill pill-b';
+  },
+  runbookLabel(s){
+    if(!s)return 'OK';
+    if(!s.active)return 'OK';
+    return (s.severity||'info').toUpperCase();
+  },
+  async loadRunbook(){
+    this.runbookLoading=true;
+    try{this.runbookSnap=await(await fetch('/api/runbook/snapshot')).json();}
+    catch(e){this.runbookSnap={meta:{utc:'',active_count:0,hint:String(e)},scenarios:[]};}
+    this.runbookLoading=false;
+  },
+  async runbookAction(a){
+    if(!a)return;
+    if(a.type==='api'&&a.url){window.open(a.url,'_blank');return;}
+    if(a.type==='navigate'&&a.hash){location.hash=a.hash;return;}
+  },
   alertStatePill(rule){
     if(!rule)return'pill pill-b';
     if(rule.state==='unknown')return'pill pill-b';
@@ -1303,6 +1862,9 @@ function app(){return{
     try{
       const p=await(await fetch('/api/paper/positions')).json();
       this.paperOpen=Array.isArray(p.positions)?p.positions:[];
+      if(!this.paperOpen.some((x,idx)=>(x.position_id||String(idx))===this.openDetailKey)){
+        this.openDetailKey=null;
+      }
     }catch(e){this.paperOpen=[]}
   },
   async loadAlerts(){
@@ -1348,6 +1910,20 @@ function app(){return{
     const x=this.researchTiers&&this.researchTiers[t];
     if(x&&typeof x==='object'&&!x.error)return x;
     return this._blankTierMetrics();
+  },
+  tv(tier, field, fallback=0){
+    const tv=((this.m||{}).tier_validation||{});
+    const row=tv[tier]||{};
+    const v=row[field];
+    return v==null?fallback:v;
+  },
+  topExitReasons(tier){
+    const tv=((this.m||{}).tier_validation||{});
+    const row=tv[tier]||{};
+    const dist=row.exit_reason_distribution||{};
+    const entries=Object.entries(dist).sort((a,b)=>Number(b[1])-Number(a[1])).slice(0,2);
+    if(!entries.length)return '—';
+    return entries.map(([k,n])=>`${k}:${n}`).join(' · ');
   },
   async loadResearch(){
     const ep=encodeURIComponent(this.epoch);
@@ -1399,11 +1975,13 @@ function app(){return{
   async refresh(){
     try{this.m=await(await fetch(`/api/analytics/summary?epoch=${encodeURIComponent(this.epoch)}`)).json()}catch(e){this.m={}}
     try{this.ops=await(await fetch('/api/ops/status')).json()}catch(e){this.ops={}}
+    if(this.page==='ops'){await this.loadOpsPanel();await this.loadSlo();await this.loadRelease();}
     try{this.paperStatus=await(await fetch('/api/paper/status')).json()}catch(e){this.paperStatus={enabled:false,runner_active:false}}
     try{this.paperEntryDiag=await(await fetch('/api/paper/entry-diagnostics')).json()}catch(e){this.paperEntryDiag={}}
-    if(this.page==='positions')await this.loadPaperOpen();
+    if(this.page==='positions'){await this.loadPaperOpen();await this.loadJournalAttribution();}
+    if(this.page==='runbook')await this.loadRunbook();
     if(this.page==='readiness')await this.loadReadiness();
-    if(this.page==='config')await this.loadConfig();
+    if(this.page==='config'){await this.loadConfig();await this.loadSettingsCenter();}
     if(this.page==='alerts')await this.loadAlerts();
     if(this.page==='research')await this.loadResearch();
     await this.loadTrades();
@@ -1452,6 +2030,23 @@ function app(){return{
     }
     this.lastSync=Date.now();
   },
+  async loadJournalAttribution(){
+    let u=`/api/analytics/trades/attribution?epoch=${encodeURIComponent(this.epoch)}`;
+    if(this.tf.tier)u+=`&tier=${encodeURIComponent(this.tf.tier)}`;
+    if(this.tf.symbol)u+=`&symbol=${encodeURIComponent(this.tf.symbol)}`;
+    if(this.tf.exit)u+=`&exit_reason=${encodeURIComponent(this.tf.exit)}`;
+    if(this.tf.source)u+=`&source=${encodeURIComponent(this.tf.source)}`;
+    if(this.tf.venue)u+=`&venue=${encodeURIComponent(this.tf.venue)}`;
+    if(this.tf.direction)u+=`&direction=${encodeURIComponent(this.tf.direction)}`;
+    if(this.tf.channel)u+=`&execution_channel=${encodeURIComponent(this.tf.channel)}`;
+    if(this.tf.pnlSign)u+=`&pnl_sign=${encodeURIComponent(this.tf.pnlSign)}`;
+    if(this.tf.holdMin)u+=`&hold_seconds_min=${encodeURIComponent(this.tf.holdMin)}`;
+    if(this.tf.holdMax)u+=`&hold_seconds_max=${encodeURIComponent(this.tf.holdMax)}`;
+    if(this.tf.timeFrom)u+=`&time_from=${encodeURIComponent(this.tf.timeFrom)}`;
+    if(this.tf.timeTo)u+=`&time_to=${encodeURIComponent(this.tf.timeTo)}`;
+    try{this.journalAttribution=await(await fetch(u)).json();}
+    catch(e){this.journalAttribution={totals:{trade_count:0,total_pnl:0,win_rate:0,expectancy:0},pnl_by_source:{},pnl_by_direction:{}};}
+  },
   flashClass(sym){
     const d=this._flash[sym];
     if(d==='up')return 'flash-up';
@@ -1459,12 +2054,39 @@ function app(){return{
     return '';
   },
   async loadTrades(){
-    let u=`/api/analytics/trades?epoch=${encodeURIComponent(this.epoch)}&limit=80`;
+    let u=`/api/analytics/trades/paged?epoch=${encodeURIComponent(this.epoch)}&page=${encodeURIComponent(this.journal.page)}&page_size=${encodeURIComponent(this.journal.pageSize)}`;
     if(this.tf.tier)u+=`&tier=${encodeURIComponent(this.tf.tier)}`;
     if(this.tf.symbol)u+=`&symbol=${encodeURIComponent(this.tf.symbol)}`;
     if(this.tf.exit)u+=`&exit_reason=${encodeURIComponent(this.tf.exit)}`;
     if(this.tf.source)u+=`&source=${encodeURIComponent(this.tf.source)}`;
-    try{this.trades=await(await fetch(u)).json()}catch(e){this.trades=[]}
+    if(this.tf.venue)u+=`&venue=${encodeURIComponent(this.tf.venue)}`;
+    if(this.tf.direction)u+=`&direction=${encodeURIComponent(this.tf.direction)}`;
+    if(this.tf.channel)u+=`&execution_channel=${encodeURIComponent(this.tf.channel)}`;
+    if(this.tf.pnlSign)u+=`&pnl_sign=${encodeURIComponent(this.tf.pnlSign)}`;
+    if(this.tf.holdMin)u+=`&hold_seconds_min=${encodeURIComponent(this.tf.holdMin)}`;
+    if(this.tf.holdMax)u+=`&hold_seconds_max=${encodeURIComponent(this.tf.holdMax)}`;
+    if(this.tf.timeFrom)u+=`&time_from=${encodeURIComponent(this.tf.timeFrom)}`;
+    if(this.tf.timeTo)u+=`&time_to=${encodeURIComponent(this.tf.timeTo)}`;
+    try{
+      const j=await(await fetch(u)).json();
+      this.trades=Array.isArray(j.items)?j.items:[];
+      this.journal.totalCount=Number(j.total_count)||0;
+      this.journal.totalPages=Number(j.total_pages)||1;
+      this.journal.page=Number(j.page)||1;
+      this.journal.pageSize=Number(j.page_size)||this.journal.pageSize;
+      this.journal.rowStart=this.journal.totalCount?((this.journal.page-1)*this.journal.pageSize)+1:0;
+      this.journal.rowEnd=Math.min(this.journal.page*this.journal.pageSize,this.journal.totalCount);
+      if(this.journal.expanded!=null&&this.journal.expanded>=this.trades.length){
+        this.journal.expanded=null;
+      }
+    }catch(e){
+      this.trades=[];
+      this.journal.totalCount=0;
+      this.journal.totalPages=1;
+      this.journal.rowStart=0;
+      this.journal.rowEnd=0;
+      this.journal.expanded=null;
+    }
   },
   updateCharts(){
     this.bar('cTier',this.m.pnl_by_tier||{});
@@ -1528,7 +2150,17 @@ function app(){return{
     });
   },
   fmt(v){return(v??0).toFixed(2)},
+  num2(v){
+    const x=parseFloat(v);
+    if(!isFinite(x))return '—';
+    return x.toFixed(2);
+  },
   pct(v){return((v||0)*100).toFixed(1)+'%'},
+  pctNum(v){
+    const x=parseFloat(v);
+    if(!isFinite(x))return '—';
+    return (x*100).toFixed(2)+'%';
+  },
   dur(s){if(!s)return'—';if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'},
   tc(t){return{A:'pill-g',B:'pill-b',C:'pill-y'}[t]||'pill-y'},
   ec(r){return{hard_stop:'pill-r',stale_data:'pill-r',spread_blowout:'pill-r',thesis_failure:'pill-y',no_progress:'pill-y',winner_trailing:'pill-g',runner_trailing:'pill-p'}[r]||'pill-b'},
@@ -1541,6 +2173,40 @@ function app(){return{
   opsPillCls(action){
     const m={emergency_stop:'pill-r',pause:'pill-y',resume:'pill-g',symbol_disable:'pill-r',symbol_enable:'pill-g'};
     return m[action]||'pill-b';
+  },
+  opsIncidentPill(sev){
+    if(sev==='critical')return 'pill pill-r';
+    if(sev==='warning')return 'pill pill-y';
+    return 'pill pill-b';
+  },
+  opsTrendTail(){
+    const t=(this.opsPanel&&this.opsPanel.reconciliation&&this.opsPanel.reconciliation.trend)||[];
+    return t.slice(-12).reverse();
+  },
+  sloPill(k){
+    if(!k)return 'pill pill-b';
+    return k.status==='ok'?'pill pill-g':'pill pill-r';
+  },
+  sloVal(k){
+    if(!k)return '—';
+    const u=k.unit||'';
+    const v=Number(k.actual||0);
+    if(u==='pct')return v.toFixed(2)+'%';
+    if(u==='ms')return v.toFixed(1)+' ms';
+    if(u==='bps')return v.toFixed(2)+' bps';
+    return v.toFixed(4);
+  },
+  async loadSlo(){
+    try{this.sloSnap=await(await fetch('/api/slo/status')).json();}
+    catch(e){this.sloSnap={meta:{utc:'',runtime_seconds:0,breach_count:0},targets:{},kpis:{},raw:{error:String(e)}};}
+  },
+  async loadRelease(){
+    try{this.releaseSnap=await(await fetch('/api/release/status')).json();}
+    catch(e){this.releaseSnap={service:'analytics',app_version:'0.1.0',deploy_profile:'unknown',commit:'unknown',image:'unknown',image_tag:'unknown',last_deploy_at:'',uptime_seconds:0,rollback:{release_rollback_from:null,last_settings_rollback:null,error:String(e)}};}
+  },
+  async loadOpsPanel(){
+    try{this.opsPanel=await(await fetch('/api/ops/panel')).json();}
+    catch(e){this.opsPanel={meta:{utc:'',runner_active:false},incident_feed:[],last_errors:{runner_last_error:String(e),venue_last_error:'',feed_errors_total:0},reconnect_status:{},reconciliation:{current:{},trend:[]},risk_veto:{total_rejections:0,top_failed_checks:[],recent_vetoes:[]}};}
   },
   async doPost(url, reason){
     try{

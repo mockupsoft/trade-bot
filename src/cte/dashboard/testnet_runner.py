@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from datetime import UTC, datetime, timedelta
 from collections import deque
 from decimal import ROUND_DOWN, Decimal
 from collections.abc import Callable
@@ -28,6 +29,8 @@ from cte.dashboard.paper_runner import _SYMBOL_MAP as _SYMBOL_MAP
 from cte.dashboard.paper_runner import (
     EntryDiagnostics,
     _dashboard_early_size_mult,
+    _dashboard_post_exit_cooldown_sec,
+    _dashboard_post_exit_hard_risk_cooldown_sec,
     _dashboard_paper_interval_sec,
     _dashboard_risk_settings,
     _dashboard_signal_settings,
@@ -44,7 +47,12 @@ from cte.execution.adapter import OrderRequest, OrderResult, OrderSide, VenueOrd
 from cte.execution.binance_adapter import BinanceTestnetAdapter
 from cte.execution.bybit_adapter import BybitDemoAdapter
 from cte.execution.paper import PaperExecutionEngine
-from cte.execution.reconciliation import LocalPositionView, PositionReconciler
+from cte.execution.reconciliation import (
+    DiscrepancyType,
+    LocalPositionView,
+    PositionReconciler,
+    ReconciliationResult,
+)
 from cte.analytics.engine import AnalyticsEngine
 from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.kill_switch import OperationsController
@@ -59,8 +67,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger("dashboard.testnet_runner")
 
-# Binance linear futures quantity step (conservative; enough for dashboard sizes).
-_QTY_STEP: dict[str, Decimal] = {
+# Contract lot sizes for venue order qty.
+_QTY_STEP_BINANCE: dict[str, Decimal] = {
     "BTCUSDT": Decimal("0.001"),
     "ETHUSDT": Decimal("0.001"),
     "BNBUSDT": Decimal("0.01"),
@@ -73,13 +81,115 @@ _QTY_STEP: dict[str, Decimal] = {
     "DOTUSDT": Decimal("0.01"),
 }
 
+_QTY_STEP_BYBIT: dict[str, Decimal] = {
+    "BTCUSDT": Decimal("0.001"),
+    "ETHUSDT": Decimal("0.01"),
+    "BNBUSDT": Decimal("0.01"),
+    "SOLUSDT": Decimal("0.1"),
+    "XRPUSDT": Decimal("0.1"),
+    "DOGEUSDT": Decimal("1"),
+    "ADAUSDT": Decimal("1"),
+    "AVAXUSDT": Decimal("0.1"),
+    "LINKUSDT": Decimal("0.1"),
+    "DOTUSDT": Decimal("0.1"),
+}
 
-def _round_down_qty(symbol: str, q: Decimal) -> Decimal:
-    step = _QTY_STEP.get(symbol, Decimal("0.001"))
+
+def _qty_step(symbol: str, venue_name: str | None = None) -> Decimal:
+    if venue_name == "bybit_demo":
+        return _QTY_STEP_BYBIT.get(symbol, Decimal("0.001"))
+    return _QTY_STEP_BINANCE.get(symbol, Decimal("0.001"))
+
+
+def _round_down_qty(symbol: str, q: Decimal, venue_name: str | None = None) -> Decimal:
+    step = _qty_step(symbol, venue_name)
     if q <= 0:
         return Decimal("0")
     n = (q / step).to_integral_value(rounding=ROUND_DOWN)
     return (n * step).quantize(step)
+
+
+def _round_up_qty(symbol: str, q: Decimal, venue_name: str | None = None) -> Decimal:
+    step = _qty_step(symbol, venue_name)
+    if q <= 0:
+        return Decimal("0")
+    down = _round_down_qty(symbol, q, venue_name)
+    if down == q:
+        return q.quantize(step)
+    return (down + step).quantize(step)
+
+
+def _entry_step_overshoot_pct() -> Decimal:
+    raw = (os.environ.get("CTE_ENTRY_STEP_OVERSHOOT_PCT") or "0.01").strip()
+    try:
+        v = Decimal(raw)
+    except Exception:
+        return Decimal("0.01")
+    if v < Decimal("0"):
+        return Decimal("0")
+    if v > Decimal("0.50"):
+        return Decimal("0.50")
+    return v
+
+
+def _entry_qty_matches_request(
+    symbol: str,
+    filled: Decimal,
+    requested: Decimal,
+    venue_name: str | None = None,
+) -> bool:
+    """True when filled size matches requested order qty after contract-step rounding."""
+    rf = _round_down_qty(symbol, filled, venue_name)
+    rq = _round_down_qty(symbol, requested, venue_name)
+    return rf > 0 and rq > 0 and rf == rq
+
+
+def _raw_entry_order_status(venue_name: str, orez: OrderResult) -> str:
+    raw = orez.raw_response or {}
+    if venue_name == "binance_testnet":
+        return str(raw.get("status", ""))
+    return str(raw.get("orderStatus", ""))
+
+
+def _entry_order_terminal_failure(venue_name: str, orez: OrderResult) -> bool:
+    """Order reached a terminal non-fill state (cancel/reject)."""
+    raw = orez.raw_response or {}
+    if venue_name == "binance_testnet":
+        return raw.get("status", "") in ("CANCELED", "REJECTED", "EXPIRED")
+    st = str(raw.get("orderStatus", ""))
+    return st in ("Cancelled", "Rejected", "PartiallyFilledCanceled", "Deactivated")
+
+
+def _entry_fill_complete(
+    venue_name: str,
+    symbol: str,
+    requested_qty: Decimal,
+    orez: OrderResult,
+) -> bool:
+    """Whether entry mirroring may proceed: explicit FILLED or full size on the wire.
+
+    Ends with ``_entry_qty_matches_request`` so flaky/missing status strings still
+    admit a full fill when ``cumExecQty``/``executedQty`` matches requested qty.
+    """
+    raw = orez.raw_response or {}
+    if venue_name == "binance_testnet":
+        st = raw.get("status", "")
+        if st in ("CANCELED", "REJECTED", "EXPIRED"):
+            return False
+        if st == "FILLED":
+            return True
+    else:
+        st = str(raw.get("orderStatus", ""))
+        if st in ("Cancelled", "Rejected", "PartiallyFilledCanceled", "Deactivated"):
+            return False
+        if st == "Filled":
+            return True
+    return _entry_qty_matches_request(symbol, orez.filled_quantity, requested_qty, venue_name)
+
+
+# Entry orders: poll longer than exits so slow venues can reach full fill before mirroring.
+ENTRY_ORDER_POLL_MAX = 80
+EXIT_ORDER_POLL_MAX = 40
 
 
 def dashboard_execution_venue() -> str:
@@ -91,6 +201,46 @@ def venue_proof_symbol() -> str | None:
     """When set, only this symbol receives venue entries (feed may include more symbols)."""
     raw = (os.environ.get("CTE_DASHBOARD_VENUE_PROOF_SYMBOL") or "").strip().upper()
     return raw if raw else None
+
+
+def _recon_phantom_grace_sec() -> float:
+    """Monotonic grace after a venue fill before PHANTOM_LOCAL counts as persistent."""
+    raw = (os.environ.get("CTE_RECON_PHANTOM_GRACE_SEC") or "5.0").strip()
+    try:
+        return max(1.0, min(60.0, float(raw)))
+    except ValueError:
+        return 5.0
+
+
+def _recon_qty_tolerance_pct() -> float:
+    """Relative qty tolerance for :class:`PositionReconciler` (``0`` = exact match).
+
+    - ``CTE_RECON_STRICT_VALIDATION=1`` → ``0.0`` (clean-account / 24h validation runs).
+    - Else ``CTE_RECON_QTY_TOLERANCE_PCT`` if set, otherwise ``0.01`` (legacy default).
+    """
+    if _env_bool("CTE_RECON_STRICT_VALIDATION", False):
+        return 0.0
+    raw = (os.environ.get("CTE_RECON_QTY_TOLERANCE_PCT") or "").strip()
+    if not raw:
+        return 0.01
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return 0.01
+
+
+def _allow_foreign_positions() -> bool:
+    """Whether validation may continue when startup foreign positions exist."""
+    return _env_bool("CTE_ALLOW_FOREIGN_POSITIONS", False)
+
+
+def _recon_snapshot_meta(reconciler: PositionReconciler) -> dict[str, Any]:
+    """Expose tolerance on ``reconciliation.last`` for API / validation audits."""
+    t = reconciler.tolerance_pct
+    return {
+        "qty_tolerance_pct": t,
+        "strict_qty_match": t == 0.0,
+    }
 
 
 def venue_loop_enabled_for_settings(settings: CTESettings) -> bool:
@@ -127,7 +277,9 @@ def build_dashboard_venue_runner(
     if v == "bybit_demo":
         key = (os.environ.get("CTE_BYBIT_DEMO_API_KEY") or "").strip()
         secret = (os.environ.get("CTE_BYBIT_DEMO_API_SECRET") or "").strip()
-        base = (os.environ.get("CTE_BYBIT_REST_BASE_URL") or "").strip() or "https://api-demo.bybit.com"
+        base = (
+            os.environ.get("CTE_BYBIT_REST_BASE_URL") or ""
+        ).strip() or "https://api-demo.bybit.com"
         adapter = BybitDemoAdapter(api_key=key, api_secret=secret, base_url=base)
         return DashboardTestnetRunner(
             settings=settings,
@@ -238,18 +390,21 @@ class DashboardTestnetRunner:
         else:
             self._adapter = adapter
 
-        self._mid_history: dict[str, deque[Decimal]] = {
-            s: deque(maxlen=400) for s in symbols
-        }
+        self._mid_history: dict[str, deque[Decimal]] = {s: deque(maxlen=400) for s in symbols}
 
-        self._reconciler = PositionReconciler()
+        self._reconciler = PositionReconciler(tolerance_pct=_recon_qty_tolerance_pct())
         self._recon_mismatches = 0
         self._recon_last: dict[str, Any] = {"status": "not_run", "details": []}
+        #: Per-symbol monotonic deadline for classifying PHANTOM_LOCAL as transient (venue list lag).
+        self._recon_grace_until: dict[str, float] = {}
         self._last_balance: dict[str, str] = {}
         # First wallet sync must reset daily_high_water; otherwise portfolio_value
         # jumps from paper default (10k) to real available (~few k) and risk sees
         # fake ~50% daily drawdown (veto everything).
         self._wallet_portfolio_initialized: bool = False
+        self._foreign_venue_at_startup: bool = False
+        self._foreign_venue_startup_details: list[dict[str, str]] | None = None
+        self._validation_blocked: bool = False
 
         self._running = False
         self._last_error: str | None = None
@@ -276,6 +431,9 @@ class DashboardTestnetRunner:
         self._venue_exit_orders_filled = 0
         self._first_venue_order_id: str | None = None
         self._last_venue_error: str | None = None
+        self._reentry_cooldown_sec = _dashboard_post_exit_cooldown_sec()
+        self._reentry_hard_risk_cooldown_sec = _dashboard_post_exit_hard_risk_cooldown_sec()
+        self._reentry_block_until: dict[str, datetime] = {}
 
     def stop(self) -> None:
         self._running = False
@@ -321,6 +479,74 @@ class DashboardTestnetRunner:
             "hint": hint,
         }
 
+    def _portfolio_concentration_metrics(self) -> dict[str, Any]:
+        open_positions = [p for p in self._mirror.open_positions.values() if p.is_open]
+        if not open_positions:
+            return {
+                "portfolio_notional": 0.0,
+                "largest_cluster_notional": 0.0,
+                "concentration_ratio": 0.0,
+                "cluster_count": 0,
+                "direction_weighted_exposure_by_symbol": {},
+            }
+
+        total_notional = 0.0
+        clusters: dict[str, float] = {}
+        exposure_by_symbol: dict[str, float] = {}
+        for pos in open_positions:
+            n = float(abs(pos.notional_usd))
+            if n <= 0:
+                continue
+            total_notional += n
+            sign = 1.0 if pos.direction == "long" else -1.0
+            exposure_by_symbol[pos.symbol] = exposure_by_symbol.get(pos.symbol, 0.0) + sign * n
+
+            time_bucket = int(pos.fill_time.timestamp()) // 300 if pos.fill_time else -1
+            if pos.entry_price > 0:
+                move = (
+                    float((pos.entry_price - pos.current_price) / pos.entry_price)
+                    if pos.direction == "short"
+                    else float((pos.current_price - pos.entry_price) / pos.entry_price)
+                )
+            else:
+                move = 0.0
+            move_bucket = int(move / 0.005)  # 0.5% bands
+            key = f"{pos.direction}:{time_bucket}:{move_bucket}"
+            clusters[key] = clusters.get(key, 0.0) + n
+
+        largest = max(clusters.values()) if clusters else 0.0
+        ratio = (largest / total_notional) if total_notional > 0 else 0.0
+        return {
+            "portfolio_notional": round(total_notional, 4),
+            "largest_cluster_notional": round(largest, 4),
+            "concentration_ratio": round(ratio, 4),
+            "cluster_count": len(clusters),
+            "direction_weighted_exposure_by_symbol": {
+                k: round(v, 4) for k, v in sorted(exposure_by_symbol.items())
+            },
+        }
+
+    def _reentry_cooldown_for_reason(self, exit_reason: str) -> int:
+        if exit_reason in {"spread_blowout", "stale_data"}:
+            return self._reentry_hard_risk_cooldown_sec
+        return self._reentry_cooldown_sec
+
+    def _arm_reentry_cooldown(self, symbol: str, event_time: datetime, exit_reason: str) -> None:
+        sec = self._reentry_cooldown_for_reason(exit_reason)
+        if sec <= 0:
+            return
+        self._reentry_block_until[symbol] = event_time + timedelta(seconds=sec)
+
+    def _reentry_cooldown_remaining(self, symbol: str, event_time: datetime) -> int:
+        until = self._reentry_block_until.get(symbol)
+        if until is None:
+            return 0
+        rem = int((until - event_time).total_seconds())
+        if rem <= 0:
+            self._reentry_block_until.pop(symbol, None)
+            return 0
+        return rem
+
     def status_dict(self) -> dict[str, Any]:
         open_n = sum(1 for p in self._mirror.open_positions.values() if p.is_open)
         now_m = time.monotonic()
@@ -359,6 +585,10 @@ class DashboardTestnetRunner:
         )
 
         pipe = self._pipeline_stall_analysis()
+        conc = self._portfolio_concentration_metrics()
+        cooldown_active = sum(
+            1 for ts in self._reentry_block_until.values() if ts > datetime.now(UTC)
+        )
         return {
             "runner_class": "DashboardTestnetRunner",
             "in_process_execution": "demo_exchange",
@@ -384,6 +614,11 @@ class DashboardTestnetRunner:
                 "interval_sec": _dashboard_paper_interval_sec(),
                 "early_size_mult": str(_dashboard_early_size_mult()),
             },
+            "post_exit_cooldown": {
+                "default_sec": self._reentry_cooldown_sec,
+                "hard_risk_sec": self._reentry_hard_risk_cooldown_sec,
+                "active_symbols": cooldown_active,
+            },
             "entry_diagnostics": {
                 "global_counts": dict(self._diag.global_counts),
                 "entry_attempts": self._diag.entry_attempts,
@@ -402,6 +637,13 @@ class DashboardTestnetRunner:
                 "top_blocker": top_blocker,
             },
             "venue_balance_usdt": self._last_balance,
+            "foreign_venue_detected": self._foreign_venue_at_startup,
+            "validation_blocked": self._validation_blocked,
+            "portfolio_notional": conc["portfolio_notional"],
+            "largest_cluster_notional": conc["largest_cluster_notional"],
+            "concentration_ratio": conc["concentration_ratio"],
+            "cluster_count": conc["cluster_count"],
+            "direction_weighted_exposure_by_symbol": conc["direction_weighted_exposure_by_symbol"],
             "reconciliation": {
                 "mismatches_total": self._recon_mismatches,
                 "last": self._recon_last,
@@ -460,23 +702,67 @@ class DashboardTestnetRunner:
             "last_blocked": list(self._diag.last_blocked),
         }
 
-    def open_positions_payload(self) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for pos in self._mirror.open_positions.values():
-            if not pos.is_open:
+    def _recon_symbol_status(self, symbol: str) -> tuple[str, str]:
+        last = self._recon_last if isinstance(self._recon_last, dict) else {}
+        persistent = last.get("persistent_details")
+        if not isinstance(persistent, list):
+            persistent = []
+        for d in persistent:
+            if not isinstance(d, dict):
                 continue
+            if str(d.get("symbol") or "") != symbol:
+                continue
+            dtype = str(d.get("type") or "mismatch")
+            detail = str(d.get("detail") or "")
+            return "mismatch", f"{dtype}: {detail}"[:240]
+        return "clean", ""
+
+    def open_positions_payload(self) -> list[dict[str, Any]]:
+        now = datetime.now(UTC)
+        open_positions = [p for p in self._mirror.open_positions.values() if p.is_open]
+        planned_by_id: dict[str, str] = {}
+        by_symbol: dict[str, list[PaperPosition]] = {}
+        for pos in open_positions:
+            by_symbol.setdefault(pos.symbol, []).append(pos)
+        for sym, positions in by_symbol.items():
+            current_price = max(
+                (p.current_price for p in positions if p.current_price > 0),
+                default=positions[0].entry_price,
+            )
+            for pid, reason, _detail in self._mirror.plan_exits(sym, current_price, now, None):
+                planned_by_id[str(pid)] = reason
+
+        out: list[dict[str, Any]] = []
+        for pos in open_positions:
+            notional = pos.notional_usd
+            pnl_pct = Decimal("0")
+            if notional > 0:
+                pnl_pct = (pos.unrealized_pnl / notional) * Decimal("100")
+            recon_status, recon_detail = self._recon_symbol_status(pos.symbol)
             out.append(
                 {
                     "position_id": str(pos.position_id),
                     "symbol": pos.symbol,
                     "direction": pos.direction,
                     "entry_price": str(pos.entry_price),
+                    "current_price": str(pos.current_price),
                     "quantity": str(pos.quantity),
                     "notional_usd": str(pos.notional_usd),
                     "unrealized_pnl": str(pos.unrealized_pnl),
+                    "pnl_pct": str(pnl_pct.quantize(Decimal("0.0001"))),
+                    "hold_seconds": pos.hold_duration_seconds,
                     "signal_tier": pos.signal_tier,
                     "composite_score": pos.composite_score,
+                    "primary_score": pos.primary_score,
+                    "context_multiplier": pos.context_multiplier,
+                    "strongest_sub_score": pos.strongest_sub_score,
+                    "strongest_sub_score_value": pos.strongest_sub_score_value,
                     "warmup_phase": pos.warmup_phase,
+                    "stop_loss_pct": pos.stop_loss_pct,
+                    "take_profit_pct": pos.take_profit_pct,
+                    "exit_pressure": planned_by_id.get(str(pos.position_id), "none"),
+                    "recon_status": recon_status,
+                    "recon_detail": recon_detail,
                     "entry_reason": (pos.entry_reason or "")[:500],
                     "opened_at": pos.fill_time.isoformat() if pos.fill_time else "",
                     "venue_order_id": pos.venue_order_id,
@@ -540,16 +826,48 @@ class DashboardTestnetRunner:
         symbol: str,
         client_order_id: str,
         first: OrderResult,
+        *,
+        for_entry: bool = False,
+        requested_qty: Decimal | None = None,
     ) -> OrderResult:
-        """Poll venue until Binance leaves ``NEW`` or Bybit reports a terminal/fill state."""
+        """Poll venue until the order reaches a settle point.
+
+        **Entry** (``for_entry=True``): do not open the local mirror until
+        :func:`_entry_fill_complete` is true (FILLED or full size by qty match).
+
+        **Exit** (default): unchanged — any non-NEW or first non-zero fill
+        (Bybit) / non-NEW (Binance) still returns promptly for partial closes.
+        """
         orez = first
-        for _ in range(40):
-            raw = orez.raw_response or {}
-            if self._adapter.venue_name == "binance_testnet":
-                if raw.get("status") != "NEW":
+        vname = self._adapter.venue_name
+        max_polls = (
+            ENTRY_ORDER_POLL_MAX if for_entry and requested_qty is not None else EXIT_ORDER_POLL_MAX
+        )
+        for poll_idx in range(max_polls):
+            if for_entry and requested_qty is not None:
+                fc = _entry_fill_complete(vname, symbol, requested_qty, orez)
+                tf = _entry_order_terminal_failure(vname, orez)
+                await logger.ainfo(
+                    "testnet_entry_order_poll",
+                    poll=poll_idx,
+                    symbol=symbol,
+                    venue_order_id=orez.venue_order_id or "",
+                    client_order_id=client_order_id,
+                    requested_qty=str(requested_qty),
+                    order_status_raw=_raw_entry_order_status(vname, orez),
+                    filled_quantity=str(orez.filled_quantity),
+                    order_status_enum=orez.status.value,
+                    fill_complete=fc,
+                    terminal_failure=tf,
+                )
+                if fc or tf:
+                    break
+            elif vname == "binance_testnet":
+                raw = orez.raw_response or {}
+                if raw.get("status", "") != "NEW":
                     break
             else:
-                st = str(raw.get("orderStatus", ""))
+                st = str((orez.raw_response or {}).get("orderStatus", ""))
                 if orez.filled_quantity > 0 or orez.status in (
                     VenueOrderStatus.FILLED,
                     VenueOrderStatus.PARTIAL,
@@ -563,10 +881,7 @@ class DashboardTestnetRunner:
                 orez = nxt
         return orez
 
-    async def _reconcile_tick(self) -> None:
-        self._recon_tick += 1
-        if self._recon_tick % 10 != 0:
-            return
+    def _local_position_views(self) -> list[LocalPositionView]:
         local: list[LocalPositionView] = []
         for pos in self._mirror.open_positions.values():
             if pos.is_open:
@@ -577,8 +892,16 @@ class DashboardTestnetRunner:
                         quantity=pos.quantity,
                     )
                 )
+        return local
+
+    async def _run_reconciliation(self) -> None:
+        local = self._local_position_views()
         try:
-            result = await self._reconciler.reconcile(self._adapter, local)
+            result = await self._reconciler.reconcile(
+                self._adapter,
+                local,
+                grace_until_mono=self._recon_grace_until,
+            )
             details = [
                 {
                     "symbol": d.symbol,
@@ -587,21 +910,171 @@ class DashboardTestnetRunner:
                 }
                 for d in result.discrepancies
             ]
-            if not result.is_clean:
-                self._recon_mismatches += len(result.discrepancies)
+            pers_details = [
+                {
+                    "symbol": d.symbol,
+                    "type": d.dtype.value,
+                    "detail": d.detail,
+                }
+                for d in result.persistent_discrepancies
+            ]
+            trans_details = [
+                {
+                    "symbol": d.symbol,
+                    "type": d.dtype.value,
+                    "detail": d.detail,
+                }
+                for d in result.transient_discrepancies
+            ]
+            np = len(result.persistent_discrepancies)
+            nt = len(result.transient_discrepancies)
+            if np:
+                self._recon_mismatches += np
                 await logger.aerror(
                     "testnet_reconciliation_mismatch",
-                    count=len(result.discrepancies),
-                    details=details[:5],
+                    count=np,
+                    transient_count=nt,
+                    details=pers_details[:5],
+                )
+            elif nt:
+                await logger.ainfo(
+                    "testnet_reconciliation_transient",
+                    count=nt,
+                    details=trans_details[:5],
                 )
             self._recon_last = {
                 "status": "clean" if result.is_clean else "mismatch",
                 "details": details,
+                "persistent_details": pers_details,
+                "transient_details": trans_details,
+                "persistent_count": np,
+                "transient_count": nt,
                 "local_count": result.local_position_count,
                 "venue_count": result.venue_position_count,
+                **_recon_snapshot_meta(self._reconciler),
             }
+            self._annotate_operational_recon_notes(result)
+            self._merge_foreign_venue_startup_into_recon_last()
         except Exception as e:
-            self._recon_last = {"status": "error", "error": str(e)[:200]}
+            self._recon_last = {
+                "status": "error",
+                "error": str(e)[:200],
+                **_recon_snapshot_meta(self._reconciler),
+            }
+            self._merge_foreign_venue_startup_into_recon_last()
+
+    def _annotate_operational_recon_notes(self, result: ReconciliationResult) -> None:
+        """Surface foreign phantom_venue as operational (not silently normal)."""
+        notes: list[str] = []
+        if any(d.dtype == DiscrepancyType.PHANTOM_VENUE for d in result.persistent_discrepancies):
+            notes.append(
+                "phantom_venue may indicate foreign/pre-existing venue exposure not opened by this runner "
+                "(close on venue or use isolated API keys for 24h validation)."
+            )
+        self._recon_last["operational_notes"] = notes
+
+    def _merge_foreign_venue_startup_into_recon_last(self) -> None:
+        """Keep startup foreign-venue exposure visible after periodic recon overwrites _recon_last."""
+        if not self._foreign_venue_at_startup:
+            return
+        self._recon_last["status"] = "unclean"
+        self._recon_last["reason"] = "foreign_venue_positions"
+        if self._foreign_venue_startup_details:
+            self._recon_last["foreign_venue_startup_details"] = list(
+                self._foreign_venue_startup_details
+            )
+        startup_msg = "Foreign venue positions at startup; use a clean account or isolated API keys for 24h validation."
+        merged = self._recon_last.setdefault("operational_notes", [])
+        if startup_msg not in merged:
+            merged.insert(0, startup_msg)
+
+    async def _check_startup_venue_mismatch(self) -> None:
+        """If the venue has open positions we do not mirror, mark recon unclean (no bootstrap)."""
+        try:
+            venue = await self._adapter.get_positions()
+        except Exception as e:
+            await logger.aerror(
+                "testnet_startup_venue_check_failed",
+                error=str(e)[:200],
+            )
+            return
+
+        local = self._local_position_views()
+        local_syms = {v.symbol for v in local}
+        foreign: list[dict[str, str]] = []
+        for vp in venue:
+            if vp.quantity <= 0:
+                continue
+            if vp.symbol not in local_syms:
+                foreign.append(
+                    {
+                        "symbol": vp.symbol,
+                        "side": vp.side,
+                        "quantity": str(vp.quantity),
+                    }
+                )
+
+        if not foreign:
+            return
+
+        self._foreign_venue_at_startup = True
+        self._foreign_venue_startup_details = foreign
+        self._validation_blocked = not _allow_foreign_positions()
+        venue_open = sum(1 for v in venue if v.quantity > 0)
+        self._recon_last = {
+            "status": "unclean",
+            "reason": "foreign_venue_positions",
+            "details": foreign,
+            "persistent_details": foreign,
+            "transient_details": [],
+            "persistent_count": len(foreign),
+            "transient_count": 0,
+            "local_count": len(local),
+            "venue_count": venue_open,
+            "foreign_venue_startup_details": foreign,
+            "operational_notes": [
+                "Foreign venue positions at startup; use a clean account or isolated API keys for 24h validation.",
+            ],
+            **_recon_snapshot_meta(self._reconciler),
+        }
+        if self._validation_blocked:
+            await logger.aerror(
+                "testnet_foreign_venue_positions",
+                count=len(foreign),
+                details=foreign[:10],
+            )
+            await logger.aerror(
+                "validation aborted: foreign venue positions detected",
+                count=len(foreign),
+                details=foreign[:10],
+                override_env="CTE_ALLOW_FOREIGN_POSITIONS=1",
+            )
+        else:
+            await logger.awarning(
+                "testnet_foreign_venue_positions",
+                count=len(foreign),
+                details=foreign[:10],
+                allow_foreign_positions=True,
+            )
+            await logger.awarning(
+                "validation override active: foreign venue positions allowed",
+                count=len(foreign),
+                override_env="CTE_ALLOW_FOREIGN_POSITIONS=1",
+            )
+
+    async def _reconcile_tick(self) -> None:
+        self._recon_tick += 1
+        if self._recon_tick % 10 != 0:
+            return
+        await self._run_reconciliation()
+
+    async def _reconcile_after_entry(self, symbol: str) -> None:
+        """Immediate recon + short retries; grace window suppresses false phantom_local."""
+        self._recon_grace_until[symbol] = time.monotonic() + _recon_phantom_grace_sec()
+        for i in range(3):
+            await self._run_reconciliation()
+            if i < 2:
+                await asyncio.sleep(0.15)
 
     async def _on_position_closed(
         self,
@@ -621,7 +1094,10 @@ class DashboardTestnetRunner:
             warmup_phase=position.warmup_phase,
             execution_channel=self._execution_channel,
         )
+        close_ts = position.close_time if position.close_time else datetime.now(UTC)
+        self._arm_reentry_cooldown(sym, close_ts, position.exit_reason)
         self._exits_recorded += 1
+        self._recon_grace_until.pop(sym, None)
         await logger.ainfo(
             "testnet_position_closed",
             symbol=sym,
@@ -630,9 +1106,7 @@ class DashboardTestnetRunner:
             warmup_phase=position.warmup_phase,
         )
 
-    async def _maybe_log_warmup_transition(
-        self, sym: str, vec: Any, t: TickerState
-    ) -> None:
+    async def _maybe_log_warmup_transition(self, sym: str, vec: Any, t: TickerState) -> None:
         if vec is None:
             return
         dq = vec.data_quality
@@ -655,6 +1129,7 @@ class DashboardTestnetRunner:
             interval_sec = _dashboard_paper_interval_sec()
         self._runner_started_mono = time.monotonic()
         await self._adapter.start()
+        await self._check_startup_venue_mismatch()
         await logger.ainfo(
             "testnet_runner_started",
             interval_sec=interval_sec,
@@ -691,6 +1166,9 @@ class DashboardTestnetRunner:
         await self._refresh_balance()
         self._sync_portfolio_from_wallet()
         await self._reconcile_tick()
+
+        if self._validation_blocked:
+            return
 
         for sym in self._symbols:
             sym_enum = _SYMBOL_MAP.get(sym)
@@ -781,16 +1259,34 @@ class DashboardTestnetRunner:
                     continue
                 self._venue_exit_orders_filled += 1
                 self._last_venue_error = None
+                filled_raw = min(orez.filled_quantity, pos.quantity)
+                filled_exit = _round_down_qty(sym, filled_raw, self._adapter.venue_name)
+                if filled_exit <= 0:
+                    await logger.aerror(
+                        "testnet_exit_fill_qty_zero_after_step",
+                        symbol=sym,
+                        filled_raw=str(filled_raw),
+                    )
+                    continue
                 closed = mirror.close_position_external_fill(
                     pid,
                     exit_px,
                     event_now,
                     reason,
                     detail,
+                    filled_exit_quantity=filled_exit,
                     additional_exit_fees_usd=exit_fees,
                 )
-                if closed:
+                if closed is not None:
                     await self._on_position_closed(closed, analytics)
+                else:
+                    pos_after = mirror.open_positions.get(pid)
+                    if pos_after is not None and pos_after.is_open:
+                        self._portfolio.update_exposure(
+                            sym,
+                            pos_after.entry_price * pos_after.quantity,
+                            pos_after.direction,
+                        )
 
             if not ops.is_entries_allowed:
                 self._diag.record(sym, "rejected_entries_paused", "ops mode blocks entries")
@@ -799,6 +1295,10 @@ class DashboardTestnetRunner:
                 self._diag.record(sym, "rejected_symbol_disabled", "")
                 continue
 
+            rem = self._reentry_cooldown_remaining(sym, event_now)
+            if rem > 0:
+                self._diag.record(sym, "rejected_cooldown", f"post-exit cooldown {rem}s")
+                continue
 
             if vec is None:
                 if vec_rej:
@@ -823,7 +1323,11 @@ class DashboardTestnetRunner:
                 continue
 
             if _has_open_position_same_direction(mirror, sym, scored.action):
-                self._diag.record(sym, "rejected_existing_position", f"same-direction {scored.direction} already open")
+                self._diag.record(
+                    sym,
+                    "rejected_existing_position",
+                    f"same-direction {scored.direction} already open",
+                )
                 continue
 
             self._last_eligible_signal_at = event_now
@@ -853,7 +1357,7 @@ class DashboardTestnetRunner:
 
             assessment = await self._risk.assess_signal(legacy, est)
             if assessment.decision != RiskDecision.APPROVED:
-                self._diag.record(sym, "rejected_risk", str(assessment.decision))
+                self._diag.record(sym, "rejected_risk", str(assessment.reason))
                 continue
             self._last_risk_approved_at = event_now
 
@@ -865,10 +1369,30 @@ class DashboardTestnetRunner:
             if sized.notional_usd > 0:
                 self._last_nonzero_sizing_at = event_now
 
-            qty = _round_down_qty(sym, sized.quantity)
+            qty = _round_down_qty(sym, sized.quantity, self._adapter.venue_name)
             if qty <= 0:
                 self._diag.record(sym, "rejected_sizing_failed", "qty zero after step")
                 continue
+
+            rounded_notional = (qty * mark).quantize(Decimal("0.000001"))
+            min_notional = Decimal(str(sizing_settings.min_order_usd))
+            if rounded_notional < min_notional:
+                up_qty = _round_up_qty(sym, sized.quantity, self._adapter.venue_name)
+                up_notional = (up_qty * mark).quantize(Decimal("0.000001"))
+                max_notional = Decimal(str(sizing_settings.max_order_usd))
+                overshoot_limit = (
+                    max_notional * (Decimal("1") + _entry_step_overshoot_pct())
+                ).quantize(Decimal("0.000001"))
+                if up_qty > 0 and up_notional >= min_notional and up_notional <= overshoot_limit:
+                    qty = up_qty
+                    rounded_notional = up_notional
+                else:
+                    self._diag.record(
+                        sym,
+                        "rejected_min_notional",
+                        f"rounded_notional={rounded_notional} < min={min_notional}",
+                    )
+                    continue
 
             self._last_execution_attempt_at = event_now
             entry_side = OrderSide.BUY if scored.action.value == "open_long" else OrderSide.SELL
@@ -881,7 +1405,13 @@ class DashboardTestnetRunner:
             self._venue_entry_orders_sent += 1
             try:
                 orez = await self._adapter.place_order(req)
-                orez = await self._await_order_settled(sym, req.client_order_id, orez)
+                orez = await self._await_order_settled(
+                    sym,
+                    req.client_order_id,
+                    orez,
+                    for_entry=True,
+                    requested_qty=qty,
+                )
             except (ExecutionError, OrderRejectedError) as e:
                 self._last_venue_error = str(e)[:500]
                 self._diag.record(sym, "rejected_venue_rest", str(e)[:240])
@@ -891,6 +1421,22 @@ class DashboardTestnetRunner:
                     error=str(e),
                 )
                 continue
+
+            if not _entry_fill_complete(self._adapter.venue_name, sym, qty, orez):
+                self._diag.record(
+                    sym, "rejected_no_quote", "entry order not fully filled at settlement"
+                )
+                raw = orez.raw_response or {}
+                await logger.awarning(
+                    "testnet_entry_incomplete_fill",
+                    symbol=sym,
+                    requested=str(qty),
+                    filled=str(orez.filled_quantity),
+                    order_status=str(raw.get("orderStatus") or raw.get("status") or ""),
+                    terminal_failure=_entry_order_terminal_failure(self._adapter.venue_name, orez),
+                )
+                continue
+
             notion_pre = mark * qty
             await logger.ainfo(
                 "testnet_place_order_result",
@@ -906,13 +1452,6 @@ class DashboardTestnetRunner:
                 error_code=orez.error_code,
                 error_message=(orez.error_message or "")[:200],
             )
-            if orez.status not in (VenueOrderStatus.FILLED, VenueOrderStatus.PARTIAL):
-                self._diag.record(
-                    sym,
-                    "rejected_no_quote",
-                    f"venue {orez.status.value} {orez.error_message}",
-                )
-                continue
 
             self._venue_entry_orders_filled += 1
             self._last_venue_error = None
@@ -924,6 +1463,15 @@ class DashboardTestnetRunner:
             filled_qty = orez.filled_quantity if orez.filled_quantity > 0 else qty
             notion = fill_px * filled_qty
 
+            await logger.ainfo(
+                "testnet_entry_mirror_open_attempt",
+                symbol=sym,
+                venue_order_id=orez.venue_order_id or "",
+                requested_qty=str(qty),
+                filled_qty=str(filled_qty),
+                fill_complete=True,
+                mirror_open_called=True,
+            )
             opened = mirror.open_position_from_venue_fill(
                 scored,
                 filled_qty,
@@ -941,6 +1489,14 @@ class DashboardTestnetRunner:
                     self._first_entry_mono = time.monotonic()
                     self._first_entry_ticks = self._ticks_ok
                 await logger.ainfo(
+                    "testnet_entry_mirror_opened",
+                    symbol=sym,
+                    venue_order_id=orez.venue_order_id or "",
+                    position_id=opened.position_id,
+                    local_qty=str(opened.quantity),
+                    paper_position_created=True,
+                )
+                await logger.ainfo(
                     "testnet_position_opened",
                     symbol=sym,
                     tier=scored.tier.value,
@@ -948,5 +1504,15 @@ class DashboardTestnetRunner:
                     venue_order_id=orez.venue_order_id,
                     warmup_phase=entry_wp,
                 )
+                await self._reconcile_after_entry(sym)
             else:
                 self._diag.record(sym, "rejected_no_quote", "mirror open failed")
+                await logger.aerror(
+                    "testnet_entry_mirror_failed",
+                    symbol=sym,
+                    venue_order_id=orez.venue_order_id or "",
+                    requested_qty=str(qty),
+                    filled_qty=str(filled_qty),
+                    paper_position_created=False,
+                    mirror_open_called=True,
+                )

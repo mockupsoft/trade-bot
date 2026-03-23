@@ -7,6 +7,7 @@
 - No seed trade injection; closed rows come from recorded executions (paper simulated / future demo fills).
 - ``CTE_ENGINE_MODE=live`` is still blocked by ``enforce_safety``; any other value runs the testnet profile.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -14,6 +15,7 @@ import contextlib
 import os
 import sys
 import time
+from collections import Counter, deque
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -24,6 +26,7 @@ from urllib.parse import urlparse, urlunparse
 import structlog
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse
 
 from cte.analytics.engine import AnalyticsEngine
@@ -48,6 +51,7 @@ from cte.dashboard.testnet_runner import (
     build_dashboard_venue_runner,
     venue_loop_enabled_for_settings,
 )
+from cte.dashboard.settings_center import DbSettingsCenter, InMemorySettingsCenter, parse_utc
 from cte.market.feed import MarketDataFeed, TickerState
 from cte.ops.campaign import CampaignCollector, compute_snapshot
 from cte.ops.kill_switch import OperationsController
@@ -88,6 +92,13 @@ _campaign_collector = CampaignCollector()
 _recon_status: dict = {"status": "not_run", "mismatches": 0, "last_run": None, "details": []}
 _paper_runner: DashboardPaperRunner | DashboardTestnetRunner | None = None
 _paper_task: asyncio.Task | None = None
+_trade_log_store: Any | None = None
+_db_pool: Any | None = None
+_trade_log_tasks: set[asyncio.Task] = set()
+_ops_runtime_samples: deque[dict[str, Any]] = deque(maxlen=240)
+_settings_center: Any | None = None
+_settings_apply_tasks: dict[str, asyncio.Task] = {}
+_dashboard_started_at: datetime = datetime.now(UTC)
 
 
 def _resolve_mode() -> SystemMode:
@@ -104,9 +115,89 @@ def _resolve_mode() -> SystemMode:
     return SystemMode.PAPER
 
 
+def _journal_db_enabled() -> bool:
+    raw = (os.environ.get("CTE_DASHBOARD_JOURNAL_DB") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def _role_allowed(role: str, allowed: set[str]) -> bool:
+    return role.strip().lower() in allowed
+
+
+def _now_utc() -> datetime:
+    return datetime.now(UTC)
+
+
+async def _schedule_revision_apply(revision_id: str, run_at: datetime, actor: str) -> None:
+    delay = max(0.0, (run_at - _now_utc()).total_seconds())
+    await asyncio.sleep(delay)
+    sc = _settings_center
+    if sc is None:
+        return
+    try:
+        await sc.apply(revision_id, applied_by=actor)
+        await log.ainfo("settings_revision_applied_scheduled", revision_id=revision_id, actor=actor)
+    except Exception as exc:
+        await log.awarning(
+            "settings_revision_schedule_apply_failed",
+            revision_id=revision_id,
+            actor=actor,
+            error=str(exc)[:300],
+        )
+    finally:
+        _settings_apply_tasks.pop(revision_id, None)
+
+
+def _spawn_revision_schedule(revision_id: str, run_at: datetime, actor: str) -> None:
+    existing = _settings_apply_tasks.get(revision_id)
+    if existing is not None and not existing.done():
+        existing.cancel()
+    task = asyncio.create_task(_schedule_revision_apply(revision_id, run_at, actor))
+    _settings_apply_tasks[revision_id] = task
+
+
+async def _restore_pending_schedules() -> None:
+    sc = _settings_center
+    if sc is None:
+        return
+    try:
+        rows = await sc.pending_schedules()
+    except Exception:
+        return
+    now = _now_utc()
+    for row in rows:
+        rid = str(row.get("revision_id") or "")
+        when_raw = row.get("scheduled_for")
+        actor = str(row.get("scheduled_by") or "dashboard_user")
+        if not rid or not when_raw:
+            continue
+        try:
+            when = parse_utc(str(when_raw))
+        except Exception:
+            continue
+        if when <= now:
+            if rid not in _settings_apply_tasks:
+                _spawn_revision_schedule(rid, now, actor)
+            continue
+        _spawn_revision_schedule(rid, when, actor)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _active_dashboard_epoch, _active_dashboard_symbols, _analytics_engine, _market_feed, _feed_task, _system_mode, _paper_runner, _paper_task
+    global \
+        _active_dashboard_epoch, \
+        _active_dashboard_symbols, \
+        _analytics_engine, \
+        _market_feed, \
+        _feed_task, \
+        _system_mode, \
+        _paper_runner, \
+        _paper_task, \
+        _trade_log_store, \
+        _db_pool, \
+        _trade_log_tasks, \
+        _settings_center, \
+        _settings_apply_tasks
     # Repo-root ``.env`` overrides stale shell exports (e.g. old testnet key placeholders).
     load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / ".env", override=True)
     setup_logging(level="INFO", service_name="dashboard")
@@ -121,8 +212,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     if _system_mode == SystemMode.DEMO:
         exec_venue = (
-            os.environ.get("CTE_DASHBOARD_EXECUTION_VENUE") or "binance_testnet"
-        ).strip().lower()
+            (os.environ.get("CTE_DASHBOARD_EXECUTION_VENUE") or "binance_testnet").strip().lower()
+        )
         enforce_safety(
             "demo",
             execution_venue=exec_venue,
@@ -131,9 +222,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             ),
             binance_api_key=os.environ.get("CTE_BINANCE_TESTNET_API_KEY", ""),
             binance_api_secret=os.environ.get("CTE_BINANCE_TESTNET_API_SECRET", ""),
-            bybit_rest_url=os.environ.get(
-                "CTE_BYBIT_REST_BASE_URL", "https://api-demo.bybit.com"
-            ),
+            bybit_rest_url=os.environ.get("CTE_BYBIT_REST_BASE_URL", "https://api-demo.bybit.com"),
             bybit_api_key=os.environ.get("CTE_BYBIT_DEMO_API_KEY", ""),
             bybit_api_secret=os.environ.get("CTE_BYBIT_DEMO_API_SECRET", ""),
         )
@@ -163,6 +252,54 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     set_engine(_analytics_engine)
 
     settings = get_settings()
+    _trade_log_store = None
+    _db_pool = None
+    _trade_log_tasks = set()
+    _settings_apply_tasks = {}
+    _settings_center = InMemorySettingsCenter()
+    await _settings_center.ensure_ready()
+    if _journal_db_enabled() and _analytics_engine is not None:
+        try:
+            from cte.db.pool import DatabasePool
+            from cte.db.trade_log import TradeLogStore
+
+            _db_pool = DatabasePool(settings.database)
+            await asyncio.wait_for(_db_pool.connect(), timeout=1.5)
+            _trade_log_store = TradeLogStore(_db_pool)
+            await _trade_log_store.ensure_ready()
+            hydrated = await _trade_log_store.load_trades()
+            _analytics_engine.hydrate_trades(hydrated)
+
+            def _persist_trade_to_db(trade: Any) -> None:
+                if _trade_log_store is None:
+                    return
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
+                task = loop.create_task(_trade_log_store.insert_trade(trade))
+                _trade_log_tasks.add(task)
+                task.add_done_callback(_trade_log_tasks.discard)
+
+            _analytics_engine.set_trade_persist_callback(_persist_trade_to_db)
+            await log.ainfo("journal_db_ready", hydrated_trades=len(hydrated))
+
+            _settings_center = DbSettingsCenter(_db_pool)
+            await _settings_center.ensure_ready()
+            await log.ainfo("settings_center_ready", backend="db")
+        except Exception as exc:
+            await log.awarning("journal_db_unavailable", error=str(exc)[:300])
+            if _db_pool is not None:
+                with contextlib.suppress(Exception):
+                    await _db_pool.close()
+            _db_pool = None
+            _trade_log_store = None
+            _settings_center = InMemorySettingsCenter()
+            await _settings_center.ensure_ready()
+            await log.ainfo("settings_center_ready", backend="memory")
+
+    await _restore_pending_schedules()
+
     expanded = merge_market_feed_symbols(
         expand_legacy_engine_symbols(list(settings.engine.symbols)),
     )
@@ -247,6 +384,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         _feed_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await _feed_task
+    if _trade_log_tasks:
+        with contextlib.suppress(Exception):
+            await asyncio.gather(*list(_trade_log_tasks), return_exceptions=True)
+        _trade_log_tasks.clear()
+    if _settings_apply_tasks:
+        for t in list(_settings_apply_tasks.values()):
+            t.cancel()
+        with contextlib.suppress(Exception):
+            await asyncio.gather(*list(_settings_apply_tasks.values()), return_exceptions=True)
+        _settings_apply_tasks.clear()
+    if _db_pool is not None:
+        with contextlib.suppress(Exception):
+            await _db_pool.close()
+        _db_pool = None
+    _trade_log_store = None
+    _settings_center = None
     await log.ainfo("dashboard_stopped")
 
 
@@ -257,9 +410,17 @@ app.include_router(analytics_router)
 
 # ── Pages ─────────────────────────────────────────────────────
 
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return HTMLResponse(content=(TEMPLATE_DIR / "index.html").read_text())
+    return HTMLResponse(
+        content=(TEMPLATE_DIR / "index.html").read_text(),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @app.get("/api/dashboard/meta")
@@ -438,6 +599,7 @@ async def market_health():
 
 # ── Ops API ───────────────────────────────────────────────────
 
+
 def _v1_operations_policy() -> dict[str, object]:
     """Static PRD alignment for the Operations UI (matches .cursorrules / phased plan)."""
     s = get_settings()
@@ -462,12 +624,523 @@ def _v1_operations_policy() -> dict[str, object]:
     }
 
 
+def _ops_runtime_feed_status() -> dict[str, Any]:
+    if not _market_feed:
+        return {
+            "connected": False,
+            "reconnect_count": 0,
+            "errors_total": 0,
+            "last_message_age_ms": None,
+            "uptime_seconds": 0.0,
+            "latency_ms": 0.0,
+        }
+    h = _market_feed.health
+    now_ms = int(time.time() * 1000)
+    age_ms = None
+    if h.last_message_ms:
+        age_ms = max(0, now_ms - h.last_message_ms)
+    return {
+        "connected": bool(h.connected),
+        "reconnect_count": int(h.reconnect_count),
+        "errors_total": int(h.errors_total),
+        "last_message_age_ms": age_ms,
+        "uptime_seconds": round(float(h.uptime_seconds), 1),
+        "latency_ms": round(max(0.0, float(h.latency_ms)), 1),
+    }
+
+
+def _append_ops_runtime_sample() -> None:
+    feed = _ops_runtime_feed_status()
+    _ops_runtime_samples.append(
+        {
+            "ts": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "reconciliation_mismatches": int(_recon_status.get("mismatches") or 0),
+            "reconnect_count": int(feed.get("reconnect_count") or 0),
+            "feed_errors_total": int(feed.get("errors_total") or 0),
+            "feed_connected": bool(feed.get("connected")),
+        }
+    )
+
+
+def _slo_target_float(key: str, default: float) -> float:
+    raw = (os.environ.get(key) or "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _slo_item(*, actual: float, target: float, higher_is_better: bool, unit: str) -> dict[str, Any]:
+    ok = actual >= target if higher_is_better else actual <= target
+    delta = (actual - target) if higher_is_better else (target - actual)
+    return {
+        "actual": round(actual, 4),
+        "target": round(target, 4),
+        "unit": unit,
+        "status": "ok" if ok else "breach",
+        "delta_vs_target": round(delta, 4),
+    }
+
+
+def _build_slo_status() -> dict[str, Any]:
+    metrics = (
+        _analytics_engine.get_metrics(epoch=_active_dashboard_epoch) if _analytics_engine else {}
+    )
+    paper_status = _paper_runner.status_dict() if _paper_runner is not None else {}
+    feed = _ops_runtime_feed_status()
+    latest = _campaign_collector.latest
+
+    samples = list(_ops_runtime_samples)[-60:]
+    if samples:
+        connected_count = sum(1 for s in samples if bool(s.get("feed_connected")))
+        uptime_pct = connected_count / len(samples) * 100.0
+    else:
+        uptime_pct = 100.0 if bool(feed.get("connected")) else 0.0
+
+    decision_latency_ms = float(metrics.get("avg_latency_ms") or 0.0)
+    avg_slippage_bps = float(metrics.get("avg_slippage_bps") or 0.0)
+    venue_orders = paper_status.get("venue_order_metrics") or {}
+    sent = int(venue_orders.get("entry_orders_sent") or 0)
+    filled = int(venue_orders.get("entry_orders_filled") or 0)
+    fill_rate = (filled / sent) if sent > 0 else 1.0
+    reject_rate = float(latest.reject_rate) if latest is not None else 0.0
+
+    targets = {
+        "uptime_pct": _slo_target_float("CTE_SLO_UPTIME_PCT", 99.0),
+        "decision_latency_ms": _slo_target_float("CTE_SLO_DECISION_LATENCY_MS", 250.0),
+        "slippage_bps": _slo_target_float("CTE_SLO_SLIPPAGE_BPS", 8.0),
+        "fill_rate": _slo_target_float("CTE_SLO_FILL_RATE", 0.95),
+        "rejection_rate": _slo_target_float("CTE_SLO_REJECTION_RATE", 0.35),
+    }
+
+    kpis = {
+        "uptime": _slo_item(
+            actual=uptime_pct,
+            target=targets["uptime_pct"],
+            higher_is_better=True,
+            unit="pct",
+        ),
+        "decision_latency": _slo_item(
+            actual=decision_latency_ms,
+            target=targets["decision_latency_ms"],
+            higher_is_better=False,
+            unit="ms",
+        ),
+        "fill_quality_slippage": _slo_item(
+            actual=avg_slippage_bps,
+            target=targets["slippage_bps"],
+            higher_is_better=False,
+            unit="bps",
+        ),
+        "fill_quality_fill_rate": _slo_item(
+            actual=fill_rate,
+            target=targets["fill_rate"],
+            higher_is_better=True,
+            unit="ratio",
+        ),
+        "rejection_rate": _slo_item(
+            actual=reject_rate,
+            target=targets["rejection_rate"],
+            higher_is_better=False,
+            unit="ratio",
+        ),
+    }
+    breach_count = sum(1 for v in kpis.values() if v.get("status") == "breach")
+    return {
+        "meta": {
+            "utc": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "runtime_seconds": round(
+                (datetime.now(UTC) - _dashboard_started_at).total_seconds(), 1
+            ),
+            "breach_count": breach_count,
+        },
+        "targets": targets,
+        "kpis": kpis,
+        "raw": {
+            "samples": len(samples),
+            "entry_orders_sent": sent,
+            "entry_orders_filled": filled,
+            "campaign_reject_rate": reject_rate,
+        },
+    }
+
+
+async def _build_release_status() -> dict[str, Any]:
+    commit = (os.environ.get("CTE_RELEASE_COMMIT") or "unknown").strip() or "unknown"
+    image = (os.environ.get("CTE_RELEASE_IMAGE") or "unknown").strip() or "unknown"
+    tag = (os.environ.get("CTE_RELEASE_TAG") or "local").strip() or "local"
+    profile = (os.environ.get("CTE_DEPLOY_PROFILE") or "prod").strip() or "prod"
+    rollback_from = (os.environ.get("CTE_RELEASE_ROLLBACK_FROM") or "").strip()
+
+    last_settings_rollback: dict[str, Any] | None = None
+    if _settings_center is not None:
+        try:
+            revisions = await _settings_center.list_revisions(limit=60)
+            for rev in revisions:
+                if rev.get("status") == "applied" and rev.get("supersedes_revision_id"):
+                    last_settings_rollback = {
+                        "revision_id": rev.get("revision_id"),
+                        "rolled_back_to": rev.get("supersedes_revision_id"),
+                        "applied_at": rev.get("applied_at"),
+                        "actor": rev.get("applied_by") or rev.get("created_by"),
+                    }
+                    break
+        except Exception:
+            last_settings_rollback = None
+
+    started = _dashboard_started_at.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return {
+        "service": "analytics",
+        "app_version": app.version,
+        "deploy_profile": profile,
+        "commit": commit,
+        "image": image,
+        "image_tag": tag,
+        "last_deploy_at": started,
+        "uptime_seconds": round((datetime.now(UTC) - _dashboard_started_at).total_seconds(), 1),
+        "rollback": {
+            "release_rollback_from": rollback_from or None,
+            "last_settings_rollback": last_settings_rollback,
+        },
+    }
+
+
+def _ops_entry_diag_snapshot() -> dict[str, Any]:
+    if _paper_runner is None:
+        return {"global_counts": {}, "last_blocked": []}
+    try:
+        return _paper_runner.entry_diagnostics_payload()
+    except Exception:
+        return {"global_counts": {}, "last_blocked": []}
+
+
+def _parse_risk_failed_checks(detail: str) -> list[str]:
+    if not detail:
+        return []
+    marker = "Failed checks:"
+    body = detail
+    if marker in detail:
+        body = detail.split(marker, 1)[1]
+    parts = [p.strip() for p in body.split(",")]
+    return [p for p in parts if p]
+
+
+def _build_risk_veto_summary(entry_diag: dict[str, Any]) -> dict[str, Any]:
+    global_counts = entry_diag.get("global_counts") or {}
+    last_blocked = entry_diag.get("last_blocked") or []
+    vetoes = [
+        x
+        for x in last_blocked
+        if isinstance(x, dict) and str(x.get("reason") or "") == "rejected_risk"
+    ]
+    check_counter: Counter[str] = Counter()
+    recent_vetoes: list[dict[str, str]] = []
+    for row in vetoes:
+        detail = str(row.get("detail") or "")
+        checks = _parse_risk_failed_checks(detail)
+        for c in checks:
+            check_counter[c] += 1
+        recent_vetoes.append(
+            {
+                "ts": str(row.get("ts") or ""),
+                "symbol": str(row.get("symbol") or ""),
+                "detail": detail or "Risk veto",
+            }
+        )
+    top_checks = [{"check": k, "count": n} for k, n in check_counter.most_common(6)]
+    return {
+        "total_rejections": int(global_counts.get("rejected_risk") or 0),
+        "top_failed_checks": top_checks,
+        "recent_vetoes": list(reversed(recent_vetoes[-12:])),
+    }
+
+
+def _build_incident_feed(
+    feed_status: dict[str, Any],
+    entry_diag: dict[str, Any],
+    paper_status: dict[str, Any],
+) -> list[dict[str, Any]]:
+    incidents: list[dict[str, Any]] = []
+    now_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    alerts = _build_alerts_status()
+    for rule in alerts.get("rules", []):
+        if str(rule.get("state") or "") != "firing":
+            continue
+        incidents.append(
+            {
+                "ts": str((alerts.get("meta") or {}).get("utc") or now_iso),
+                "severity": str(rule.get("severity") or "warning"),
+                "category": "alert_rule",
+                "title": str(rule.get("title") or "Alert firing"),
+                "detail": str(rule.get("detail") or rule.get("condition") or ""),
+            }
+        )
+
+    if int(_recon_status.get("mismatches") or 0) > 0:
+        incidents.append(
+            {
+                "ts": now_iso,
+                "severity": "critical",
+                "category": "reconciliation",
+                "title": "Reconciliation mismatches detected",
+                "detail": f"mismatches={int(_recon_status.get('mismatches') or 0)}",
+            }
+        )
+
+    if str(paper_status.get("last_error") or ""):
+        incidents.append(
+            {
+                "ts": now_iso,
+                "severity": "critical",
+                "category": "runner",
+                "title": "Runner error",
+                "detail": str(paper_status.get("last_error"))[:260],
+            }
+        )
+    if str(paper_status.get("venue_last_error") or ""):
+        incidents.append(
+            {
+                "ts": now_iso,
+                "severity": "warning",
+                "category": "venue",
+                "title": "Venue execution warning",
+                "detail": str(paper_status.get("venue_last_error"))[:260],
+            }
+        )
+
+    for row in entry_diag.get("last_blocked") or []:
+        if not isinstance(row, dict):
+            continue
+        reason = str(row.get("reason") or "")
+        if reason not in {"rejected_risk", "rejected_venue_rest", "rejected_unknown_gate"}:
+            continue
+        severity = "warning" if reason == "rejected_risk" else "critical"
+        incidents.append(
+            {
+                "ts": str(row.get("ts") or now_iso),
+                "severity": severity,
+                "category": "entry_block",
+                "title": reason,
+                "detail": str(row.get("detail") or "")[:260],
+                "symbol": str(row.get("symbol") or ""),
+            }
+        )
+
+    if not bool(feed_status.get("connected")):
+        incidents.append(
+            {
+                "ts": now_iso,
+                "severity": "critical",
+                "category": "market_feed",
+                "title": "Market feed disconnected",
+                "detail": "No live packets from market feed.",
+            }
+        )
+
+    incidents.sort(key=lambda x: str(x.get("ts") or ""), reverse=True)
+    return incidents[:40]
+
+
+def _build_ops_panel_snapshot() -> dict[str, Any]:
+    _append_ops_runtime_sample()
+    feed_status = _ops_runtime_feed_status()
+    entry_diag = _ops_entry_diag_snapshot()
+    paper_status = _paper_runner.status_dict() if _paper_runner is not None else {}
+    trend = list(_ops_runtime_samples)[-60:]
+    return {
+        "meta": {
+            "utc": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "runner_active": _paper_runner is not None,
+        },
+        "incident_feed": _build_incident_feed(feed_status, entry_diag, paper_status),
+        "last_errors": {
+            "runner_last_error": str(paper_status.get("last_error") or ""),
+            "venue_last_error": str(paper_status.get("venue_last_error") or ""),
+            "feed_errors_total": int(feed_status.get("errors_total") or 0),
+        },
+        "reconnect_status": feed_status,
+        "reconciliation": {
+            "current": {
+                "status": str(_recon_status.get("status") or "not_run"),
+                "mismatches": int(_recon_status.get("mismatches") or 0),
+                "last_run": _recon_status.get("last_run"),
+            },
+            "trend": trend,
+        },
+        "risk_veto": _build_risk_veto_summary(entry_diag),
+    }
+
+
+def _runbook_scenario_no_entries(
+    paper_status: dict[str, Any], entry_diag: dict[str, Any]
+) -> dict[str, Any]:
+    ticks_ok = int(paper_status.get("ticks_ok") or 0)
+    entries_total = int(paper_status.get("entries_total") or 0)
+    open_positions = int(paper_status.get("open_positions") or 0)
+    blocked = entry_diag.get("global_counts") or {}
+    dominant = max(blocked.items(), key=lambda kv: kv[1])[0] if blocked else None
+    active = ticks_ok >= 40 and entries_total == 0 and open_positions == 0
+    severity = "warning" if active else "ok"
+    detail = "Henuz giris yok; isinma, gate (kapilar) ve risk engellerini kontrol edin."
+    if dominant and int(blocked.get(dominant) or 0) > 0:
+        detail = f"Dominant block: {dominant} ({int(blocked.get(dominant) or 0)})."
+    return {
+        "id": "no_entries",
+        "title": "Giris yok",
+        "active": active,
+        "severity": severity,
+        "detail": detail,
+        "steps": [
+            "/api/paper/status ile warmup gate (isinma kapisi) ve pipeline_stall ipucunu dogrulayin.",
+            "/api/paper/entry-diagnostics icinde global_counts ve last_blocked nedenlerini inceleyin.",
+            "Girisler duraklatildiysa veya sembol kapaliysa Operasyon sayfasindan acin.",
+        ],
+        "actions": [
+            {"type": "api", "label": "Paper status", "url": "/api/paper/status"},
+            {"type": "api", "label": "Entry diagnostics", "url": "/api/paper/entry-diagnostics"},
+            {"type": "navigate", "label": "Open Ops page", "hash": "#/ops"},
+        ],
+    }
+
+
+def _runbook_scenario_churn(
+    paper_status: dict[str, Any], metrics: dict[str, Any]
+) -> dict[str, Any]:
+    exits_recorded = int(paper_status.get("exits_recorded") or 0)
+    total = int(metrics.get("trade_count") or 0)
+    by_reason = metrics.get("count_by_exit_reason") or {}
+    no_progress = int(by_reason.get("no_progress") or 0)
+    churn_ratio = (no_progress / total) if total > 0 else 0.0
+    active = exits_recorded >= 8 and churn_ratio >= 0.35
+    return {
+        "id": "churn",
+        "title": "Churn (hizli kapanis/yeniden acilis)",
+        "active": active,
+        "severity": "warning" if active else "ok",
+        "detail": f"no_progress ratio={churn_ratio:.1%} ({no_progress}/{total})",
+        "steps": [
+            "Trade journal filtrelerinde exit_reason=no_progress ve hold_seconds dagilimini kontrol edin.",
+            "Cikis sonrasi cooldown ayarlarini inceleyin; sifirdan buyuk cooldown etkin olmali.",
+            "Spread/freshness degerlerinin stabil oldugunu dogrulayin (piyasa sagligi + uyarilar).",
+        ],
+        "actions": [
+            {"type": "navigate", "label": "Open Positions/Journal", "hash": "#/positions"},
+            {
+                "type": "api",
+                "label": "Analytics summary",
+                "url": f"/api/analytics/summary?epoch={_active_dashboard_epoch}",
+            },
+            {"type": "navigate", "label": "Open Alerts", "hash": "#/alerts"},
+        ],
+    }
+
+
+def _runbook_scenario_foreign_position(paper_status: dict[str, Any]) -> dict[str, Any]:
+    foreign = bool(paper_status.get("foreign_venue_detected"))
+    recon = paper_status.get("reconciliation") or {}
+    reason = str((recon.get("last") or {}).get("reason") or "")
+    active = foreign or reason == "foreign_venue_positions"
+    detail = (
+        "Acilista foreign venue position (dis kaynakli pozisyon) algilandi; temiz hesap gerekli."
+    )
+    return {
+        "id": "foreign_position",
+        "title": "Foreign position (dis pozisyon) algilandi",
+        "active": active,
+        "severity": "critical" if active else "ok",
+        "detail": detail,
+        "steps": [
+            "Bu calistirici tarafindan acilmayan tum venue pozisyonlarini kapatin.",
+            "Validation kampanyasi icin izole API key/hesap kullanin.",
+            "Hesap temizlendikten sonra strict validation'i yeniden calistirin.",
+        ],
+        "actions": [
+            {"type": "api", "label": "Reconciliation status", "url": "/api/reconciliation/status"},
+            {"type": "api", "label": "Paper status", "url": "/api/paper/status"},
+            {"type": "navigate", "label": "Open Ops panel", "hash": "#/ops"},
+        ],
+    }
+
+
+def _runbook_scenario_recon_blocked(paper_status: dict[str, Any]) -> dict[str, Any]:
+    blocked = bool(paper_status.get("validation_blocked"))
+    mismatches = int((_recon_status or {}).get("mismatches") or 0)
+    active = blocked or mismatches > 0
+    return {
+        "id": "recon_blocked",
+        "title": "Reconciliation (uzlastirma) bloklu",
+        "active": active,
+        "severity": "critical" if active else "ok",
+        "detail": f"validation_blocked={blocked} · mismatches={mismatches}",
+        "steps": [
+            "Mismatch detaylarini inceleyin; phantom_venue ile quantity drift ayrimini yapin.",
+            "Strict mode aciksa girise izin vermeden once mismatchleri temizleyin.",
+            "Campaign snapshot alin ve reject/mismatch trendinin sifira dondugunu dogrulayin.",
+        ],
+        "actions": [
+            {"type": "api", "label": "Reconciliation status", "url": "/api/reconciliation/status"},
+            {"type": "api", "label": "Campaign summary", "url": "/api/campaign/summary"},
+            {"type": "navigate", "label": "Open Ops panel", "hash": "#/ops"},
+        ],
+    }
+
+
+def _build_runbook_snapshot() -> dict[str, Any]:
+    paper_status = _paper_runner.status_dict() if _paper_runner is not None else {}
+    entry_diag = _ops_entry_diag_snapshot()
+    metrics: dict[str, Any] = {}
+    if _analytics_engine is not None:
+        metrics = _analytics_engine.get_metrics(epoch=_active_dashboard_epoch)
+    scenarios = [
+        _runbook_scenario_no_entries(paper_status, entry_diag),
+        _runbook_scenario_churn(paper_status, metrics),
+        _runbook_scenario_foreign_position(paper_status),
+        _runbook_scenario_recon_blocked(paper_status),
+    ]
+    active_count = sum(1 for s in scenarios if bool(s.get("active")))
+    return {
+        "meta": {
+            "utc": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "active_count": active_count,
+            "hint": "Tek tik teshis aksiyonlariyla engelleyici kosullari hizlica inceleyin.",
+        },
+        "scenarios": scenarios,
+    }
+
+
 @app.get("/api/ops/status")
 async def ops_status():
     status = _ops_controller.status()
     status["system_mode"] = _system_mode.value
     status["v1_policy"] = _v1_operations_policy()
     return status
+
+
+@app.get("/api/ops/panel")
+async def ops_panel_status() -> dict[str, Any]:
+    """Operational control-room data for incidents, errors, reconnects, recon, and risk vetoes."""
+    return _build_ops_panel_snapshot()
+
+
+@app.get("/api/slo/status")
+async def slo_status() -> dict[str, Any]:
+    """SLA/SLO snapshot: uptime, latency, fill quality, rejection rate."""
+    return _build_slo_status()
+
+
+@app.get("/api/release/status")
+async def release_status() -> dict[str, Any]:
+    """Release/deploy snapshot: commit, image, deploy time, rollback hints."""
+    return await _build_release_status()
+
+
+@app.get("/api/runbook/snapshot")
+async def runbook_snapshot() -> dict[str, Any]:
+    """Operational runbook scenarios with one-click diagnosis actions."""
+    return _build_runbook_snapshot()
 
 
 @app.post("/api/ops/emergency_stop")
@@ -576,6 +1249,7 @@ async def edge_proof_checklist():
 
 # ── Validation API ────────────────────────────────────────────
 
+
 @app.post("/api/validation/start")
 async def start_validation(name: str = "campaign_1", mode: str = "paper", days: int = 7):
     campaign = ValidationCampaign(name=name, target_days=days, mode=mode)
@@ -587,7 +1261,12 @@ async def start_validation(name: str = "campaign_1", mode: str = "paper", days: 
 @app.get("/api/validation/campaigns")
 async def list_campaigns():
     return [
-        {"name": c.name, "status": c.status.value, "days": c.days_completed, "target": c.target_days}
+        {
+            "name": c.name,
+            "status": c.status.value,
+            "days": c.days_completed,
+            "target": c.target_days,
+        }
         for c in _validation_campaigns.values()
     ]
 
@@ -601,6 +1280,7 @@ async def campaign_report(name: str):
 
 
 # ── Campaign Metrics API ──────────────────────────────────────
+
 
 @app.post("/api/campaign/snapshot")
 async def take_snapshot(period: str = "hourly"):
@@ -636,6 +1316,7 @@ async def campaign_snapshots(period: str | None = None):
 
 
 # ── Reconciliation API ────────────────────────────────────────
+
 
 @app.get("/api/reconciliation/status")
 async def reconciliation_status():
@@ -759,9 +1440,7 @@ def _build_alerts_status() -> dict[str, Any]:
             "condition": "reject_rate > 5% (last campaign snapshot)",
             "severity": "warning",
             "state": (
-                "unknown"
-                if reject_rate is None
-                else ("firing" if reject_rate > 0.05 else "ok")
+                "unknown" if reject_rate is None else ("firing" if reject_rate > 0.05 else "ok")
             ),
             "detail": (
                 "no snapshot yet — POST /api/campaign/snapshot"
@@ -785,7 +1464,9 @@ def _build_alerts_status() -> dict[str, Any]:
     if trade_count > 0:
         drift = abs(avg_slip - model_slip)
         slip_state = "firing" if drift > 3.0 else "ok"
-        slip_detail = f"avg_slippage_bps={avg_slip:.1f} vs model={model_slip:.0f} (Δ{drift:.1f} bps)"
+        slip_detail = (
+            f"avg_slippage_bps={avg_slip:.1f} vs model={model_slip:.0f} (Δ{drift:.1f} bps)"
+        )
     rules.append(
         {
             "id": "slippage_drift",
@@ -864,15 +1545,16 @@ async def campaign_readiness():
 
 # ── Reports ───────────────────────────────────────────────────
 
+
 @app.get("/api/report/go_no_go")
 async def go_no_go_report():
     from cte.ops.go_no_go import GoNoGoMetrics, build_go_no_go_report
+
     collector = _campaign_collector
     metrics = GoNoGoMetrics(
         campaign_days=collector.campaign_days,
-        total_trades=collector.total_trades or (
-            _analytics_engine.total_trades if _analytics_engine else 0
-        ),
+        total_trades=collector.total_trades
+        or (_analytics_engine.total_trades if _analytics_engine else 0),
     )
     return build_go_no_go_report(metrics)
 
@@ -915,9 +1597,17 @@ def _build_config_snapshot() -> dict[str, object]:
             "id": "runtime",
             "title": "Runtime & modes",
             "rows": [
-                {"key": "system_mode", "label": "System mode (dashboard)", "value": _system_mode.value},
+                {
+                    "key": "system_mode",
+                    "label": "System mode (dashboard)",
+                    "value": _system_mode.value,
+                },
                 {"key": "engine_mode", "label": "Engine mode", "value": s.engine.mode.value},
-                {"key": "execution_mode", "label": "Execution mode", "value": s.execution.mode.value},
+                {
+                    "key": "execution_mode",
+                    "label": "Execution mode",
+                    "value": s.execution.mode.value,
+                },
                 {
                     "key": "dashboard_execution_venue",
                     "label": "Dashboard execution venue (REST)",
@@ -926,7 +1616,8 @@ def _build_config_snapshot() -> dict[str, object]:
                 {
                     "key": "venue_proof_symbol",
                     "label": "Venue proof symbol (unset = all merged symbols may receive venue REST)",
-                    "value": os.environ.get("CTE_DASHBOARD_VENUE_PROOF_SYMBOL") or "(none - multi-symbol venue)",
+                    "value": os.environ.get("CTE_DASHBOARD_VENUE_PROOF_SYMBOL")
+                    or "(none - multi-symbol venue)",
                 },
                 {
                     "key": "testnet_keys",
@@ -962,16 +1653,28 @@ def _build_config_snapshot() -> dict[str, object]:
                     ),
                 },
                 {"key": "direction", "label": "Direction", "value": s.engine.direction.value},
-                {"key": "max_leverage", "label": "Max leverage (cap)", "value": s.engine.max_leverage},
+                {
+                    "key": "max_leverage",
+                    "label": "Max leverage (cap)",
+                    "value": s.engine.max_leverage,
+                },
             ],
         },
         {
             "id": "binance",
             "title": "Binance (resolved URLs)",
             "rows": [
-                {"key": "ws_combined", "label": "Combined WebSocket", "value": s.binance.ws_combined_url},
+                {
+                    "key": "ws_combined",
+                    "label": "Combined WebSocket",
+                    "value": s.binance.ws_combined_url,
+                },
                 {"key": "rest_base", "label": "REST base", "value": s.binance.rest_base_url},
-                {"key": "stream_count", "label": "Default stream templates", "value": len(s.binance.streams)},
+                {
+                    "key": "stream_count",
+                    "label": "Default stream templates",
+                    "value": len(s.binance.streams),
+                },
             ],
         },
         {
@@ -983,14 +1686,22 @@ def _build_config_snapshot() -> dict[str, object]:
                     "label": "REST base (demo orders)",
                     "value": os.environ.get("CTE_BYBIT_REST_BASE_URL") or s.bybit.rest_base_url,
                 },
-                {"key": "bybit_ws", "label": "Public WS (connectors)", "value": s.bybit.ws_base_url},
+                {
+                    "key": "bybit_ws",
+                    "label": "Public WS (connectors)",
+                    "value": s.bybit.ws_base_url,
+                },
             ],
         },
         {
             "id": "execution",
             "title": "Execution (paper / simulated)",
             "rows": [
-                {"key": "slippage_bps", "label": "Slippage model (bps)", "value": s.execution.slippage_bps},
+                {
+                    "key": "slippage_bps",
+                    "label": "Slippage model (bps)",
+                    "value": s.execution.slippage_bps,
+                },
                 {"key": "fee_bps", "label": "Taker fee (bps)", "value": s.execution.fee_bps},
                 {"key": "fill_model", "label": "Fill model", "value": s.execution.fill_model},
             ],
@@ -1000,17 +1711,37 @@ def _build_config_snapshot() -> dict[str, object]:
             "title": "Exit defaults",
             "rows": [
                 {"key": "stop_loss_pct", "label": "Stop loss", "value": s.exits.stop_loss_pct},
-                {"key": "take_profit_pct", "label": "Take profit", "value": s.exits.take_profit_pct},
-                {"key": "trailing_stop_pct", "label": "Trailing stop", "value": s.exits.trailing_stop_pct},
+                {
+                    "key": "take_profit_pct",
+                    "label": "Take profit",
+                    "value": s.exits.take_profit_pct,
+                },
+                {
+                    "key": "trailing_stop_pct",
+                    "label": "Trailing stop",
+                    "value": s.exits.trailing_stop_pct,
+                },
             ],
         },
         {
             "id": "risk",
             "title": "Risk caps",
             "rows": [
-                {"key": "max_position_pct", "label": "Max position %", "value": s.risk.max_position_pct},
-                {"key": "max_exposure_pct", "label": "Max total exposure %", "value": s.risk.max_total_exposure_pct},
-                {"key": "max_daily_drawdown_pct", "label": "Max daily drawdown %", "value": s.risk.max_daily_drawdown_pct},
+                {
+                    "key": "max_position_pct",
+                    "label": "Max position %",
+                    "value": s.risk.max_position_pct,
+                },
+                {
+                    "key": "max_exposure_pct",
+                    "label": "Max total exposure %",
+                    "value": s.risk.max_total_exposure_pct,
+                },
+                {
+                    "key": "max_daily_drawdown_pct",
+                    "label": "Max daily drawdown %",
+                    "value": s.risk.max_daily_drawdown_pct,
+                },
             ],
         },
         {
@@ -1025,9 +1756,17 @@ def _build_config_snapshot() -> dict[str, object]:
             "id": "infra",
             "title": "Infrastructure (redacted)",
             "rows": [
-                {"key": "redis_url", "label": "Redis URL", "value": _redacted_redis_url(s.redis.url)},
+                {
+                    "key": "redis_url",
+                    "label": "Redis URL",
+                    "value": _redacted_redis_url(s.redis.url),
+                },
                 {"key": "redis_group", "label": "Consumer group", "value": s.redis.consumer_group},
-                {"key": "db_host", "label": "Postgres", "value": f"{s.database.user}@{s.database.host}:{s.database.port}/{s.database.name}"},
+                {
+                    "key": "db_host",
+                    "label": "Postgres",
+                    "value": f"{s.database.user}@{s.database.host}:{s.database.port}/{s.database.name}",
+                },
             ],
         },
     ]
@@ -1057,3 +1796,177 @@ async def get_config():
             "error": str(exc),
             "sections": [],
         }
+
+
+class SettingsDraftRequest(BaseModel):
+    name: str = "draft"
+    changes: dict[str, str]
+    note: str = ""
+    created_by: str = "dashboard_user"
+    role: str = "operator"
+
+
+class SettingsActionRequest(BaseModel):
+    actor: str = "dashboard_user"
+    role: str = "admin"
+
+
+class SettingsScheduleRequest(SettingsActionRequest):
+    run_at_utc: str
+
+
+def _settings_center_backend() -> str:
+    if _settings_center is None:
+        return "none"
+    if _settings_center.__class__.__name__.lower().startswith("db"):
+        return "db"
+    return "memory"
+
+
+def _settings_center_required() -> Any:
+    if _settings_center is None:
+        raise RuntimeError("settings center unavailable")
+    return _settings_center
+
+
+def _settings_revision_diff_rows(rev: dict[str, Any]) -> list[dict[str, Any]]:
+    changes = rev.get("changes") or {}
+    out: list[dict[str, Any]] = []
+    for key in sorted(changes.keys()):
+        before = os.environ.get(key)
+        after = str(changes.get(key))
+        out.append(
+            {
+                "key": key,
+                "before": before,
+                "after": after,
+                "changed": str(before) != after,
+            }
+        )
+    return out
+
+
+@app.get("/api/config/center")
+async def config_center_status() -> dict[str, Any]:
+    """Config center overview with active revision and latest entries."""
+    sc = _settings_center_required()
+    active = await sc.active_revision()
+    revisions = await sc.list_revisions(limit=30)
+    return {
+        "backend": _settings_center_backend(),
+        "workflow": ["draft", "approved", "scheduled", "applied"],
+        "active_revision": active,
+        "revisions": revisions,
+        "apply_note": "Apply updates process environment immediately; restart services to propagate to long-lived components.",
+    }
+
+
+@app.get("/api/config/center/revisions")
+async def config_center_revisions(status: str | None = None, limit: int = 50) -> dict[str, Any]:
+    sc = _settings_center_required()
+    rows = await sc.list_revisions(status=status, limit=limit)
+    return {"backend": _settings_center_backend(), "items": rows}
+
+
+@app.post("/api/config/center/drafts")
+async def config_center_create_draft(req: SettingsDraftRequest) -> dict[str, Any]:
+    sc = _settings_center_required()
+    if not _role_allowed(req.role, {"operator", "approver", "admin"}):
+        return {"ok": False, "error": "role is not allowed to create draft"}
+    try:
+        row = await sc.create_draft(
+            req.changes,
+            name=req.name,
+            note=req.note,
+            created_by=req.created_by,
+        )
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "revision": row}
+
+
+@app.post("/api/config/center/revisions/{revision_id}/approve")
+async def config_center_approve(revision_id: str, req: SettingsActionRequest) -> dict[str, Any]:
+    sc = _settings_center_required()
+    if not _role_allowed(req.role, {"approver", "admin"}):
+        return {"ok": False, "error": "role is not allowed to approve"}
+    try:
+        row = await sc.approve(revision_id, approved_by=req.actor)
+    except KeyError:
+        return {"ok": False, "error": "revision not found"}
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "revision": row}
+
+
+@app.post("/api/config/center/revisions/{revision_id}/apply")
+async def config_center_apply(revision_id: str, req: SettingsActionRequest) -> dict[str, Any]:
+    sc = _settings_center_required()
+    if not _role_allowed(req.role, {"admin"}):
+        return {"ok": False, "error": "role is not allowed to apply"}
+    try:
+        row = await sc.apply(revision_id, applied_by=req.actor)
+        existing = _settings_apply_tasks.pop(revision_id, None)
+        if existing is not None and not existing.done():
+            existing.cancel()
+    except KeyError:
+        return {"ok": False, "error": "revision not found"}
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {
+        "ok": True,
+        "revision": row,
+        "note": "Environment updated for this process. Restart services to guarantee full propagation.",
+    }
+
+
+@app.get("/api/config/center/revisions/{revision_id}/diff")
+async def config_center_diff(revision_id: str) -> dict[str, Any]:
+    sc = _settings_center_required()
+    row = await sc.get_revision(revision_id)
+    if row is None:
+        return {"ok": False, "error": "revision not found"}
+    return {
+        "ok": True,
+        "revision_id": revision_id,
+        "status": row.get("status"),
+        "rows": _settings_revision_diff_rows(row),
+    }
+
+
+@app.post("/api/config/center/revisions/{revision_id}/schedule")
+async def config_center_schedule(revision_id: str, req: SettingsScheduleRequest) -> dict[str, Any]:
+    sc = _settings_center_required()
+    if not _role_allowed(req.role, {"admin"}):
+        return {"ok": False, "error": "role is not allowed to schedule apply"}
+    try:
+        run_at = parse_utc(req.run_at_utc)
+    except Exception:
+        return {"ok": False, "error": "invalid run_at_utc (ISO8601 expected)"}
+    if run_at <= _now_utc():
+        return {"ok": False, "error": "run_at_utc must be in the future"}
+    try:
+        row = await sc.schedule_apply(revision_id, scheduled_for=run_at, scheduled_by=req.actor)
+    except KeyError:
+        return {"ok": False, "error": "revision not found"}
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    _spawn_revision_schedule(revision_id, run_at, req.actor)
+    return {"ok": True, "revision": row}
+
+
+@app.post("/api/config/center/revisions/{revision_id}/rollback")
+async def config_center_rollback(revision_id: str, req: SettingsActionRequest) -> dict[str, Any]:
+    sc = _settings_center_required()
+    if not _role_allowed(req.role, {"admin"}):
+        return {"ok": False, "error": "role is not allowed to rollback"}
+    try:
+        row = await sc.rollback_to(revision_id, actor=req.actor)
+        existing = _settings_apply_tasks.pop(revision_id, None)
+        if existing is not None and not existing.done():
+            existing.cancel()
+    except KeyError:
+        return {"ok": False, "error": "revision not found"}
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "revision": row, "note": "Rollback applied to runtime environment."}

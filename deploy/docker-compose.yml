@@ -1,5 +1,3 @@
-version: "3.9"
-
 x-cte-service: &cte-service
   build:
     context: ..
@@ -74,6 +72,12 @@ services:
     environment:
       <<: *cte-env
       CTE_SERVICE_PORT: "8001"
+      CTE_CONNECTOR_HEARTBEAT_FILE: "/tmp/cte_binance_heartbeat"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib,time,sys; p=pathlib.Path('/tmp/cte_binance_heartbeat'); sys.exit(0 if p.exists() and (time.time()-p.stat().st_mtime)<90 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     deploy:
       resources:
         limits:
@@ -87,6 +91,12 @@ services:
     environment:
       <<: *cte-env
       CTE_SERVICE_PORT: "8002"
+      CTE_CONNECTOR_HEARTBEAT_FILE: "/tmp/cte_bybit_heartbeat"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib,time,sys; p=pathlib.Path('/tmp/cte_bybit_heartbeat'); sys.exit(0 if p.exists() and (time.time()-p.stat().st_mtime)<90 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     deploy:
       resources:
         limits:
@@ -194,6 +204,8 @@ services:
     env_file:
       - path: ../.env
         required: false
+      - path: ./env/prod-defaults.env
+        required: false
     environment:
       # Do not spread *cte-env here: it sets CTE_ENGINE_MODE=paper and would override ../.env
       # before the container sees demo+testnet. Infra only; engine/execution/venue come from env_file.
@@ -205,13 +217,49 @@ services:
       CTE_DB_PASSWORD: "${CTE_DB_PASSWORD:-cte_dev_password}"
       CTE_ENGINE_LOG_LEVEL: "INFO"
       CTE_SERVICE_PORT: "8080"
-      # Validation-only proof window (NOT production defaults): looser gates so the demo
-      # venue loop can reach tier-C signals under testnet liquidity. Remove or tighten after
-      # the validation campaign — do not ship these as final operator baselines.
-      CTE_SIGNALS_GATE_MAX_SPREAD_BPS: "80"
-      CTE_DASHBOARD_PAPER_WARMUP_MIDS_EARLY: "5"
-      CTE_DASHBOARD_PAPER_WARMUP_MIDS_FULL: "12"
-      CTE_DASHBOARD_PAPER_TIER_C_THRESHOLD: "0.18"
+      CTE_DEPLOY_PROFILE: "prod"
+      CTE_RELEASE_COMMIT: "${CTE_RELEASE_COMMIT:-unknown}"
+      CTE_RELEASE_IMAGE: "${CTE_RELEASE_IMAGE:-deploy-analytics:latest}"
+      CTE_RELEASE_TAG: "${CTE_RELEASE_TAG:-local}"
+      CTE_RELEASE_ROLLBACK_FROM: "${CTE_RELEASE_ROLLBACK_FROM:-}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/dashboard/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  analytics-validation:
+    <<: *cte-service
+    command: ["cte.dashboard"]
+    profiles: ["validation"]
+    ports:
+      - "8081:8080"
+    env_file:
+      - path: ../.env
+        required: false
+      - path: ./env/prod-defaults.env
+        required: false
+      - path: ./env/validation-overrides.env
+        required: false
+    environment:
+      CTE_REDIS_URL: "redis://redis:6379/0"
+      CTE_DB_HOST: "postgres"
+      CTE_DB_PORT: "5432"
+      CTE_DB_NAME: "cte"
+      CTE_DB_USER: "cte"
+      CTE_DB_PASSWORD: "${CTE_DB_PASSWORD:-cte_dev_password}"
+      CTE_ENGINE_LOG_LEVEL: "INFO"
+      CTE_SERVICE_PORT: "8080"
+      CTE_DEPLOY_PROFILE: "validation"
+      CTE_RELEASE_COMMIT: "${CTE_RELEASE_COMMIT:-unknown}"
+      CTE_RELEASE_IMAGE: "${CTE_RELEASE_IMAGE:-deploy-analytics:latest}"
+      CTE_RELEASE_TAG: "${CTE_RELEASE_TAG:-local-validation}"
+      CTE_RELEASE_ROLLBACK_FROM: "${CTE_RELEASE_ROLLBACK_FROM:-}"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/dashboard/health/live"]
       interval: 15s
@@ -241,7 +289,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     ports:
-      - "3000:3000"
+      - "3002:3000"
     volumes:
       - grafanadata:/var/lib/grafana
       - ../dashboards/grafana:/etc/grafana/provisioning/dashboards:ro
