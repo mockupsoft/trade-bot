@@ -70,6 +70,8 @@ class TestReconcilerBasic:
         result = await recon.reconcile(adapter, local)
         assert result.is_clean
         assert len(result.discrepancies) == 0
+        assert result.persistent_discrepancies == []
+        assert result.transient_discrepancies == []
 
     @pytest.mark.asyncio
     async def test_phantom_local(self):
@@ -90,6 +92,46 @@ class TestReconcilerBasic:
         result = await PositionReconciler().reconcile(adapter, local)
         assert not result.is_clean
         assert result.discrepancies[0].dtype == DiscrepancyType.PHANTOM_LOCAL
+        assert len(result.persistent_discrepancies) == 1
+        assert result.transient_discrepancies == []
+
+    @pytest.mark.asyncio
+    async def test_phantom_local_transient_grace(self):
+        from unittest.mock import patch
+
+        from decimal import Decimal
+        from unittest.mock import AsyncMock
+
+        from cte.execution.adapter import ExecutionAdapter
+        from cte.execution.reconciliation import (
+            DiscrepancyType,
+            LocalPositionView,
+            PositionReconciler,
+        )
+
+        adapter = AsyncMock(spec=ExecutionAdapter)
+        adapter.get_positions.return_value = []
+
+        local = [LocalPositionView(symbol="BTCUSDT", side="long", quantity=Decimal("1"))]
+        with patch("cte.execution.reconciliation.time.monotonic", return_value=100.0):
+            result = await PositionReconciler().reconcile(
+                adapter,
+                local,
+                grace_until_mono={"BTCUSDT": 200.0},
+            )
+        assert result.is_clean
+        assert result.discrepancies[0].dtype == DiscrepancyType.PHANTOM_LOCAL_TRANSIENT
+        assert result.persistent_discrepancies == []
+        assert len(result.transient_discrepancies) == 1
+
+        with patch("cte.execution.reconciliation.time.monotonic", return_value=250.0):
+            result2 = await PositionReconciler().reconcile(
+                adapter,
+                local,
+                grace_until_mono={"BTCUSDT": 200.0},
+            )
+        assert not result2.is_clean
+        assert result2.discrepancies[0].dtype == DiscrepancyType.PHANTOM_LOCAL
 
     @pytest.mark.asyncio
     async def test_phantom_venue(self):
@@ -127,6 +169,45 @@ class TestReconcilerBasic:
         result = await PositionReconciler().reconcile(adapter, local)
         assert not result.is_clean
         assert result.discrepancies[0].dtype == DiscrepancyType.QUANTITY_MISMATCH
+
+    @pytest.mark.asyncio
+    async def test_quantity_mismatch_strict_tolerance_zero(self):
+        from decimal import Decimal
+        from unittest.mock import AsyncMock
+
+        from cte.execution.adapter import ExecutionAdapter, VenuePosition
+        from cte.execution.reconciliation import (
+            DiscrepancyType,
+            LocalPositionView,
+            PositionReconciler,
+        )
+
+        adapter = AsyncMock(spec=ExecutionAdapter)
+        adapter.get_positions.return_value = [
+            VenuePosition(symbol="BTCUSDT", side="long", quantity=Decimal("1.0001")),
+        ]
+        local = [LocalPositionView(symbol="BTCUSDT", side="long", quantity=Decimal("1"))]
+        r = PositionReconciler(tolerance_pct=0.0)
+        assert r.tolerance_pct == 0.0
+        result = await r.reconcile(adapter, local)
+        assert not result.is_clean
+        assert result.discrepancies[0].dtype == DiscrepancyType.QUANTITY_MISMATCH
+
+    @pytest.mark.asyncio
+    async def test_quantity_match_exact_under_zero_tolerance(self):
+        from decimal import Decimal
+        from unittest.mock import AsyncMock
+
+        from cte.execution.adapter import ExecutionAdapter, VenuePosition
+        from cte.execution.reconciliation import LocalPositionView, PositionReconciler
+
+        adapter = AsyncMock(spec=ExecutionAdapter)
+        adapter.get_positions.return_value = [
+            VenuePosition(symbol="BTCUSDT", side="long", quantity=Decimal("1")),
+        ]
+        local = [LocalPositionView(symbol="BTCUSDT", side="long", quantity=Decimal("1"))]
+        result = await PositionReconciler(tolerance_pct=0.0).reconcile(adapter, local)
+        assert result.is_clean
 
     @pytest.mark.asyncio
     async def test_side_mismatch(self):

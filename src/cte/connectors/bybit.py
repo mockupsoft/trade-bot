@@ -3,7 +3,10 @@
 Connects to the linear public WebSocket for publicTrade and orderbook data.
 Bybit v5 requires explicit subscribe messages and 20s ping keepalive.
 """
+
 from __future__ import annotations
+
+import asyncio
 
 from typing import TYPE_CHECKING
 
@@ -11,6 +14,9 @@ import orjson
 import websockets
 
 from cte.connectors.base import BaseConnector
+from cte.core.logging import setup_logging
+from cte.core.settings import get_settings
+from cte.core.streams import StreamPublisher, create_redis_pool
 from cte.core.events import (
     STREAM_KEYS,
     BaseEvent,
@@ -57,10 +63,12 @@ class BybitConnector(BaseConnector):
         )
 
     async def _subscribe(self) -> None:
-        subscribe_msg = orjson.dumps({
-            "op": "subscribe",
-            "args": self._topics,
-        })
+        subscribe_msg = orjson.dumps(
+            {
+                "op": "subscribe",
+                "args": self._topics,
+            }
+        )
         await self._ws.send(subscribe_msg)
 
     async def _handle_message(self, raw: str | bytes) -> list[BaseEvent]:
@@ -83,20 +91,20 @@ class BybitConnector(BaseConnector):
     def _parse_trades(self, trades: list[dict]) -> list[RawTradeEvent]:
         events = []
         for t in trades:
-            events.append(RawTradeEvent(
-                venue=Venue.BYBIT,
-                symbol_raw=t["s"],
-                price=t["p"],
-                quantity=t["v"],
-                trade_id=str(t.get("i", "")),
-                trade_time=t["T"],
-                is_buyer_maker=t["S"] == "Sell",
-            ))
+            events.append(
+                RawTradeEvent(
+                    venue=Venue.BYBIT,
+                    symbol_raw=t["s"],
+                    price=t["p"],
+                    quantity=t["v"],
+                    trade_id=str(t.get("i", "")),
+                    trade_time=t["T"],
+                    is_buyer_maker=t["S"] == "Sell",
+                )
+            )
         return events
 
-    def _parse_orderbook(
-        self, data: dict, msg_type: str, full_msg: dict
-    ) -> RawOrderbookEvent:
+    def _parse_orderbook(self, data: dict, msg_type: str, full_msg: dict) -> RawOrderbookEvent:
         return RawOrderbookEvent(
             venue=Venue.BYBIT,
             symbol_raw=data.get("s", ""),
@@ -113,3 +121,20 @@ class BybitConnector(BaseConnector):
         if isinstance(event, RawOrderbookEvent):
             return STREAM_KEYS["raw_orderbook"]
         return "cte:raw:unknown"
+
+
+async def _run_connector() -> None:
+    setup_logging(service_name="bybit-connector")
+    settings = get_settings()
+    redis = await create_redis_pool(settings.redis)
+    publisher = StreamPublisher(redis, max_len=settings.redis.stream_max_len)
+    connector = BybitConnector(settings.bybit, publisher)
+    try:
+        await connector.start()
+    finally:
+        await connector.stop()
+        await redis.aclose()
+
+
+if __name__ == "__main__":
+    asyncio.run(_run_connector())

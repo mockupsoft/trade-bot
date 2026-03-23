@@ -1,4 +1,5 @@
 """Feature adapter for dashboard paper loop (no FastAPI lifespan)."""
+
 from __future__ import annotations
 
 import time
@@ -10,6 +11,8 @@ import pytest
 from cte.core.events import Symbol
 from cte.core.settings import SignalSettings
 from cte.dashboard.paper_runner import (
+    _dashboard_post_exit_cooldown_sec,
+    _dashboard_post_exit_hard_risk_cooldown_sec,
     _dashboard_signal_settings,
     _dashboard_warmup_thresholds,
     build_streaming_vector_from_ticker,
@@ -54,3 +57,17 @@ def test_dashboard_signal_settings_lowers_tier_c(monkeypatch: pytest.MonkeyPatch
     tuned = _dashboard_signal_settings(base)
     assert tuned.tier_c_threshold < base.tier_b_threshold
     assert tuned.tier_c_threshold == pytest.approx(0.32)
+
+
+def test_post_exit_cooldown_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CTE_DASHBOARD_POST_EXIT_COOLDOWN_SEC", raising=False)
+    monkeypatch.delenv("CTE_DASHBOARD_POST_EXIT_HARD_RISK_COOLDOWN_SEC", raising=False)
+    assert _dashboard_post_exit_cooldown_sec() == 120
+    assert _dashboard_post_exit_hard_risk_cooldown_sec() == 300
+
+
+def test_post_exit_cooldown_env_clamp(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CTE_DASHBOARD_POST_EXIT_COOLDOWN_SEC", "-10")
+    monkeypatch.setenv("CTE_DASHBOARD_POST_EXIT_HARD_RISK_COOLDOWN_SEC", "999999")
+    assert _dashboard_post_exit_cooldown_sec() == 0
+    assert _dashboard_post_exit_hard_risk_cooldown_sec() == 7200

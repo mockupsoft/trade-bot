@@ -1,0 +1,75 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Deploy profile"
+        required: true
+        default: "prod"
+        type: choice
+        options:
+          - prod
+          - validation
+      rollback_from:
+        description: "Optional rollback source commit/tag"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy analytics
+    runs-on: self-hosted
+    environment: ${{ inputs.profile == 'prod' && 'production' || 'validation' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show release metadata
+        shell: bash
+        run: |
+          echo "GITHUB_SHA=${GITHUB_SHA}"
+          echo "PROFILE=${{ inputs.profile }}"
+          echo "ROLLBACK_FROM=${{ inputs.rollback_from }}"
+
+      - name: Deploy prod profile
+        if: ${{ inputs.profile == 'prod' }}
+        shell: bash
+        run: |
+          EXTRA=""
+          if [ -n "${{ inputs.rollback_from }}" ]; then
+            EXTRA="--rollback-from ${{ inputs.rollback_from }}"
+          fi
+          python3 scripts/ops_tools/deploy_analytics_with_release.py \
+            --service analytics \
+            --image deploy-analytics:latest \
+            --tag "${GITHUB_SHA::8}-${GITHUB_RUN_NUMBER}" \
+            ${EXTRA}
+
+      - name: Deploy validation profile
+        if: ${{ inputs.profile == 'validation' }}
+        shell: bash
+        run: |
+          EXTRA=""
+          if [ -n "${{ inputs.rollback_from }}" ]; then
+            EXTRA="--rollback-from ${{ inputs.rollback_from }}"
+          fi
+          python3 scripts/ops_tools/deploy_analytics_with_release.py \
+            --profile validation \
+            --service analytics-validation \
+            --image deploy-analytics:latest \
+            --tag "${GITHUB_SHA::8}-${GITHUB_RUN_NUMBER}-validation" \
+            ${EXTRA}
+
+      - name: Verify release status endpoint
+        shell: bash
+        run: |
+          if [ "${{ inputs.profile }}" = "validation" ]; then
+            curl -fsS http://127.0.0.1:8081/api/release/status
+          else
+            curl -fsS http://127.0.0.1:8080/api/release/status
+          fi

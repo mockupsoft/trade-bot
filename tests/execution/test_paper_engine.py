@@ -266,3 +266,29 @@ class TestVWAPMode:
         # VWAP of 5x65001 + 5x65010 = 65005.5 with 0 slip
         assert pos.fill_price == Decimal("65005.50")
         assert pos.fill_model_used == "vwap_depth"
+
+
+class TestVenueMirrorOpen:
+    """Venue-backed mirror: book may lag ticker; fill price seeds a flat book."""
+
+    def test_open_from_venue_fill_without_book_seeds_at_fill_price(
+        self, exec_settings, exit_settings, publisher,
+    ):
+        eng = PaperExecutionEngine(exec_settings, exit_settings, publisher)
+        pos = eng.open_position_from_venue_fill(
+            _signal(), Decimal("0.01"), Decimal("650"), _t(), Decimal("65000"),
+        )
+        assert pos is not None
+        assert pos.entry_price == Decimal("65000")
+        assert pos.symbol == "BTCUSDT"
+        bid, ask = eng._books["BTCUSDT"]
+        assert bid == ask == Decimal("65000")
+
+    def test_open_from_venue_fill_zero_fill_returns_none_without_book(
+        self, exec_settings, exit_settings, publisher,
+    ):
+        eng = PaperExecutionEngine(exec_settings, exit_settings, publisher)
+        pos = eng.open_position_from_venue_fill(
+            _signal(), Decimal("0.01"), Decimal("0"), _t(), Decimal("0"),
+        )
+        assert pos is None

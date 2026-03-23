@@ -3,7 +3,10 @@
 Connects to the combined stream endpoint for trade and depth data.
 Uses the new stream URL separation (fstream.binance.com).
 """
+
 from __future__ import annotations
+
+import asyncio
 
 from typing import TYPE_CHECKING
 
@@ -11,6 +14,9 @@ import orjson
 import websockets
 
 from cte.connectors.base import BaseConnector
+from cte.core.logging import setup_logging
+from cte.core.settings import get_settings
+from cte.core.streams import StreamPublisher, create_redis_pool
 from cte.core.events import (
     STREAM_KEYS,
     BaseEvent,
@@ -103,3 +109,20 @@ class BinanceConnector(BaseConnector):
         if isinstance(event, RawOrderbookEvent):
             return STREAM_KEYS["raw_orderbook"]
         return "cte:raw:unknown"
+
+
+async def _run_connector() -> None:
+    setup_logging(service_name="binance-connector")
+    settings = get_settings()
+    redis = await create_redis_pool(settings.redis)
+    publisher = StreamPublisher(redis, max_len=settings.redis.stream_max_len)
+    connector = BinanceConnector(settings.binance, publisher)
+    try:
+        await connector.start()
+    finally:
+        await connector.stop()
+        await redis.aclose()
+
+
+if __name__ == "__main__":
+    asyncio.run(_run_connector())

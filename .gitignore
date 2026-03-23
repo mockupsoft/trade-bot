@@ -27,6 +27,18 @@ env/
 # Logs
 *.log
 logs/
+*_log.txt
+test_output*.txt
+
+# Local debug / transient artifacts
+*_logs*.txt
+tests_output*.txt
+*runtime*.txt
+*debug*.txt
+*margin*.txt
+*report*.txt
+diagnostics.json
+NUL
 
 # Docker
 docker-compose.override.yml

@@ -1,4 +1,5 @@
 """Tests for the epoch-aware analytics engine."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -16,13 +17,22 @@ def _t(minute=0):
 
 
 def _closed_position(
-    symbol="BTCUSDT", tier="A", entry=Decimal("50000"),
-    exit=Decimal("51000"), qty=Decimal("1"), exit_reason="winner_trailing",
-    slippage_bps=5.0, latency_ms=100, stop=0.025,
+    symbol="BTCUSDT",
+    tier="A",
+    entry=Decimal("50000"),
+    exit=Decimal("51000"),
+    qty=Decimal("1"),
+    exit_reason="winner_trailing",
+    slippage_bps=5.0,
+    latency_ms=100,
+    stop=0.025,
 ) -> PaperPosition:
     p = PaperPosition(
-        symbol=symbol, direction="long", signal_tier=tier,
-        quantity=qty, stop_loss_pct=stop,
+        symbol=symbol,
+        direction="long",
+        signal_tier=tier,
+        quantity=qty,
+        stop_loss_pct=stop,
         modeled_slippage_bps=Decimal(str(slippage_bps)),
         entry_latency_ms=latency_ms,
     )
@@ -59,6 +69,37 @@ class TestTradeRecording:
             engine.record_trade(_closed_position())
         assert engine.total_trades == 5
 
+    def test_record_trade_calls_persist_callback(self, epoch_mgr):
+        calls = []
+
+        def _persist(trade):
+            calls.append(trade.symbol)
+
+        eng = AnalyticsEngine(epoch_mgr, persist_trade=_persist)
+        eng.record_trade(_closed_position(symbol="ETHUSDT"))
+        assert calls == ["ETHUSDT"]
+
+    def test_record_trade_persist_callback_failure_is_nonfatal(self, epoch_mgr):
+        def _persist(_trade):
+            msg = "db down"
+            raise RuntimeError(msg)
+
+        eng = AnalyticsEngine(epoch_mgr, persist_trade=_persist)
+        eng.record_trade(_closed_position(symbol="ETHUSDT"))
+        assert eng.total_trades == 1
+
+    def test_hydrate_trades_rebuilds_metrics(self, epoch_mgr):
+        src = AnalyticsEngine(epoch_mgr)
+        src.record_trade(_closed_position(symbol="BTCUSDT", exit=Decimal("51000")))
+        src.record_trade(_closed_position(symbol="ETHUSDT", exit=Decimal("49000")))
+
+        hydrated = AnalyticsEngine(epoch_mgr)
+        hydrated.hydrate_trades(src._filter_trades())
+
+        metrics = hydrated.get_metrics()
+        assert metrics["trade_count"] == 2
+        assert hydrated.total_trades == 2
+
 
 class TestMetricsComputation:
     def test_get_metrics_all(self, engine):
@@ -70,6 +111,8 @@ class TestMetricsComputation:
         assert metrics["trade_count"] == 3
         assert metrics["win_rate"] == pytest.approx(2 / 3, rel=0.01)
         assert metrics["total_pnl"] > 0
+        assert "tier_validation" in metrics
+        assert "A" in metrics["tier_validation"]
 
     def test_filter_by_symbol(self, engine):
         engine.record_trade(_closed_position(symbol="BTCUSDT", exit=Decimal("51000")))
@@ -89,6 +132,21 @@ class TestMetricsComputation:
 
         a_metrics = engine.get_metrics(tier="A")
         assert a_metrics["trade_count"] == 1
+
+    def test_metrics_by_tier_matches_tier_filter(self, engine):
+        """``compute_all_metrics.metrics_by_tier`` must match ``get_metrics(tier=...)`` slices."""
+        engine.record_trade(_closed_position(tier="A", exit=Decimal("51000")))
+        engine.record_trade(_closed_position(tier="A", exit=Decimal("49000")))
+        engine.record_trade(_closed_position(tier="B", exit=Decimal("50500")))
+
+        full = engine.get_metrics()
+        mt = full["metrics_by_tier"]
+        a_direct = engine.get_metrics(tier="A")
+
+        assert mt["A"]["trade_count"] == a_direct["trade_count"]
+        assert mt["A"]["expectancy"] == pytest.approx(a_direct["expectancy"], rel=0.001)
+        assert mt["A"]["win_rate"] == pytest.approx(a_direct["win_rate"], rel=0.001)
+        assert mt["A"]["pnl"] == pytest.approx(a_direct["total_pnl"], rel=0.001)
 
     def test_filter_by_exit_reason(self, engine):
         engine.record_trade(_closed_position(exit_reason="winner_trailing"))
@@ -140,29 +198,41 @@ class TestEpochSupport:
 
 
 class TestTradesDrilldown:
-    JOURNAL_KEYS = frozenset({
-        "symbol",
-        "venue",
-        "tier",
-        "epoch",
-        "direction",
-        "source",
-        "entry_price",
-        "exit_price",
-        "execution_channel",
-        "pnl",
-        "exit_reason",
-        "exit_layer",
-        "hold_seconds",
-        "r_multiple",
-        "entry_latency_ms",
-        "slippage_bps",
-        "mfe_pct",
-        "mae_pct",
-        "was_profitable_at_exit",
-        "position_mode",
-        "warmup_phase",
-    })
+    JOURNAL_KEYS = frozenset(
+        {
+            "symbol",
+            "venue",
+            "tier",
+            "epoch",
+            "direction",
+            "source",
+            "entry_price",
+            "exit_price",
+            "execution_channel",
+            "pnl",
+            "pnl_pct",
+            "exit_reason",
+            "exit_layer",
+            "hold_seconds",
+            "r_multiple",
+            "entry_latency_ms",
+            "slippage_bps",
+            "mfe_pct",
+            "mae_pct",
+            "was_profitable_at_exit",
+            "position_mode",
+            "warmup_phase",
+            "entry_reason_summary",
+            "entry_time",
+            "exit_time",
+            "entry_notional_usd",
+            "entry_composite_score",
+            "entry_primary_score",
+            "entry_context_multiplier",
+            "entry_strongest_sub_score",
+            "entry_strongest_sub_score_value",
+        }
+    )
 
     def test_get_trades_list_newest_first(self, engine):
         engine.record_trade(_closed_position())
@@ -219,3 +289,15 @@ class TestTradesDrilldown:
         paper_rows = eng.get_trades(epoch="crypto_v1_paper")
         assert len(paper_rows) == 1
         assert paper_rows[0]["symbol"] == "BTCUSDT"
+
+    def test_get_trades_paged(self, engine):
+        for i in range(12):
+            engine.record_trade(_closed_position(symbol="BTCUSDT" if i % 2 == 0 else "ETHUSDT"))
+
+        page1 = engine.get_trades_paged(page=1, page_size=5)
+        page2 = engine.get_trades_paged(page=2, page_size=5)
+
+        assert page1["total_count"] == 12
+        assert page1["total_pages"] == 3
+        assert len(page1["items"]) == 5
+        assert len(page2["items"]) == 5

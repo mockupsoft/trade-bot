@@ -19,7 +19,7 @@ import os
 import statistics
 import time
 from collections import defaultdict, deque
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
@@ -190,6 +190,24 @@ def _dashboard_stall_warn_sec() -> float:
     except ValueError:
         m = 5.0
     return max(60.0, m * 60.0)
+
+
+def _dashboard_post_exit_cooldown_sec() -> int:
+    raw = (os.environ.get("CTE_DASHBOARD_POST_EXIT_COOLDOWN_SEC") or "120").strip()
+    try:
+        s = int(raw)
+    except ValueError:
+        s = 120
+    return max(0, min(3600, s))
+
+
+def _dashboard_post_exit_hard_risk_cooldown_sec() -> int:
+    raw = (os.environ.get("CTE_DASHBOARD_POST_EXIT_HARD_RISK_COOLDOWN_SEC") or "300").strip()
+    try:
+        s = int(raw)
+    except ValueError:
+        s = 300
+    return max(0, min(7200, s))
 
 
 # Engine universe (Binance USDT linear); must match ``Symbol`` enum.
@@ -478,6 +496,9 @@ class DashboardPaperRunner:
         self._last_risk_approved_at: datetime | None = None
         self._last_nonzero_sizing_at: datetime | None = None
         self._last_execution_attempt_at: datetime | None = None
+        self._reentry_cooldown_sec = _dashboard_post_exit_cooldown_sec()
+        self._reentry_hard_risk_cooldown_sec = _dashboard_post_exit_hard_risk_cooldown_sec()
+        self._reentry_block_until: dict[str, datetime] = {}
 
     def stop(self) -> None:
         self._running = False
@@ -525,6 +546,84 @@ class DashboardPaperRunner:
             "hint": hint,
         }
 
+    def _portfolio_concentration_metrics(self) -> dict[str, Any]:
+        paper = self._execution.paper_backend
+        if not paper:
+            return {
+                "portfolio_notional": 0.0,
+                "largest_cluster_notional": 0.0,
+                "concentration_ratio": 0.0,
+                "cluster_count": 0,
+                "direction_weighted_exposure_by_symbol": {},
+            }
+
+        open_positions = [p for p in paper.open_positions.values() if p.is_open]
+        if not open_positions:
+            return {
+                "portfolio_notional": 0.0,
+                "largest_cluster_notional": 0.0,
+                "concentration_ratio": 0.0,
+                "cluster_count": 0,
+                "direction_weighted_exposure_by_symbol": {},
+            }
+
+        total_notional = 0.0
+        clusters: dict[str, float] = {}
+        exposure_by_symbol: dict[str, float] = {}
+        for pos in open_positions:
+            n = float(abs(pos.notional_usd))
+            if n <= 0:
+                continue
+            total_notional += n
+            sign = 1.0 if pos.direction == "long" else -1.0
+            exposure_by_symbol[pos.symbol] = exposure_by_symbol.get(pos.symbol, 0.0) + sign * n
+
+            time_bucket = int(pos.fill_time.timestamp()) // 300 if pos.fill_time else -1
+            if pos.entry_price > 0:
+                move = (
+                    float((pos.entry_price - pos.current_price) / pos.entry_price)
+                    if pos.direction == "short"
+                    else float((pos.current_price - pos.entry_price) / pos.entry_price)
+                )
+            else:
+                move = 0.0
+            move_bucket = int(move / 0.005)  # 0.5% bands
+            key = f"{pos.direction}:{time_bucket}:{move_bucket}"
+            clusters[key] = clusters.get(key, 0.0) + n
+
+        largest = max(clusters.values()) if clusters else 0.0
+        ratio = (largest / total_notional) if total_notional > 0 else 0.0
+        return {
+            "portfolio_notional": round(total_notional, 4),
+            "largest_cluster_notional": round(largest, 4),
+            "concentration_ratio": round(ratio, 4),
+            "cluster_count": len(clusters),
+            "direction_weighted_exposure_by_symbol": {
+                k: round(v, 4) for k, v in sorted(exposure_by_symbol.items())
+            },
+        }
+
+    def _reentry_cooldown_for_reason(self, exit_reason: str) -> int:
+        if exit_reason in {"spread_blowout", "stale_data"}:
+            return self._reentry_hard_risk_cooldown_sec
+        return self._reentry_cooldown_sec
+
+    def _arm_reentry_cooldown(self, symbol: str, event_time: datetime, exit_reason: str) -> None:
+        sec = self._reentry_cooldown_for_reason(exit_reason)
+        if sec <= 0:
+            return
+        self._reentry_block_until[symbol] = event_time + timedelta(seconds=sec)
+
+    def _reentry_cooldown_remaining(self, symbol: str, event_time: datetime) -> int:
+        until = self._reentry_block_until.get(symbol)
+        if until is None:
+            return 0
+        rem = int((until - event_time).total_seconds())
+        if rem <= 0:
+            self._reentry_block_until.pop(symbol, None)
+            return 0
+        return rem
+
     def status_dict(self) -> dict[str, Any]:
         paper = self._execution.paper_backend
         open_n = 0
@@ -566,6 +665,10 @@ class DashboardPaperRunner:
         )
 
         pipe = self._pipeline_stall_analysis()
+        conc = self._portfolio_concentration_metrics()
+        cooldown_active = sum(
+            1 for ts in self._reentry_block_until.values() if ts > datetime.now(UTC)
+        )
         return {
             "runner_class": "DashboardPaperRunner",
             "in_process_execution": "paper_simulated",
@@ -588,6 +691,11 @@ class DashboardPaperRunner:
                 "interval_sec": _dashboard_paper_interval_sec(),
                 "early_size_mult": str(_dashboard_early_size_mult()),
             },
+            "post_exit_cooldown": {
+                "default_sec": self._reentry_cooldown_sec,
+                "hard_risk_sec": self._reentry_hard_risk_cooldown_sec,
+                "active_symbols": cooldown_active,
+            },
             "entry_diagnostics": {
                 "global_counts": dict(self._diag.global_counts),
                 "entry_attempts": self._diag.entry_attempts,
@@ -604,6 +712,11 @@ class DashboardPaperRunner:
                 "stall_active": stall_active,
                 "top_blocker": top_blocker,
             },
+            "portfolio_notional": conc["portfolio_notional"],
+            "largest_cluster_notional": conc["largest_cluster_notional"],
+            "concentration_ratio": conc["concentration_ratio"],
+            "cluster_count": conc["cluster_count"],
+            "direction_weighted_exposure_by_symbol": conc["direction_weighted_exposure_by_symbol"],
         }
 
     def warmup_snapshot(self) -> dict[str, Any]:
@@ -655,24 +768,54 @@ class DashboardPaperRunner:
         paper = self._execution.paper_backend
         if not paper:
             return []
+        now = datetime.now(UTC)
+        open_positions = [p for p in paper.open_positions.values() if p.is_open]
+        planned_by_id: dict[str, str] = {}
+        by_symbol: dict[str, list[PaperPosition]] = defaultdict(list)
+        for pos in open_positions:
+            by_symbol[pos.symbol].append(pos)
+        for sym, positions in by_symbol.items():
+            current_price = max(
+                (p.current_price for p in positions if p.current_price > 0),
+                default=positions[0].entry_price,
+            )
+            for pid, reason, _detail in paper.plan_exits(sym, current_price, now, None):
+                planned_by_id[str(pid)] = reason
+
         out: list[dict[str, Any]] = []
-        for pos in paper.open_positions.values():
-            if not pos.is_open:
-                continue
+        for pos in open_positions:
+            notional = pos.notional_usd
+            pnl_pct = Decimal("0")
+            if notional > 0:
+                pnl_pct = (pos.unrealized_pnl / notional) * Decimal("100")
             out.append(
                 {
                     "position_id": str(pos.position_id),
                     "symbol": pos.symbol,
                     "direction": pos.direction,
                     "entry_price": str(pos.entry_price),
+                    "current_price": str(pos.current_price),
                     "quantity": str(pos.quantity),
                     "notional_usd": str(pos.notional_usd),
                     "unrealized_pnl": str(pos.unrealized_pnl),
+                    "pnl_pct": str(pnl_pct.quantize(Decimal("0.0001"))),
+                    "hold_seconds": pos.hold_duration_seconds,
                     "signal_tier": pos.signal_tier,
                     "composite_score": pos.composite_score,
+                    "primary_score": pos.primary_score,
+                    "context_multiplier": pos.context_multiplier,
+                    "strongest_sub_score": pos.strongest_sub_score,
+                    "strongest_sub_score_value": pos.strongest_sub_score_value,
                     "warmup_phase": pos.warmup_phase,
+                    "stop_loss_pct": pos.stop_loss_pct,
+                    "take_profit_pct": pos.take_profit_pct,
+                    "exit_pressure": planned_by_id.get(str(pos.position_id), "none"),
+                    "recon_status": "n/a",
+                    "recon_detail": "",
                     "entry_reason": (pos.entry_reason or "")[:500],
                     "opened_at": pos.fill_time.isoformat() if pos.fill_time else "",
+                    "execution_channel": "paper_simulated",
+                    "trade_source": "paper_simulated",
                 }
             )
         return out
@@ -778,6 +921,11 @@ class DashboardPaperRunner:
                 self._diag.record(sym, "rejected_existing_position", "")
                 continue
 
+            rem = self._reentry_cooldown_remaining(sym, event_now)
+            if rem > 0:
+                self._diag.record(sym, "rejected_cooldown", f"post-exit cooldown {rem}s")
+                continue
+
             if vec is None:
                 if vec_rej:
                     self._diag.record(sym, vec_rej, "feature build")
@@ -823,7 +971,7 @@ class DashboardPaperRunner:
 
             assessment = await self._risk.assess_signal(legacy, est)
             if assessment.decision != RiskDecision.APPROVED:
-                self._diag.record(sym, "rejected_risk", str(assessment.decision))
+                self._diag.record(sym, "rejected_risk", str(assessment.reason))
                 continue
             self._last_risk_approved_at = event_now
 
@@ -876,6 +1024,8 @@ class DashboardPaperRunner:
             source="paper_simulated",
             warmup_phase=position.warmup_phase,
         )
+        close_ts = position.close_time if position.close_time else datetime.now(UTC)
+        self._arm_reentry_cooldown(sym, close_ts, position.exit_reason)
         self._exits_recorded += 1
         await logger.ainfo(
             "paper_position_closed",

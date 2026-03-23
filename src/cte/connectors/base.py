@@ -1,7 +1,9 @@
 """Base WebSocket connector with reconnection and health tracking."""
+
 from __future__ import annotations
 
 import asyncio
+import os
 import random
 import time
 from abc import ABC, abstractmethod
@@ -71,6 +73,7 @@ class BaseConnector(ABC):
         self._last_message_time: float = 0
         self._running = False
         self._tasks: list[asyncio.Task] = []
+        self._heartbeat_file = (os.environ.get("CTE_CONNECTOR_HEARTBEAT_FILE") or "").strip()
 
     @abstractmethod
     async def _connect(self) -> None:
@@ -139,13 +142,12 @@ class BaseConnector(ABC):
             try:
                 raw = await self._ws.recv()
                 self._last_message_time = time.monotonic()
+                self._touch_heartbeat()
                 events = await self._handle_message(raw)
                 for event in events:
                     stream_key = self._get_stream_key(event)
                     await self.publisher.publish(stream_key, event)
-                    ws_messages_total.labels(
-                        venue=self.venue_name, stream=stream_key
-                    ).inc()
+                    ws_messages_total.labels(venue=self.venue_name, stream=stream_key).inc()
             except asyncio.CancelledError:
                 break
             except Exception:
@@ -155,10 +157,19 @@ class BaseConnector(ABC):
                 )
                 raise
 
+    def _touch_heartbeat(self) -> None:
+        if not self._heartbeat_file:
+            return
+        try:
+            with open(self._heartbeat_file, "w", encoding="utf-8") as f:
+                f.write(str(int(time.time())))
+        except Exception:
+            return
+
     def _backoff_delay(self) -> float:
         """Exponential backoff with jitter."""
         exp_delay = min(
-            self.reconnect_base * (2 ** self._reconnect_count),
+            self.reconnect_base * (2**self._reconnect_count),
             self.reconnect_max,
         )
         jitter = random.uniform(0, exp_delay * 0.1)

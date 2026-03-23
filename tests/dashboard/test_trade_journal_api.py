@@ -1,10 +1,13 @@
 """HTTP contract for trade journal (Positions UI) via analytics router."""
+
 from __future__ import annotations
 
 
 def test_trades_list_ok(dashboard_client) -> None:
     """Journal endpoint returns a list of dict rows."""
-    r = dashboard_client.get("/api/analytics/trades", params={"epoch": "crypto_v1_demo", "limit": 50})
+    r = dashboard_client.get(
+        "/api/analytics/trades", params={"epoch": "crypto_v1_demo", "limit": 50}
+    )
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list)
@@ -16,6 +19,20 @@ def test_trades_limit_validation(dashboard_client) -> None:
     assert r.status_code == 422
     r2 = dashboard_client.get("/api/analytics/trades", params={"limit": 501})
     assert r2.status_code == 422
+
+
+def test_trades_paged_shape(dashboard_client) -> None:
+    r = dashboard_client.get(
+        "/api/analytics/trades/paged",
+        params={"epoch": "crypto_v1_demo", "page": 1, "page_size": 25},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body.get("items"), list)
+    assert body.get("page") == 1
+    assert body.get("page_size") == 25
+    assert "total_count" in body
+    assert "total_pages" in body
 
 
 def test_trades_returns_journal_shape_after_record(dashboard_client) -> None:
@@ -57,3 +74,61 @@ def test_trades_returns_journal_shape_after_record(dashboard_client) -> None:
     assert row["source"] == "paper_simulated"
     assert row["exit_reason"] == "winner_trailing"
     assert "was_profitable_at_exit" in row
+    assert "pnl_pct" in row
+    assert "entry_reason_summary" in row
+    assert "entry_time" in row
+    assert "exit_time" in row
+    assert "entry_notional_usd" in row
+    assert "entry_composite_score" in row
+    assert "entry_primary_score" in row
+    assert "entry_context_multiplier" in row
+    assert "entry_strongest_sub_score" in row
+    assert "entry_strongest_sub_score_value" in row
+
+
+def test_trades_paged_supports_advanced_filters(dashboard_client) -> None:
+    r = dashboard_client.get(
+        "/api/analytics/trades/paged",
+        params={
+            "epoch": "crypto_v1_demo",
+            "venue": "binance",
+            "direction": "long",
+            "pnl_sign": "pos",
+            "hold_seconds_min": 0,
+            "page": 1,
+            "page_size": 25,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body.get("items"), list)
+    assert "total_count" in body
+
+
+def test_trades_export_csv_and_pdf(dashboard_client) -> None:
+    csv_r = dashboard_client.get(
+        "/api/analytics/trades/export.csv", params={"epoch": "crypto_v1_demo"}
+    )
+    assert csv_r.status_code == 200
+    assert csv_r.headers.get("content-type", "").startswith("text/csv")
+    assert "symbol" in csv_r.text
+
+    pdf_r = dashboard_client.get(
+        "/api/analytics/trades/export.pdf", params={"epoch": "crypto_v1_demo"}
+    )
+    assert pdf_r.status_code == 200
+    assert pdf_r.headers.get("content-type", "").startswith("application/pdf")
+    assert pdf_r.content.startswith(b"%PDF")
+
+
+def test_trades_attribution_shape(dashboard_client) -> None:
+    r = dashboard_client.get(
+        "/api/analytics/trades/attribution", params={"epoch": "crypto_v1_demo"}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "totals" in body
+    assert "pnl_by_tier" in body
+    assert "pnl_by_symbol" in body
+    assert "pnl_by_exit_reason" in body
+    assert "pnl_by_source" in body
